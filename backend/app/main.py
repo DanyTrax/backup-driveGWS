@@ -50,12 +50,20 @@ def create_app() -> FastAPI:
     static_dir = Path(__file__).resolve().parent.parent / "static"
     if static_dir.exists():
         app.mount("/assets", StaticFiles(directory=static_dir / "assets"), name="assets")
+        index_html = static_dir / "index.html"
+
+        # Starlette does not match `GET /` against `/{full_path:path}` (empty path);
+        # without this, the site root returns FastAPI's 404 JSON.
+        @app.get("/", include_in_schema=False)
+        async def spa_root():
+            if index_html.exists():
+                return FileResponse(index_html)
+            return {"detail": "frontend not built"}
 
         @app.get("/{full_path:path}", include_in_schema=False)
         async def spa_fallback(full_path: str):  # noqa: ARG001
-            index = static_dir / "index.html"
-            if index.exists():
-                return FileResponse(index)
+            if index_html.exists():
+                return FileResponse(index_html)
             return {"detail": "frontend not built"}
 
     return app
