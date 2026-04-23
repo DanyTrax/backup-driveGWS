@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -118,6 +118,42 @@ async def approve(
     await db.commit()
     await db.refresh(acc)
     return _to_out(acc)
+
+
+@router.post(
+    "/{account_id}/provision-mailbox",
+    status_code=status.HTTP_204_NO_CONTENT,
+    response_class=Response,
+    response_model=None,
+)
+async def provision_mailbox(
+    account_id: uuid.UUID,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    current: SysUser = Depends(require_permission("accounts.approve")),
+) -> None:
+    """Crea Maildir (cur/new/tmp) en el volumen compartido con Dovecot."""
+    from app.services.maildir_paths import maildir_home_from_email, maildir_root_for_account
+    from app.services.maildir_service import ensure_maildir_layout
+
+    acc = await _load(db, account_id)
+    if not acc.is_backup_enabled:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "backup_not_enabled")
+    if not (acc.maildir_path or "").strip():
+        acc.maildir_path = maildir_home_from_email(acc.email)
+    ensure_maildir_layout(maildir_root_for_account(acc))
+    await record_audit(
+        db,
+        action=AuditAction.SETTING_CHANGED,
+        actor_user_id=current.id,
+        actor_label=current.email,
+        ip_address=get_client_ip(request),
+        user_agent=get_user_agent(request),
+        target_table="gw_accounts",
+        target_id=str(acc.id),
+        message="maildir_provisioned",
+    )
+    await db.commit()
 
 
 @router.post("/{account_id}/revoke", response_model=AccountOut)

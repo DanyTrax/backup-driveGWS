@@ -9,6 +9,26 @@ import type {
   WorkspaceAccount,
 } from './types'
 
+export type TaskPayload = {
+  name: string
+  description?: string | null
+  is_enabled: boolean
+  scope: string
+  mode: string
+  schedule_kind: string
+  cron_expression?: string | null
+  run_at_hour?: number | null
+  run_at_minute?: number | null
+  timezone: string
+  retention_policy: Record<string, unknown>
+  filters: Record<string, unknown>
+  notify_channels: Record<string, unknown>
+  dry_run: boolean
+  checksum_enabled: boolean
+  max_parallel_accounts: number
+  account_ids: string[]
+}
+
 export function useProfile() {
   return useQuery({
     queryKey: ['profile'],
@@ -69,6 +89,31 @@ export function useRunTask() {
   return useMutation({
     mutationFn: async (id: string) => (await api.post(`/tasks/${id}/run`)).data,
     onSuccess: () => qc.invalidateQueries({ queryKey: ['tasks'] }),
+  })
+}
+
+export function useCreateTask() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (payload: TaskPayload) => (await api.post<BackupTask>('/tasks', payload)).data,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['tasks'] }),
+  })
+}
+
+export function useUpdateTask() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async ({ id, payload }: { id: string; payload: TaskPayload }) =>
+      (await api.patch<BackupTask>(`/tasks/${id}`, payload)).data,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['tasks'] }),
+  })
+}
+
+export function useProvisionMailbox() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (accountId: string) => api.post(`/accounts/${accountId}/provision-mailbox`),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['accounts'] }),
   })
 }
 

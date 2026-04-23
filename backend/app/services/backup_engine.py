@@ -26,6 +26,7 @@ from app.models.accounts import GwAccount
 from app.models.enums import BackupScope, BackupStatus
 from app.models.tasks import BackupLog, BackupTask
 from app.services import gyb_service, maildir_service, rclone_service
+from app.services.maildir_paths import maildir_home_from_email, maildir_root_for_account
 from app.services.progress_bus import publish
 from app.services.settings_service import (
     KEY_VAULT_ROOT_FOLDER_ID,
@@ -120,6 +121,11 @@ async def run_drive_backup(
         await db.commit()
         return log
 
+    if not (account.maildir_path or "").strip():
+        account.maildir_path = maildir_home_from_email(account.email)
+    maildir_root = maildir_root_for_account(account)
+    await asyncio.to_thread(maildir_service.ensure_maildir_layout, maildir_root)
+
     try:
         async with rclone_service.build_rclone_config(
             db, impersonate_email=account.email, vault_folder_id=vault
@@ -130,10 +136,20 @@ async def run_drive_backup(
 
             bwlimit = get_settings().rclone_bwlimit or None
 
+            filters = task.filters_json or {}
+            dest_subpath: str | None = None
+            if filters.get("drive_layout") == "dated_run":
+                stamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H-%M")
+                prefix = str(filters.get("dated_run_prefix", "MSA_Runs")).strip("/") or "MSA_Runs"
+                dest_subpath = f"{prefix}/{stamp}"
+            # dated_run: copia bajo vault/MSA_Runs/<stamp>/ (árbol completo de la ejecución).
+            # Delta real archivo-a-archivo vs corrida anterior: pendiente (--compare-dest).
+
             argv = rclone_service.build_rclone_argv(
                 cfg,
                 mode=mode,
                 subpath=drive_subpath,
+                dest_subpath=dest_subpath,
                 bwlimit=bwlimit,
                 dry_run=task.dry_run,
             )
@@ -185,7 +201,10 @@ async def run_gmail_backup(
 
     work_root = Path(f"/var/msa/work/gmail/{account.email}")
     work_root.mkdir(parents=True, exist_ok=True)
-    maildir_target = Path(account.maildir_path or f"/var/mail/msa/{account.email}")
+    if not (account.maildir_path or "").strip():
+        account.maildir_path = maildir_home_from_email(account.email)
+    maildir_target = maildir_root_for_account(account)
+    await asyncio.to_thread(maildir_service.ensure_maildir_layout, maildir_target)
     manifest_path = work_root / "manifest.sha256"
 
     try:

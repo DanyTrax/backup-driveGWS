@@ -25,6 +25,11 @@ def _maildir(path: Path) -> mailbox.Maildir:
     return md
 
 
+def ensure_maildir_layout(maildir_root: Path) -> None:
+    """Crea cur/new/tmp; idempotente."""
+    _maildir(maildir_root, create=True)
+
+
 @dataclass(slots=True)
 class MaildirImportStats:
     mbox_files: int = 0

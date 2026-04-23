@@ -1,10 +1,11 @@
 import { Button, Card } from 'flowbite-react'
 import toast from 'react-hot-toast'
 import api from '../api/client'
-import { useAccounts } from '../api/hooks'
+import { useAccounts, useProvisionMailbox } from '../api/hooks'
 
 export default function WebmailPage() {
   const { data = [] } = useAccounts(true)
+  const provision = useProvisionMailbox()
 
   async function ssoAdmin(id: string) {
     try {
@@ -12,6 +13,15 @@ export default function WebmailPage() {
       window.open(resp.data.url, '_blank', 'noopener')
     } catch {
       toast.error('No se pudo emitir SSO')
+    }
+  }
+
+  async function provisionMailbox(id: string) {
+    try {
+      await provision.mutateAsync(id)
+      toast.success('Bandeja Maildir creada (lista para Dovecot/Roundcube)')
+    } catch {
+      toast.error('Solo cuentas con backup activo pueden aprovisionar bandeja')
     }
   }
 
@@ -50,7 +60,15 @@ export default function WebmailPage() {
                   <td className="py-2 font-medium">{a.email}</td>
                   <td>{a.total_messages_cache ?? '—'}</td>
                   <td>{a.imap_enabled ? 'sí' : 'no'}</td>
-                  <td className="text-right space-x-2">
+                  <td className="text-right space-x-2 flex flex-wrap justify-end gap-2">
+                    <Button
+                      size="xs"
+                      color="light"
+                      disabled={!a.is_backup_enabled || provision.isPending}
+                      onClick={() => provisionMailbox(a.id)}
+                    >
+                      Crear bandeja
+                    </Button>
                     <Button size="xs" color="light" onClick={() => issueMagicLink(a.id)}>
                       Generar magic link
                     </Button>

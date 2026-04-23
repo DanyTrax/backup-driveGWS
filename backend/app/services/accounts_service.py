@@ -152,9 +152,9 @@ async def approve_account(
     account.backup_enabled_at = datetime.now(timezone.utc)
     account.backup_enabled_by = uuid.UUID(approved_by_user_id)
 
-    from pathlib import Path
+    from app.services.maildir_paths import maildir_home_from_email
 
-    account.maildir_path = f"/var/mail/msa/{account.email}"
+    account.maildir_path = maildir_home_from_email(account.email)
     await db.flush()
 
 

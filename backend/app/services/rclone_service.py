@@ -102,6 +102,7 @@ def build_rclone_argv(
     *,
     mode: str,
     subpath: str | None = None,
+    dest_subpath: str | None = None,
     bwlimit: str | None = None,
     dry_run: bool = False,
     extra_flags: Iterable[str] = (),
@@ -113,10 +114,13 @@ def build_rclone_argv(
     source = cfg.remote_source
     if subpath:
         source = f"{source}{subpath}"
+    dest = cfg.remote_dest
+    if dest_subpath:
+        dest = f"{cfg.remote_dest.rstrip(':')}:{dest_subpath.lstrip('/')}"
     argv = [
         mode,
         source,
-        cfg.remote_dest,
+        dest,
         "--config", cfg.config_path,
         "--drive-server-side-across-configs", "false",
         "--stats", "5s",
