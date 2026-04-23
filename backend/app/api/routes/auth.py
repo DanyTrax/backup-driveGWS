@@ -1,7 +1,7 @@
 """Authentication endpoints: login, refresh, logout, MFA, password."""
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import (
@@ -116,7 +116,11 @@ async def refresh(
     )
 
 
-@router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
+@router.post(
+    "/logout",
+    status_code=status.HTTP_204_NO_CONTENT,
+    response_class=Response,
+)
 async def logout(
     payload: RefreshRequest,
     db: AsyncSession = Depends(get_db),
@@ -164,7 +168,11 @@ async def mfa_enroll_confirm(
     return MfaEnrollResult(backup_codes=codes)
 
 
-@router.post("/mfa/disable", status_code=status.HTTP_204_NO_CONTENT)
+@router.post(
+    "/mfa/disable",
+    status_code=status.HTTP_204_NO_CONTENT,
+    response_class=Response,
+)
 async def mfa_disable(
     payload: MfaEnrollConfirm,
     db: AsyncSession = Depends(get_db),
@@ -181,7 +189,11 @@ async def mfa_disable(
     await auth.disable_mfa(db, user)
 
 
-@router.post("/password/change", status_code=status.HTTP_204_NO_CONTENT)
+@router.post(
+    "/password/change",
+    status_code=status.HTTP_204_NO_CONTENT,
+    response_class=Response,
+)
 async def password_change(
     payload: PasswordChangeRequest,
     db: AsyncSession = Depends(get_db),

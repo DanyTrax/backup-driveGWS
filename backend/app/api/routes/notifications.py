@@ -4,7 +4,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -74,7 +74,11 @@ async def list_mine(
     return [_to_out(n) for n in rows]
 
 
-@router.post("/mark-read", status_code=status.HTTP_204_NO_CONTENT)
+@router.post(
+    "/mark-read",
+    status_code=status.HTTP_204_NO_CONTENT,
+    response_class=Response,
+)
 async def mark_read(
     ids: list[uuid.UUID],
     db: AsyncSession = Depends(get_db),
@@ -134,7 +138,11 @@ async def set_prefs(
     return payload  # type: ignore[return-value]
 
 
-@router.post("/test/{channel}", status_code=status.HTTP_204_NO_CONTENT)
+@router.post(
+    "/test/{channel}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    response_class=Response,
+)
 async def test_channel(
     channel: str,
     db: AsyncSession = Depends(get_db),

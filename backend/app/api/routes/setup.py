@@ -1,7 +1,7 @@
 """First-run Setup Wizard endpoints."""
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -99,7 +99,11 @@ async def vault_shared_drive(
     return VaultDriveOut(ok=True, drive=check.get("drive"))
 
 
-@router.post("/vault/root-folder", status_code=status.HTTP_204_NO_CONTENT)
+@router.post(
+    "/vault/root-folder",
+    status_code=status.HTTP_204_NO_CONTENT,
+    response_class=Response,
+)
 async def vault_root_folder(
     payload: VaultRootIn,
     db: AsyncSession = Depends(get_db),
@@ -131,7 +135,11 @@ async def vault_create_structure(
     return {"ok": True, "folders": subs}
 
 
-@router.post("/notifications", status_code=status.HTTP_204_NO_CONTENT)
+@router.post(
+    "/notifications",
+    status_code=status.HTTP_204_NO_CONTENT,
+    response_class=Response,
+)
 async def save_notifications(
     payload: NotificationsSetupIn,
     db: AsyncSession = Depends(get_db),
@@ -141,7 +149,11 @@ async def save_notifications(
     await db.commit()
 
 
-@router.post("/complete", status_code=status.HTTP_204_NO_CONTENT)
+@router.post(
+    "/complete",
+    status_code=status.HTTP_204_NO_CONTENT,
+    response_class=Response,
+)
 async def complete(
     request: Request,
     db: AsyncSession = Depends(get_db),

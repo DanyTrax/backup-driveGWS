@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -171,7 +171,11 @@ async def update_task(
     return _to_out(await _load(db, task.id))
 
 
-@router.delete("/{task_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/{task_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    response_class=Response,
+)
 async def delete_task(
     task_id: uuid.UUID,
     request: Request,

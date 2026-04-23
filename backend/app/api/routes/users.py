@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -147,7 +147,11 @@ async def update_user(
     return _to_out(user)
 
 
-@router.post("/{user_id}/password", status_code=status.HTTP_204_NO_CONTENT)
+@router.post(
+    "/{user_id}/password",
+    status_code=status.HTTP_204_NO_CONTENT,
+    response_class=Response,
+)
 async def admin_reset_password(
     user_id: uuid.UUID,
     payload: AdminPasswordReset,
@@ -177,7 +181,11 @@ async def admin_reset_password(
     await db.commit()
 
 
-@router.delete("/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/{user_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    response_class=Response,
+)
 async def delete_user(
     user_id: uuid.UUID,
     request: Request,

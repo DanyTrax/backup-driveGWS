@@ -4,7 +4,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, WebSocket, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, WebSocket, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -81,7 +81,11 @@ async def get_log(
     return _to_out(log)
 
 
-@router.post("/logs/{log_id}/cancel", status_code=status.HTTP_204_NO_CONTENT)
+@router.post(
+    "/logs/{log_id}/cancel",
+    status_code=status.HTTP_204_NO_CONTENT,
+    response_class=Response,
+)
 async def cancel_log(
     log_id: uuid.UUID,
     request: Request,

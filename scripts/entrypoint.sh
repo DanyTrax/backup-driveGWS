@@ -42,9 +42,7 @@ PY
 
 run_migrations() {
   echo "[entrypoint] running alembic migrations..."
-  alembic upgrade head || {
-    echo "[entrypoint] alembic upgrade failed — continuing anyway (bootstrap phase)"
-  }
+  alembic upgrade head
 }
 
 case "${ROLE}" in
