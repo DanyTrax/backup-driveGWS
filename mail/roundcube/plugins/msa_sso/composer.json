@@ -3,7 +3,7 @@
   "description": "Roundcube SSO plugin for MSA Backup Commander",
   "require": {
     "php": ">=8.1",
-    "firebase/php-jwt": "^6.10"
+    "firebase/php-jwt": "^7.0"
   },
   "config": {
     "sort-packages": true
