@@ -85,6 +85,7 @@ async def get_log(
     "/logs/{log_id}/cancel",
     status_code=status.HTTP_204_NO_CONTENT,
     response_class=Response,
+    response_model=None,
 )
 async def cancel_log(
     log_id: uuid.UUID,

@@ -103,6 +103,7 @@ async def vault_shared_drive(
     "/vault/root-folder",
     status_code=status.HTTP_204_NO_CONTENT,
     response_class=Response,
+    response_model=None,
 )
 async def vault_root_folder(
     payload: VaultRootIn,
@@ -139,6 +140,7 @@ async def vault_create_structure(
     "/notifications",
     status_code=status.HTTP_204_NO_CONTENT,
     response_class=Response,
+    response_model=None,
 )
 async def save_notifications(
     payload: NotificationsSetupIn,
@@ -153,6 +155,7 @@ async def save_notifications(
     "/complete",
     status_code=status.HTTP_204_NO_CONTENT,
     response_class=Response,
+    response_model=None,
 )
 async def complete(
     request: Request,

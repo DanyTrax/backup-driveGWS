@@ -120,6 +120,7 @@ async def refresh(
     "/logout",
     status_code=status.HTTP_204_NO_CONTENT,
     response_class=Response,
+    response_model=None,
 )
 async def logout(
     payload: RefreshRequest,
@@ -172,6 +173,7 @@ async def mfa_enroll_confirm(
     "/mfa/disable",
     status_code=status.HTTP_204_NO_CONTENT,
     response_class=Response,
+    response_model=None,
 )
 async def mfa_disable(
     payload: MfaEnrollConfirm,
@@ -193,6 +195,7 @@ async def mfa_disable(
     "/password/change",
     status_code=status.HTTP_204_NO_CONTENT,
     response_class=Response,
+    response_model=None,
 )
 async def password_change(
     payload: PasswordChangeRequest,

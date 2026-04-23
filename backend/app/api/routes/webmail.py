@@ -45,6 +45,7 @@ async def _load_account(db: AsyncSession, account_id: uuid.UUID) -> GwAccount:
     "/accounts/{account_id}/password",
     status_code=status.HTTP_204_NO_CONTENT,
     response_class=Response,
+    response_model=None,
 )
 async def set_password(
     account_id: uuid.UUID,

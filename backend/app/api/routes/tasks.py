@@ -175,6 +175,7 @@ async def update_task(
     "/{task_id}",
     status_code=status.HTTP_204_NO_CONTENT,
     response_class=Response,
+    response_model=None,
 )
 async def delete_task(
     task_id: uuid.UUID,

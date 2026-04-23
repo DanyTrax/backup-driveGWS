@@ -78,6 +78,7 @@ async def list_mine(
     "/mark-read",
     status_code=status.HTTP_204_NO_CONTENT,
     response_class=Response,
+    response_model=None,
 )
 async def mark_read(
     ids: list[uuid.UUID],
@@ -142,6 +143,7 @@ async def set_prefs(
     "/test/{channel}",
     status_code=status.HTTP_204_NO_CONTENT,
     response_class=Response,
+    response_model=None,
 )
 async def test_channel(
     channel: str,
