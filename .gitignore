@@ -33,6 +33,9 @@ frontend/.vite/
 .yarn/
 pnpm-lock.yaml.bak
 
+# Roundcube plugin (installed in Docker via composer install)
+mail/roundcube/plugins/msa_sso/vendor/
+
 # Docker / runtime volumes
 data/
 logs/
