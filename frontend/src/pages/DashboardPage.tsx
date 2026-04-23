@@ -9,14 +9,15 @@ export default function DashboardPage() {
 
   const enabled = accounts.filter((a) => a.is_backup_enabled)
   const running = logs.filter((l) => l.status === 'running').length
-  const succeeded24h = logs.filter((l) => l.status === 'success').length
-  const failed24h = logs.filter((l) => l.status === 'failed').length
+  const succeeded = logs.filter((l) => l.status === 'success').length
+  const failed = logs.filter((l) => l.status === 'failed').length
 
   const stats = [
     { label: 'Cuentas con backup', value: `${enabled.length}/${accounts.length}`, icon: HiUserGroup, color: 'text-blue-500' },
     { label: 'Tareas definidas', value: tasks.length, icon: HiCheckCircle, color: 'text-green-500' },
     { label: 'En ejecución', value: running, icon: HiClock, color: 'text-amber-500' },
-    { label: 'Errores recientes', value: failed24h, icon: HiExclamation, color: 'text-red-500' },
+    { label: 'Completadas', value: succeeded, icon: HiCheckCircle, color: 'text-green-600' },
+    { label: 'Errores recientes', value: failed, icon: HiExclamation, color: 'text-red-500' },
   ]
 
   return (
