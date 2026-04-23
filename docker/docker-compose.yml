@@ -21,7 +21,13 @@ services:
     expose:
       - "8000"
     volumes:
-      - ../backend:/app:rw                 # bind-mount = Git Refresh fallback
+      # Montar solo el código Python — NO ../backend:/app entero: eso borra /app/static
+      # (el SPA compilado en la imagen) y deja solo 404 en / y sin /assets.
+      - ../backend/app:/app/app:rw
+      - ../backend/migrations:/app/migrations:rw
+      - ../backend/tests:/app/tests:rw
+      - ../backend/scripts:/app/scripts:rw
+      - ../backend/alembic.ini:/app/alembic.ini:ro
       - app_data:/data                     # DB sqlite temporal si aplica, tokens, keys
       - rclone_config:/root/.config/rclone
       - secrets:/app/secrets:ro
@@ -56,7 +62,11 @@ services:
       ROLE: worker
     command: ["celery", "-A", "app.workers.celery_app", "worker", "--loglevel=INFO", "--concurrency=${CELERY_CONCURRENCY:-2}"]
     volumes:
-      - ../backend:/app:rw
+      - ../backend/app:/app/app:rw
+      - ../backend/migrations:/app/migrations:rw
+      - ../backend/tests:/app/tests:rw
+      - ../backend/scripts:/app/scripts:rw
+      - ../backend/alembic.ini:/app/alembic.ini:ro
       - app_data:/data
       - rclone_config:/root/.config/rclone
       - secrets:/app/secrets:ro
@@ -84,7 +94,11 @@ services:
       ROLE: beat
     command: ["celery", "-A", "app.workers.celery_app", "beat", "--loglevel=INFO", "--schedule=/data/celerybeat-schedule"]
     volumes:
-      - ../backend:/app:rw
+      - ../backend/app:/app/app:rw
+      - ../backend/migrations:/app/migrations:rw
+      - ../backend/tests:/app/tests:rw
+      - ../backend/scripts:/app/scripts:rw
+      - ../backend/alembic.ini:/app/alembic.ini:ro
       - app_data:/data
       - secrets:/app/secrets:ro
     depends_on:
