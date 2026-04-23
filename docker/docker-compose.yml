@@ -183,8 +183,12 @@ services:
 
   # ------------------------------------------------------------- roundcube
   # Webmail. Expuesto solo al proxy-net (lo publica NPM).
+  # Imagen propia: instala vendor/ del plugin msa_sso (JWT + Redis); el bind-mount anterior causaba HTTP 500.
   roundcube:
-    image: roundcube/roundcubemail:1.6.x-apache
+    image: ghcr.io/danytrax/backup-drivegws-roundcube:${APP_TAG:-latest}
+    build:
+      context: ../mail/roundcube
+      dockerfile: Dockerfile
     container_name: msa-backup-roundcube
     restart: unless-stopped
     environment:
@@ -199,11 +203,16 @@ services:
       ROUNDCUBEMAIL_SKIN: elastic
       ROUNDCUBEMAIL_PLUGINS: "archive,zipdownload,msa_sso"
       ROUNDCUBEMAIL_DES_KEY: ${ROUNDCUBE_DES_KEY}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+      MSA_SSO_SECRET: ${SECRET_KEY}
+      DOVECOT_MASTER_USER: ${DOVECOT_MASTER_USER}
+      DOVECOT_MASTER_PASSWORD: ${DOVECOT_MASTER_PASSWORD}
     expose:
       - "80"
     volumes:
       - roundcube_www:/var/www/html
-      - ../mail/roundcube/plugins/msa_sso:/var/www/html/plugins/msa_sso:ro
       - ../mail/roundcube/config:/var/roundcube/config:ro
     depends_on:
       - dovecot
