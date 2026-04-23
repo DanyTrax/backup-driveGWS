@@ -1,8 +1,11 @@
 """Interactive creation of the first SuperAdmin user.
 
-Usage (inside the app container):
+Usage (inside the app container, from any cwd):
 
+    docker exec -it msa-backup-app python /app/scripts/bootstrap_admin.py
     docker exec -it msa-backup-app python -m scripts.bootstrap_admin
+
+Requires PYTHONPATH=/app (set in the Docker image) or run: cd /app && python scripts/bootstrap_admin.py
 
 Asks for email, full name and password. Hashes with argon2id and writes into
 sys_users with the SuperAdmin role. Refuses to run if at least one SuperAdmin
@@ -16,9 +19,15 @@ import getpass
 import re
 import sys
 import uuid
+from pathlib import Path
+
+# Running `python /app/scripts/...py` puts scripts/ on sys.path, not /app — package `app` lives at /app/app.
+_root = Path(__file__).resolve().parents[1]
+if str(_root) not in sys.path:
+    sys.path.insert(0, str(_root))
 
 from passlib.hash import argon2
-from sqlalchemy import select, text
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import AsyncSessionLocal

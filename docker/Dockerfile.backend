@@ -49,6 +49,7 @@ RUN curl -fsSL -o /tmp/gyb.tar.xz \
  && gyb --version || true
 
 WORKDIR /app
+ENV PYTHONPATH=/app
 
 # Python deps
 COPY backend/requirements.txt /tmp/requirements.txt
