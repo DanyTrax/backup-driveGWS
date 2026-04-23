@@ -35,5 +35,9 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         response.headers["Content-Security-Policy"] = self.CSP
         response.headers["Cross-Origin-Opener-Policy"] = "same-origin"
         response.headers["Cross-Origin-Resource-Policy"] = "same-origin"
-        response.headers.pop("Server", None)
+        # MutableHeaders (Starlette) has no .pop(); strip Server if present (any casing).
+        for _name in list(response.headers.keys()):
+            if _name.lower() == "server":
+                del response.headers[_name]
+                break
         return response
