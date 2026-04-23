@@ -1,0 +1,106 @@
+"""Canonical catalog of permissions and default role -> permission mapping.
+
+Single source of truth used by:
+  * the seed script (0002_seed data migration)
+  * the backend RBAC middleware
+  * the frontend (exported via GET /api/meta/permissions)
+"""
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+from app.models.enums import UserRole
+
+
+@dataclass(frozen=True, slots=True)
+class PermissionSpec:
+    module: str
+    action: str
+    description: str
+
+    @property
+    def code(self) -> str:
+        return f"{self.module}.{self.action}"
+
+
+# --------------------------------------------------------------- catalog ----
+PERMISSIONS: tuple[PermissionSpec, ...] = (
+    # --- sys_users ---
+    PermissionSpec("users", "view", "Ver lista y detalle de usuarios de plataforma"),
+    PermissionSpec("users", "create", "Crear usuarios de plataforma"),
+    PermissionSpec("users", "edit", "Editar usuarios (rol, estado, preferencias)"),
+    PermissionSpec("users", "delete", "Eliminar usuarios de plataforma"),
+    PermissionSpec("users", "reset_password", "Forzar reset de contraseña"),
+    # --- gw_accounts ---
+    PermissionSpec("accounts", "view", "Ver cuentas de Workspace"),
+    PermissionSpec("accounts", "approve", "Aprobar cuenta para backup (opt-in)"),
+    PermissionSpec("accounts", "revoke", "Revocar backup de una cuenta"),
+    PermissionSpec("accounts", "sync", "Disparar sincronización de Directorio"),
+    PermissionSpec("accounts", "edit", "Editar metadatos y configuración de cuenta"),
+    # --- backup tasks ---
+    PermissionSpec("tasks", "view", "Ver definiciones de tareas de backup"),
+    PermissionSpec("tasks", "create", "Crear nuevas tareas de backup"),
+    PermissionSpec("tasks", "edit", "Editar tareas existentes"),
+    PermissionSpec("tasks", "delete", "Eliminar tareas"),
+    PermissionSpec("tasks", "run", "Lanzar, pausar, cancelar o reintentar tareas"),
+    # --- backup logs ---
+    PermissionSpec("logs", "view", "Ver historial de ejecuciones"),
+    PermissionSpec("logs", "export", "Exportar logs en CSV / JSON"),
+    # --- restores ---
+    PermissionSpec("restore", "view", "Ver trabajos de restauración"),
+    PermissionSpec("restore", "create", "Crear trabajos de restauración (Drive o Gmail)"),
+    PermissionSpec("restore", "cancel", "Cancelar un trabajo de restauración en curso"),
+    # --- webmail ---
+    PermissionSpec("webmail", "sso_admin", "Acceder a cualquier buzón via SSO master"),
+    PermissionSpec("webmail", "issue_magic_link", "Emitir magic link para un cliente"),
+    PermissionSpec("webmail", "revoke_access", "Revocar acceso webmail de una cuenta"),
+    # --- settings / platform ---
+    PermissionSpec("settings", "view", "Ver configuración del sistema"),
+    PermissionSpec("settings", "edit", "Modificar configuración del sistema"),
+    PermissionSpec("settings", "branding", "Cambiar branding (logo, colores, nombre)"),
+    PermissionSpec("platform", "refresh", "Ejecutar Git Refresh"),
+    PermissionSpec("platform", "backup", "Ejecutar platform backup manualmente"),
+    # --- audit ---
+    PermissionSpec("audit", "view", "Leer el log de auditoría"),
+    # --- notifications ---
+    PermissionSpec("notifications", "manage_global", "Configurar canales globales de notificación"),
+)
+
+
+# Map: role_code -> set of permission codes
+# Fuente única para el seed y para pruebas de autorización.
+DEFAULT_ROLE_PERMISSIONS: dict[UserRole, frozenset[str]] = {
+    UserRole.SUPER_ADMIN: frozenset(p.code for p in PERMISSIONS),
+    UserRole.OPERATOR: frozenset(
+        {
+            "users.view",
+            "accounts.view", "accounts.approve", "accounts.revoke", "accounts.sync", "accounts.edit",
+            "tasks.view", "tasks.create", "tasks.edit", "tasks.run",
+            "logs.view", "logs.export",
+            "restore.view", "restore.create", "restore.cancel",
+            "webmail.sso_admin", "webmail.issue_magic_link", "webmail.revoke_access",
+            "settings.view",
+            "platform.refresh",
+            "notifications.manage_global",
+            "audit.view",
+        }
+    ),
+    UserRole.AUDITOR: frozenset(
+        {
+            "users.view",
+            "accounts.view",
+            "tasks.view",
+            "logs.view", "logs.export",
+            "restore.view",
+            "settings.view",
+            "audit.view",
+        }
+    ),
+}
+
+
+ROLE_DISPLAY: dict[UserRole, tuple[str, str]] = {
+    UserRole.SUPER_ADMIN: ("Super Administrador", "Acceso completo incluido cambio de configuración crítica"),
+    UserRole.OPERATOR: ("Operador", "Gestiona backups, restauraciones y cuentas, sin cambiar configuración global"),
+    UserRole.AUDITOR: ("Auditor", "Solo lectura del sistema"),
+}

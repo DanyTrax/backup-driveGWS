@@ -1,0 +1,75 @@
+# =====================================================================
+# Backend image: FastAPI + Celery + rclone + gyb
+# Stages:  1) frontend_build  2) runtime
+# =====================================================================
+
+# ---------- Stage 1: build frontend (SPA estático servido por FastAPI) ----
+FROM node:20-alpine AS frontend_build
+WORKDIR /fe
+COPY frontend/package*.json ./
+RUN npm ci --no-audit --no-fund
+COPY frontend/ ./
+RUN npm run build
+
+# ---------- Stage 2: runtime ----------------------------------------------
+FROM python:3.12-slim AS runtime
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    TZ=America/Bogota
+
+# System deps
+# - curl, ca-certificates: healthchecks + descargas
+# - unzip: rclone
+# - git: git refresh
+# - gcc, libpq-dev: compilación psycopg2 cuando aplique
+# - libmagic1: magic sniffing
+# - tini: init
+# - age: cifrado de platform backups
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends \
+      curl ca-certificates unzip git gcc libpq-dev libmagic1 tini age \
+      tzdata supervisor \
+ && rm -rf /var/lib/apt/lists/*
+
+# Install rclone (latest stable)
+RUN curl -fsSL https://rclone.org/install.sh | bash \
+ && rclone version
+
+# Install GYB (Got Your Back) — binary release
+ARG GYB_VERSION=1.82
+RUN curl -fsSL -o /tmp/gyb.tar.xz \
+      "https://github.com/GAM-team/got-your-back/releases/download/v${GYB_VERSION}/gyb-${GYB_VERSION}-linux-x86_64.tar.xz" \
+ && mkdir -p /opt/gyb \
+ && tar -xJf /tmp/gyb.tar.xz -C /opt/gyb --strip-components=1 \
+ && ln -s /opt/gyb/gyb /usr/local/bin/gyb \
+ && rm /tmp/gyb.tar.xz \
+ && gyb --version || true
+
+WORKDIR /app
+
+# Python deps
+COPY backend/requirements.txt /tmp/requirements.txt
+RUN pip install --no-cache-dir -r /tmp/requirements.txt
+
+# App code
+COPY backend /app
+
+# Static SPA from stage 1 into FastAPI static dir
+COPY --from=frontend_build /fe/dist /app/static
+
+# Non-root user
+RUN useradd -m -u 1000 -s /bin/bash msa \
+ && mkdir -p /data /app/secrets /var/mail/vhosts /platform_backups /root/.config/rclone \
+ && chown -R msa:msa /data /app /var/mail/vhosts /platform_backups
+
+# Entrypoint
+COPY scripts/entrypoint.sh /usr/local/bin/entrypoint.sh
+RUN chmod +x /usr/local/bin/entrypoint.sh
+
+EXPOSE 8000
+
+ENTRYPOINT ["/usr/bin/tini", "--", "/usr/local/bin/entrypoint.sh"]
+CMD ["api"]

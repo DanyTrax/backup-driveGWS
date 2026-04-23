@@ -1,0 +1,66 @@
+# Environment & secrets
+.env
+.env.*
+!.env.example
+secrets/
+*.pem
+*.key
+service-account*.json
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+env/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+.coverage
+htmlcov/
+dist/
+build/
+
+# Node / frontend
+node_modules/
+frontend/dist/
+frontend/.vite/
+.npm/
+.yarn/
+pnpm-lock.yaml.bak
+
+# Docker / runtime volumes
+data/
+logs/
+tmp/
+*.log
+*.pid
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.recommended.json
+.idea/
+
+# Alembic
+backend/migrations/versions/*_fix_*.py
+
+# Local platform backups
+platform_backups/
+
+# Python build
+*.egg
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Testing
+.tox/
+.coverage.*
+.cache
+coverage.xml

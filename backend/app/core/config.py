@@ -1,0 +1,101 @@
+"""Centralized configuration loaded from environment via Pydantic."""
+from __future__ import annotations
+
+from functools import lru_cache
+from typing import Literal
+
+from pydantic import Field, computed_field
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+class Settings(BaseSettings):
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+        case_sensitive=False,
+    )
+
+    app_name: str = "MSA Backup Commander"
+    app_env: Literal["development", "production"] = "production"
+    tz: str = "America/Bogota"
+
+    domain_platform: str = ""
+    domain_webmail: str = ""
+
+    secret_key: str = Field(min_length=32)
+    fernet_key: str = Field(min_length=32)
+    jwt_algorithm: str = "HS256"
+    jwt_access_minutes: int = 15
+    jwt_refresh_days: int = 7
+
+    postgres_user: str
+    postgres_password: str
+    postgres_db: str
+    postgres_host: str = "postgres"
+    postgres_port: int = 5432
+
+    redis_host: str = "redis"
+    redis_port: int = 6379
+    redis_password: str = ""
+
+    celery_broker_url: str = ""
+    celery_result_backend: str = ""
+    celery_concurrency: int = 2
+    celery_backup_max_concurrent: int = 2
+
+    dovecot_master_user: str = ""
+    dovecot_master_password: str = ""
+
+    log_level: str = "INFO"
+    log_json: bool = True
+    log_retention_days: int = 30
+
+    rate_limit_login_per_minute: int = 5
+    rate_limit_magic_link_per_hour: int = 3
+    rate_limit_api_per_minute: int = 60
+
+    feature_webmail_enabled: bool = True
+    feature_mfa_required_for_superadmin: bool = False
+    feature_web_push: bool = False
+
+    git_refresh_mode: Literal["webhook", "bind_mount", "both"] = "webhook"
+    git_repo_url: str = ""
+    git_branch: str = "main"
+
+    platform_backup_age_recipient: str = ""
+    platform_backup_daily_hour: int = 3
+    platform_backup_retention_daily: int = 7
+    platform_backup_retention_weekly: int = 4
+    platform_backup_retention_monthly: int = 12
+
+    rclone_rc_port_range_start: int = 5572
+    rclone_rc_port_range_end: int = 5599
+    rclone_bwlimit: str = ""
+
+    @computed_field  # type: ignore[misc]
+    @property
+    def database_url(self) -> str:
+        return (
+            f"postgresql+psycopg://{self.postgres_user}:{self.postgres_password}"
+            f"@{self.postgres_host}:{self.postgres_port}/{self.postgres_db}"
+        )
+
+    @computed_field  # type: ignore[misc]
+    @property
+    def database_url_async(self) -> str:
+        return (
+            f"postgresql+asyncpg://{self.postgres_user}:{self.postgres_password}"
+            f"@{self.postgres_host}:{self.postgres_port}/{self.postgres_db}"
+        )
+
+    @computed_field  # type: ignore[misc]
+    @property
+    def redis_url(self) -> str:
+        auth = f":{self.redis_password}@" if self.redis_password else ""
+        return f"redis://{auth}{self.redis_host}:{self.redis_port}"
+
+
+@lru_cache
+def get_settings() -> Settings:
+    return Settings()  # type: ignore[call-arg]

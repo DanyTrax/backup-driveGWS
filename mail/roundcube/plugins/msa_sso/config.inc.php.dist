@@ -1,0 +1,4 @@
+<?php
+// Placeholder config for msa_sso — actual values are read from environment at runtime.
+$config['msa_sso_jti_redis_prefix'] = 'msa:sso:jti:';
+$config['msa_sso_max_skew']         = 30;   // seconds

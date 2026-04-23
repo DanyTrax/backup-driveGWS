@@ -1,0 +1,217 @@
+# ==========================================================================
+# backup-stack  —  MSA Backup Commander
+# Despliegue: pila en Dockge, detrás de Nginx Proxy Manager (pila aparte).
+# Red compartida externa: proxy-net  (docker network create proxy-net)
+# ==========================================================================
+
+services:
+
+  # ------------------------------------------------------------------ app
+  # FastAPI (Uvicorn) + rclone + gyb
+  app:
+    image: ghcr.io/danytrax/backup-drivegws-app:${APP_TAG:-latest}
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.backend
+    container_name: msa-backup-app
+    restart: unless-stopped
+    env_file: ../.env
+    environment:
+      ROLE: api
+    expose:
+      - "8000"
+    volumes:
+      - ../backend:/app:rw                 # bind-mount = Git Refresh fallback
+      - app_data:/data                     # DB sqlite temporal si aplica, tokens, keys
+      - rclone_config:/root/.config/rclone
+      - secrets:/app/secrets:ro
+      - maildirs:/var/mail/vhosts          # backups gmail convertidos a Maildir
+      - platform_backups:/platform_backups
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - internal
+      - proxy-net
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8000/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 40s
+
+  # --------------------------------------------------------------- worker
+  # Celery worker (ejecuta backups, restores, provisioning, integrity)
+  worker:
+    image: ghcr.io/danytrax/backup-drivegws-app:${APP_TAG:-latest}
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.backend
+    container_name: msa-backup-worker
+    restart: unless-stopped
+    env_file: ../.env
+    environment:
+      ROLE: worker
+    command: ["celery", "-A", "app.workers.celery_app", "worker", "--loglevel=INFO", "--concurrency=${CELERY_CONCURRENCY:-2}"]
+    volumes:
+      - ../backend:/app:rw
+      - app_data:/data
+      - rclone_config:/root/.config/rclone
+      - secrets:/app/secrets:ro
+      - maildirs:/var/mail/vhosts
+      - platform_backups:/platform_backups
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - internal
+
+  # ----------------------------------------------------------------- beat
+  # Celery beat (scheduler)
+  beat:
+    image: ghcr.io/danytrax/backup-drivegws-app:${APP_TAG:-latest}
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.backend
+    container_name: msa-backup-beat
+    restart: unless-stopped
+    env_file: ../.env
+    environment:
+      ROLE: beat
+    command: ["celery", "-A", "app.workers.celery_app", "beat", "--loglevel=INFO", "--schedule=/data/celerybeat-schedule"]
+    volumes:
+      - ../backend:/app:rw
+      - app_data:/data
+      - secrets:/app/secrets:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - internal
+
+  # -------------------------------------------------------------- postgres
+  postgres:
+    image: postgres:16-alpine
+    container_name: msa-backup-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+      - ./postgres/init:/docker-entrypoint-initdb.d:ro
+    networks:
+      - internal
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ----------------------------------------------------------------- redis
+  redis:
+    image: redis:7-alpine
+    container_name: msa-backup-redis
+    restart: unless-stopped
+    command:
+      - redis-server
+      - --requirepass
+      - ${REDIS_PASSWORD}
+      - --appendonly
+      - "yes"
+    volumes:
+      - redis_data:/data
+    networks:
+      - internal
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  # --------------------------------------------------------------- dovecot
+  # IMAP interno que sirve los Maildir generados desde backups GYB.
+  # NO expone puertos al host (para no chocar con Mailcow), solo en red interna.
+  dovecot:
+    image: ghcr.io/danytrax/backup-drivegws-dovecot:${APP_TAG:-latest}
+    build:
+      context: ../mail/dovecot
+      dockerfile: Dockerfile
+    container_name: msa-backup-dovecot
+    restart: unless-stopped
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+      DOVECOT_MASTER_USER: ${DOVECOT_MASTER_USER}
+      DOVECOT_MASTER_PASSWORD: ${DOVECOT_MASTER_PASSWORD}
+    volumes:
+      - maildirs:/var/mail/vhosts
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - internal
+    healthcheck:
+      test: ["CMD", "doveadm", "who"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+
+  # ------------------------------------------------------------- roundcube
+  # Webmail. Expuesto solo al proxy-net (lo publica NPM).
+  roundcube:
+    image: roundcube/roundcubemail:1.6.x-apache
+    container_name: msa-backup-roundcube
+    restart: unless-stopped
+    environment:
+      ROUNDCUBEMAIL_DEFAULT_HOST: ${ROUNDCUBE_DEFAULT_HOST}
+      ROUNDCUBEMAIL_DEFAULT_PORT: ${ROUNDCUBE_DEFAULT_PORT}
+      ROUNDCUBEMAIL_SMTP_SERVER: ""              # no enviar correo desde webmail
+      ROUNDCUBEMAIL_DB_TYPE: pgsql
+      ROUNDCUBEMAIL_DB_HOST: postgres
+      ROUNDCUBEMAIL_DB_USER: ${POSTGRES_USER}
+      ROUNDCUBEMAIL_DB_PASSWORD: ${POSTGRES_PASSWORD}
+      ROUNDCUBEMAIL_DB_NAME: roundcube
+      ROUNDCUBEMAIL_SKIN: elastic
+      ROUNDCUBEMAIL_PLUGINS: "archive,zipdownload,msa_sso"
+      ROUNDCUBEMAIL_DES_KEY: ${ROUNDCUBE_DES_KEY}
+    expose:
+      - "80"
+    volumes:
+      - roundcube_www:/var/www/html
+      - ../mail/roundcube/plugins/msa_sso:/var/www/html/plugins/msa_sso:ro
+      - ../mail/roundcube/config:/var/roundcube/config:ro
+    depends_on:
+      - dovecot
+      - postgres
+    networks:
+      - internal
+      - proxy-net
+
+# ============================================================ networks
+networks:
+  internal:
+    driver: bridge
+  proxy-net:
+    external: true
+
+# ============================================================== volumes
+volumes:
+  app_data:
+  pg_data:
+  redis_data:
+  rclone_config:
+  maildirs:
+  roundcube_www:
+  secrets:
+  platform_backups:

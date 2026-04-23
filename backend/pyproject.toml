@@ -1,0 +1,30 @@
+[project]
+name = "msa-backup-commander"
+version = "0.1.0"
+description = "Enterprise Google Workspace backup orchestrator (Drive + Gmail) with integrated webmail."
+readme = "../README.md"
+requires-python = ">=3.12"
+license = { text = "MIT" }
+authors = [{ name = "MSA / DanyTrax" }]
+
+[tool.ruff]
+line-length = 110
+target-version = "py312"
+extend-exclude = ["migrations/versions"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "ASYNC", "S", "RUF"]
+ignore = ["S101", "B008"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S", "B"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+addopts = "-ra -q"
+
+[tool.mypy]
+python_version = "3.12"
+strict = false
+ignore_missing_imports = true
