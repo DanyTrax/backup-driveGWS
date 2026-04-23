@@ -212,7 +212,8 @@ services:
     expose:
       - "80"
     volumes:
-      - roundcube_www:/var/www/html
+      # No montar /var/www/html: un volumen nombrado tapa la imagen y deja un tree
+      # viejo (sin vendor del plugin, Roundcube desactualizado) → HTTP 500.
       - ../mail/roundcube/config:/var/roundcube/config:ro
     depends_on:
       - dovecot
@@ -235,6 +236,5 @@ volumes:
   redis_data:
   rclone_config:
   maildirs:
-  roundcube_www:
   secrets:
   platform_backups:
