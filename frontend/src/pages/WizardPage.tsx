@@ -1,9 +1,21 @@
 import { useState } from 'react'
+import type { AxiosError } from 'axios'
 import { Button, Card, Label, Textarea, TextInput } from 'flowbite-react'
 import toast from 'react-hot-toast'
 import { useNavigate } from 'react-router-dom'
 import api from '../api/client'
 import { useSetupState } from '../api/hooks'
+
+function formatApiError(err: unknown, fallback: string): string {
+  const ax = err as AxiosError<{ detail?: unknown }>
+  const d = ax.response?.data?.detail
+  if (typeof d === 'string') return d
+  if (Array.isArray(d)) {
+    const parts = d.map((x) => (typeof x === 'object' && x && 'msg' in x ? String((x as { msg: string }).msg) : '')).filter(Boolean)
+    if (parts.length) return parts.join('; ')
+  }
+  return fallback
+}
 
 export default function WizardPage() {
   const { data: state, refetch } = useSetupState()
@@ -21,8 +33,10 @@ export default function WizardPage() {
       })
       toast.success('Service Account registrada')
       refetch()
-    } catch {
-      toast.error('JSON inválido o correo inválido')
+    } catch (err) {
+      toast.error(
+        formatApiError(err, 'JSON inválido o correo inválido. Pega el archivo .json completo desde la primera { hasta la última }.'),
+      )
     }
   }
 
