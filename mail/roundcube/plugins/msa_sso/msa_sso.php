@@ -36,56 +36,57 @@ class msa_sso extends rcube_plugin
     public function init()
     {
         $this->register_action('plugin.msa_sso', [$this, 'action_redeem']);
-        $this->add_hook('authenticate', [$this, 'on_authenticate']);
     }
 
+    /**
+     * Valida el JWT, marca JTI en Redis y llama a rcmail::login() explícitamente.
+     * Rellenar solo $_POST no dispara el login en Roundcube 1.6: la pantalla
+     * quedaba en el formulario aunque la URL llevara el token.
+     */
     public function action_redeem()
     {
         $token = rcube_utils::get_input_value('token', rcube_utils::INPUT_GET);
         if (!$token) {
-            return header('Location: ./');
+            header('Location: ./');
+            exit;
         }
 
         $payload = $this->decode_and_verify($token);
         if (!$payload) {
-            return $this->bail('Invalid SSO token');
+            $this->bail('Invalid SSO token');
         }
 
-        $_SESSION['msa_sso_payload'] = $payload;
         $rcmail = rcmail::get_instance();
+        $host = $rcmail->config->get('default_host');
+        $type = $payload['type'] ?? '';
 
-        $_POST['_user'] = $payload['sub'];
-        $_POST['_host'] = $rcmail->config->get('default_host');
-        $_POST['_pass'] = '__msa_sso__'; // replaced inside on_authenticate
-        $_POST['_task'] = 'login';
-        $_POST['_action'] = 'login';
-
-        $rcmail->overwrite_action('login');
-        $rcmail->task = 'login';
-    }
-
-    public function on_authenticate($args)
-    {
-        if (empty($_SESSION['msa_sso_payload'])) {
-            return $args;
-        }
-        $payload = $_SESSION['msa_sso_payload'];
-
-        if (($payload['type'] ?? '') === 'admin_sso') {
+        if ($type === 'admin_sso') {
             $master_user = getenv('DOVECOT_MASTER_USER') ?: '';
             $master_pass = getenv('DOVECOT_MASTER_PASSWORD') ?: '';
             if (!$master_user || !$master_pass) {
                 $this->bail('Dovecot master-user credentials are not configured');
             }
-            $args['user'] = $payload['sub'] . '*' . $master_user;
-            $args['pass'] = $master_pass;
-        } elseif (($payload['type'] ?? '') === 'client_sso') {
-            $args['user'] = $payload['sub'];
-            $args['pass'] = $payload['pw'] ?? '';
+            $user = $payload['sub'] . '*' . $master_user;
+            $pass = $master_pass;
+        } elseif ($type === 'client_sso') {
+            $user = $payload['sub'];
+            $pass = $payload['pw'] ?? '';
+            if ($pass === '') {
+                $this->bail('Client SSO token missing password claim');
+            }
+        } else {
+            $this->bail('Invalid SSO type');
         }
 
-        unset($_SESSION['msa_sso_payload']);
-        return $args;
+        if (!$rcmail->login($user, $pass, $host, true)) {
+            $code = $rcmail->login_error();
+            $stor = $rcmail->get_storage();
+            $detail = $stor ? $stor->get_error() : '';
+            $this->bail('IMAP login failed after SSO (code: ' . ($code ?? 'n/a') . ') ' . $detail);
+        }
+
+        header('Location: ./?_task=mail');
+        exit;
     }
 
     private function decode_and_verify(string $token): ?array

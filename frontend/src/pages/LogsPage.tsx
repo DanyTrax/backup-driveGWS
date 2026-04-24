@@ -241,6 +241,14 @@ export default function LogsPage() {
                     {detailQuery.data.scope} · {detailQuery.data.mode}
                   </dd>
                 </div>
+                {detailQuery.data.scope === 'gmail' ? (
+                  <div className="sm:col-span-2 rounded-lg bg-slate-50 dark:bg-slate-800/50 p-3 text-xs text-slate-600 dark:text-slate-400">
+                    <strong>Gmail:</strong> los mensajes se descargan con GYB al disco del servidor y se
+                    convierten a <strong>Maildir</strong> (ver «Ruta destino»). Eso es lo que ve Roundcube;
+                    no rellena la carpeta «Gmail» dentro de Google Drive. Si «mensajes» es 0, el buzón de
+                    origen puede estar vacío o la importación no encontró correos en esta corrida.
+                  </div>
+                ) : null}
                 <div>
                   <dt className="text-slate-500">Inicio / fin</dt>
                   <dd className="text-xs">

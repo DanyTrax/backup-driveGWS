@@ -74,10 +74,15 @@ async def _finalise_log(
     if error_summary:
         log.error_summary = error_summary[:10000]
     if stats:
-        log.bytes_transferred = int(stats.get("bytes", 0)) or log.bytes_transferred
-        log.files_count = int(stats.get("files", 0)) or log.files_count
-        log.messages_count = int(stats.get("messages", 0)) or log.messages_count
-        log.errors_count = int(stats.get("errors", 0)) or log.errors_count
+        # No usar ``or log.field``: 0 es un valor válido (buzón vacío / sin mensajes importados).
+        if "bytes" in stats:
+            log.bytes_transferred = int(stats["bytes"])
+        if "files" in stats:
+            log.files_count = int(stats["files"])
+        if "messages" in stats:
+            log.messages_count = int(stats["messages"])
+        if "errors" in stats:
+            log.errors_count = int(stats["errors"])
     await db.flush()
 
 
