@@ -7,6 +7,10 @@ Usage (inside the app container, from any cwd):
 
 Requires PYTHONPATH=/app (set in the Docker image) or run: cd /app && python scripts/bootstrap_admin.py
 
+Para cambiar la contraseña de un usuario que ya existe (recuperación por SSH), usá:
+
+    python /app/scripts/reset_user_password.py --email ...
+
 Asks for email, full name and password. Hashes with argon2id and writes into
 sys_users with the SuperAdmin role. Refuses to run if at least one SuperAdmin
 already exists, unless --force is passed.
