@@ -30,14 +30,24 @@ export default function LoginPage() {
       toast.success('Sesión iniciada')
       navigate('/dashboard', { replace: true })
     } catch (err: any) {
-      const detail = err?.response?.data?.detail
-      if (detail?.error === 'mfa_required') {
+      const raw = err?.response?.data?.detail
+      const detail = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : null
+      const code = detail?.error as string | undefined
+      if (code === 'mfa_required') {
         setNeedMfa(true)
-        setError('Se requiere el código MFA')
-      } else if (detail?.error === 'account_locked') {
+        setError('Ingresá el código MFA de 6 dígitos y volvé a iniciar sesión.')
+      } else if (code === 'account_locked') {
         setError(`Cuenta bloqueada. Reintenta en ${detail.retry_after_seconds}s.`)
+      } else if (code === 'account_suspended') {
+        setError('Tu cuenta está suspendida. Contactá al administrador.')
+      } else if (code === 'invalid_mfa_code') {
+        setError('Código MFA incorrecto.')
+      } else if (err?.response?.status === 401 && code === 'invalid_credentials') {
+        setError(
+          'Correo o contraseña incorrectos. Si acabás de cambiar la clave por SSH, probá escribir la contraseña a mano (el autocompletado a veces guarda la anterior).',
+        )
       } else {
-        setError('Credenciales inválidas')
+        setError('No se pudo iniciar sesión. Revisá correo y contraseña.')
       }
     } finally {
       setLoading(false)
