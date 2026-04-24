@@ -142,9 +142,16 @@ export default function AccountsPage() {
       }
       ws.onerror = () => {
         setLiveVerify((prev) =>
-          prev ? { ...prev, streaming: false, error: 'Error de WebSocket (¿proxy/NPM?)' } : null,
+          prev
+            ? {
+                ...prev,
+                streaming: false,
+                error:
+                  'WebSocket bloqueado o mal proxificado. En Nginx Proxy Manager, en el host de la plataforma, Advanced: agregá un bloque location /api/backup/ws/ con Upgrade y Connection upgrade (ver docs/deployment/NPM-proxy-hosts.md).',
+              }
+            : null,
         )
-        toast.error('WebSocket cerrado o no disponible')
+        toast.error('WebSocket no disponible: revisá el proxy (NPM) para /api/backup/ws/')
         wsRef.current = null
       }
     } catch (err) {
