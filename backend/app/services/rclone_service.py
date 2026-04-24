@@ -21,6 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.services.backup_batch_registry import is_log_cancelled
 from app.services.google.credentials import load_sa_info
+from app.utils.async_process import SUBPROCESS_PIPE_LIMIT
 from app.services.settings_service import (
     KEY_VAULT_ROOT_FOLDER_ID,
     KEY_VAULT_SHARED_DRIVE_ID,
@@ -154,6 +155,7 @@ async def run_rclone(
         *argv,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.STDOUT,
+        limit=SUBPROCESS_PIPE_LIMIT,
     )
     assert process.stdout is not None  # for type-checkers
     collected: list[str] = []

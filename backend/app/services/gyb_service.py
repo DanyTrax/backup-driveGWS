@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.services.backup_batch_registry import is_log_cancelled
 from app.services.google.credentials import load_sa_info
+from app.utils.async_process import SUBPROCESS_PIPE_LIMIT
 
 # GYB 1.9x lee la clave de servicio desde config_folder/oauth2service.json (--sa-file fue eliminado).
 
@@ -94,6 +95,7 @@ async def run_gyb(
         *argv,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.STDOUT,
+        limit=SUBPROCESS_PIPE_LIMIT,
     )
     assert process.stdout is not None
     collected: list[str] = []
