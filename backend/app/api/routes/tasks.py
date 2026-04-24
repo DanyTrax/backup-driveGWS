@@ -66,6 +66,12 @@ async def _load(db: AsyncSession, task_id: uuid.UUID) -> BackupTask:
     return t
 
 
+async def _junction_account_ids(db: AsyncSession, task_id: uuid.UUID) -> list[str]:
+    stmt = select(backup_task_accounts.c.account_id).where(backup_task_accounts.c.task_id == task_id)
+    rows = (await db.execute(stmt)).all()
+    return [str(r[0]) for r in rows]
+
+
 async def _sync_accounts(db: AsyncSession, task: BackupTask, account_ids: list[str]) -> None:
     """Persiste M2M solo vía SQL Core (evita greenlet/async al asignar task.accounts)."""
     await db.flush()
@@ -79,24 +85,19 @@ async def _sync_accounts(db: AsyncSession, task: BackupTask, account_ids: list[s
         uids = list(dict.fromkeys(uuid.UUID(x) for x in raw))
     except ValueError as exc:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "invalid_account_id") from exc
-    stmt = (
-        select(GwAccount)
-        .where(GwAccount.id.in_(uids))
-        .execution_options(populate_existing=True)
-    )
-    rows = list((await db.execute(stmt)).scalars().all())
-    if len(rows) != len(uids):
+    stmt = select(GwAccount.id, GwAccount.email, GwAccount.is_backup_enabled).where(GwAccount.id.in_(uids))
+    rows = (await db.execute(stmt)).all()
+    by_id: dict[uuid.UUID, tuple[str, bool]] = {r[0]: (r[1], r[2]) for r in rows}
+    if len(by_id) != len(uids):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "unknown_account_ids")
-    disabled = [a.email for a in rows if a.is_backup_enabled is not True]
+    disabled = [by_id[uid][0] for uid in uids if by_id[uid][1] is not True]
     if disabled:
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST,
             detail={"error": "accounts_backup_not_enabled", "emails": disabled},
         )
-    for row in rows:
-        await db.execute(
-            insert(backup_task_accounts).values(task_id=tid, account_id=row.id),
-        )
+    for uid in uids:
+        await db.execute(insert(backup_task_accounts).values(task_id=tid, account_id=uid))
     await db.flush()
 
 
