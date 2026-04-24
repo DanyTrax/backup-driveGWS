@@ -10,6 +10,7 @@ import type {
   RunTaskResult,
   SetupState,
   WorkspaceAccount,
+  AccountAccessCheck,
 } from './types'
 
 export type TaskPayload = {
@@ -77,6 +78,13 @@ export function useRevokeAccount() {
   return useMutation({
     mutationFn: async (id: string) => (await api.post(`/accounts/${id}/revoke`, {})).data,
     onSuccess: () => qc.invalidateQueries({ queryKey: ['accounts'] }),
+  })
+}
+
+export function useVerifyAccountAccess() {
+  return useMutation({
+    mutationFn: async (id: string) =>
+      (await api.get<AccountAccessCheck>(`/accounts/${id}/verify-access`)).data,
   })
 }
 

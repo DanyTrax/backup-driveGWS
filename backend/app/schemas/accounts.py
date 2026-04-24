@@ -43,3 +43,16 @@ class SyncOut(BaseModel):
     accounts_deleted: int
     started_at: str
     finished_at: str
+
+
+class AccountAccessCheckOut(BaseModel):
+    """Resultado de GET /accounts/{id}/verify-access (rclone + GYB + Maildir en disco)."""
+
+    account_id: str
+    email: EmailStr
+    drive_ok: bool
+    drive_detail: str | None
+    gmail_ok: bool
+    gmail_detail: str | None
+    maildir_path: str | None
+    maildir_layout_ok: bool

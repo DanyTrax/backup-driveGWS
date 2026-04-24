@@ -21,6 +21,17 @@ export interface Profile {
   permissions: string[]
 }
 
+export interface AccountAccessCheck {
+  account_id: string
+  email: string
+  drive_ok: boolean
+  drive_detail: string | null
+  gmail_ok: boolean
+  gmail_detail: string | null
+  maildir_path: string | null
+  maildir_layout_ok: boolean
+}
+
 export interface WorkspaceAccount {
   id: string
   email: string

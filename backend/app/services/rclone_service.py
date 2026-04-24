@@ -99,6 +99,50 @@ async def build_rclone_config(
             pass
 
 
+@asynccontextmanager
+async def build_rclone_source_only_config(
+    db: AsyncSession,
+    *,
+    impersonate_email: str,
+) -> AsyncIterator[RcloneConfig]:
+    """Solo remoto ``source:`` (Mi unidad del usuario vía DWD). Para pruebas ``rclone about``."""
+    sa_info = await load_sa_info(db)
+    tmpdir = tempfile.mkdtemp(prefix="rclone_src_", dir="/tmp")
+    sa_path = str(Path(tmpdir) / "sa.json")
+    cfg_path = str(Path(tmpdir) / "rclone.conf")
+    with open(sa_path, "w", encoding="utf-8") as f:
+        json.dump(sa_info, f)
+    os.chmod(sa_path, 0o600)
+    source_lines = [
+        "[source]",
+        "type = drive",
+        f"service_account_file = {sa_path}",
+        f"impersonate = {impersonate_email}",
+        "scope = drive",
+        "",
+    ]
+    with open(cfg_path, "w", encoding="utf-8") as f:
+        f.write("\n".join(source_lines))
+    os.chmod(cfg_path, 0o600)
+    try:
+        yield RcloneConfig(
+            config_path=cfg_path,
+            remote_source="source:",
+            remote_dest="source:",
+            cleanup_paths=[sa_path, cfg_path, tmpdir],
+        )
+    finally:
+        for p in (sa_path, cfg_path):
+            try:
+                os.unlink(p)
+            except OSError:
+                pass
+        try:
+            os.rmdir(tmpdir)
+        except OSError:
+            pass
+
+
 def build_rclone_argv(
     cfg: RcloneConfig,
     *,

@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { Badge, Button, Card, TextInput, ToggleSwitch } from 'flowbite-react'
+import { Badge, Button, Card, Modal, TextInput, ToggleSwitch } from 'flowbite-react'
 import { HiSearch, HiRefresh } from 'react-icons/hi'
 import toast from 'react-hot-toast'
 import {
@@ -7,7 +7,9 @@ import {
   useApproveAccount,
   useRevokeAccount,
   useSyncAccounts,
+  useVerifyAccountAccess,
 } from '../api/hooks'
+import type { AccountAccessCheck } from '../api/types'
 
 export default function AccountsPage() {
   const [search, setSearch] = useState('')
@@ -16,6 +18,8 @@ export default function AccountsPage() {
   const sync = useSyncAccounts()
   const approve = useApproveAccount()
   const revoke = useRevokeAccount()
+  const verifyAccess = useVerifyAccountAccess()
+  const [accessCheck, setAccessCheck] = useState<AccountAccessCheck | null>(null)
 
   const filtered = useMemo(() => {
     const term = search.trim().toLowerCase()
@@ -124,6 +128,22 @@ export default function AccountsPage() {
                     <td className="text-xs text-slate-500">
                       {a.last_successful_backup_at ?? '—'}
                     </td>
+                    <td>
+                      <Button
+                        size="xs"
+                        color="light"
+                        isProcessing={verifyAccess.isPending && verifyAccess.variables === a.id}
+                        onClick={() =>
+                          verifyAccess.mutate(a.id, {
+                            onSuccess: (data) => setAccessCheck(data),
+                            onError: () =>
+                              toast.error('No se pudo comprobar (permiso accounts.view o error de red)'),
+                          })
+                        }
+                      >
+                        Comprobar
+                      </Button>
+                    </td>
                     <td className="space-x-2 text-right">
                       {a.is_backup_enabled ? (
                         <Button
@@ -159,6 +179,53 @@ export default function AccountsPage() {
           </div>
         )}
       </Card>
+
+      <Modal show={accessCheck !== null} onClose={() => setAccessCheck(null)} size="xl">
+        <Modal.Header>Comprobación de acceso</Modal.Header>
+        <Modal.Body className="space-y-4 text-sm max-h-[75vh] overflow-y-auto">
+          {accessCheck && (
+            <>
+              <p className="text-slate-600 dark:text-slate-400">{accessCheck.email}</p>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className="rounded-lg border border-slate-200 dark:border-slate-700 p-3">
+                  <div className="font-medium mb-1">Google Drive</div>
+                  <Badge color={accessCheck.drive_ok ? 'success' : 'failure'}>
+                    {accessCheck.drive_ok ? 'OK' : 'Fallo'}
+                  </Badge>
+                  <pre className="mt-2 text-xs whitespace-pre-wrap break-words bg-slate-50 dark:bg-slate-900 p-2 rounded max-h-40 overflow-y-auto">
+                    {accessCheck.drive_detail ?? '—'}
+                  </pre>
+                </div>
+                <div className="rounded-lg border border-slate-200 dark:border-slate-700 p-3">
+                  <div className="font-medium mb-1">Gmail (API / GYB)</div>
+                  <Badge color={accessCheck.gmail_ok ? 'success' : 'failure'}>
+                    {accessCheck.gmail_ok ? 'OK' : 'Fallo'}
+                  </Badge>
+                  <pre className="mt-2 text-xs whitespace-pre-wrap break-words bg-slate-50 dark:bg-slate-900 p-2 rounded max-h-40 overflow-y-auto">
+                    {accessCheck.gmail_detail ?? '—'}
+                  </pre>
+                </div>
+              </div>
+              <div className="rounded-lg border border-slate-200 dark:border-slate-700 p-3">
+                <div className="font-medium mb-1">Maildir en el servidor (Dovecot)</div>
+                <Badge color={accessCheck.maildir_layout_ok ? 'success' : 'warning'}>
+                  {accessCheck.maildir_layout_ok ? 'cur/new/tmp OK' : 'Sin layout completo'}
+                </Badge>
+                <p className="mt-2 text-xs font-mono break-all">{accessCheck.maildir_path ?? '—'}</p>
+                <p className="mt-2 text-xs text-slate-500">
+                  Esto solo indica si la carpeta Maildir existe en disco; el contenido depende del último
+                  backup Gmail.
+                </p>
+              </div>
+            </>
+          )}
+        </Modal.Body>
+        <Modal.Footer>
+          <Button color="gray" onClick={() => setAccessCheck(null)}>
+            Cerrar
+          </Button>
+        </Modal.Footer>
+      </Modal>
     </div>
   )
 }

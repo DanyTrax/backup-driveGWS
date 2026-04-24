@@ -20,8 +20,15 @@ from app.api.deps import (
 from app.models.accounts import GwAccount
 from app.models.enums import AuditAction
 from app.models.users import SysUser
-from app.schemas.accounts import AccountApproveIn, AccountOut, AccountRevokeIn, SyncOut
+from app.schemas.accounts import (
+    AccountAccessCheckOut,
+    AccountApproveIn,
+    AccountOut,
+    AccountRevokeIn,
+    SyncOut,
+)
 from app.services.maildir_paths import maildir_home_from_email, maildir_root_for_account
+from app.services.account_access_service import verify_account_access
 from app.services.accounts_service import (
     approve_account,
     revoke_account,
@@ -100,6 +107,25 @@ async def _load(db: AsyncSession, account_id: uuid.UUID) -> GwAccount:
     if acc is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "account_not_found")
     return acc
+
+
+@router.get(
+    "/{account_id}/verify-access",
+    response_model=AccountAccessCheckOut,
+    summary="Comprobar acceso Drive, Gmail y Maildir local",
+)
+async def verify_access(
+    account_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _u: SysUser = Depends(require_permission("accounts.view")),
+) -> AccountAccessCheckOut:
+    """Ejecuta ``rclone about`` (delegación), ``rclone lsf`` al vault si existe, y ``gyb --action estimate``.
+
+    No modifica datos; puede tardar decenas de segundos si el buzón es grande (estimate).
+    """
+    acc = await _load(db, account_id)
+    data = await verify_account_access(db, acc)
+    return AccountAccessCheckOut.model_validate(data)
 
 
 @router.post("/{account_id}/approve", response_model=AccountOut)
