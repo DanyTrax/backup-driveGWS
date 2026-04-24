@@ -5,7 +5,7 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, Response, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -20,15 +20,18 @@ from app.api.deps import (
 from app.models.accounts import GwAccount
 from app.models.enums import AuditAction
 from app.models.users import SysUser
+from app.core.database import AsyncSessionLocal
 from app.schemas.accounts import (
     AccountAccessCheckOut,
     AccountApproveIn,
     AccountOut,
     AccountRevokeIn,
     SyncOut,
+    VerifyAccessStreamStartOut,
 )
 from app.services.maildir_paths import maildir_home_from_email, maildir_root_for_account
 from app.services.account_access_service import verify_account_access
+from app.services.progress_bus import publish
 from app.services.accounts_service import (
     approve_account,
     revoke_account,
@@ -107,6 +110,59 @@ async def _load(db: AsyncSession, account_id: uuid.UUID) -> GwAccount:
     if acc is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "account_not_found")
     return acc
+
+
+async def _verify_access_stream_task(account_id: uuid.UUID, session_id: str) -> None:
+    try:
+        async with AsyncSessionLocal() as db:
+            acc = (
+                (await db.execute(select(GwAccount).where(GwAccount.id == account_id)))
+                .scalar_one_or_none()
+            )
+            if acc is None:
+                await publish(
+                    session_id,
+                    {
+                        "stage": "verify_access",
+                        "phase": "error",
+                        "progress_pct": 0,
+                        "message": "account_not_found",
+                    },
+                )
+                return
+            await verify_account_access(db, acc, progress_id=session_id)
+    except Exception as exc:  # pragma: no cover
+        await publish(
+            session_id,
+            {
+                "stage": "verify_access",
+                "phase": "error",
+                "progress_pct": 0,
+                "message": str(exc)[:4000],
+            },
+        )
+
+
+@router.post(
+    "/{account_id}/verify-access/stream",
+    response_model=VerifyAccessStreamStartOut,
+    summary="Iniciar comprobación con progreso en vivo (WebSocket)",
+)
+async def verify_access_stream_start(
+    account_id: uuid.UUID,
+    background_tasks: BackgroundTasks,
+    db: AsyncSession = Depends(get_db),
+    _u: SysUser = Depends(require_permission("accounts.view")),
+) -> VerifyAccessStreamStartOut:
+    """Devuelve ``session_id``. Conectá el cliente a ``/api/backup/ws/progress/{session_id}?token=…``.
+
+    Los eventos llevan ``stage: verify_access`` y ``phase`` / ``progress_pct`` / ``message``.
+    Al terminar, ``phase: complete`` incluye ``result`` con el mismo cuerpo que GET verify-access.
+    """
+    await _load(db, account_id)
+    session_id = str(uuid.uuid4())
+    background_tasks.add_task(_verify_access_stream_task, account_id, session_id)
+    return VerifyAccessStreamStartOut(session_id=session_id)
 
 
 @router.get(

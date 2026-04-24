@@ -84,6 +84,7 @@ export function useRevokeAccount() {
 /** GYB estimate puede tardar varios minutos; el cliente por defecto corta a 30s. */
 const VERIFY_ACCESS_TIMEOUT_MS = 360_000
 
+/** Comprobación síncrona (sin barra de progreso); preferí verify-access/stream + WebSocket en la UI. */
 export function useVerifyAccountAccess() {
   return useMutation({
     mutationFn: async (id: string) =>
@@ -92,6 +93,13 @@ export function useVerifyAccountAccess() {
           timeout: VERIFY_ACCESS_TIMEOUT_MS,
         })
       ).data,
+  })
+}
+
+export function useStartVerifyAccessStream() {
+  return useMutation({
+    mutationFn: async (accountId: string) =>
+      (await api.post<{ session_id: string }>(`/accounts/${accountId}/verify-access/stream`)).data,
   })
 }
 

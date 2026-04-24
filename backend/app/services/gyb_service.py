@@ -8,6 +8,7 @@ import shutil
 import tempfile
 from contextlib import asynccontextmanager, suppress
 from dataclasses import dataclass
+from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import AsyncIterator, Iterable
 
@@ -87,6 +88,7 @@ async def run_gyb(
     argv: list[str],
     *,
     on_line: "callable[[str], None] | None" = None,
+    async_on_line: Callable[[str], Awaitable[None]] | None = None,
     timeout: int | None = None,
     cancel_log_id: str | None = None,
 ) -> tuple[int, str]:
@@ -122,6 +124,11 @@ async def run_gyb(
             if on_line:
                 try:
                     on_line(decoded)
+                except Exception:
+                    pass
+            if async_on_line:
+                try:
+                    await async_on_line(decoded)
                 except Exception:
                     pass
             if cancel_log_id and await is_log_cancelled(cancel_log_id):

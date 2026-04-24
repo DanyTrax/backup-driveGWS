@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import type { AxiosError } from 'axios'
 import { Badge, Button, Card, Modal, TextInput, ToggleSwitch } from 'flowbite-react'
 import { HiSearch, HiRefresh } from 'react-icons/hi'
@@ -7,10 +7,11 @@ import {
   useAccounts,
   useApproveAccount,
   useRevokeAccount,
+  useStartVerifyAccessStream,
   useSyncAccounts,
-  useVerifyAccountAccess,
 } from '../api/hooks'
-import type { AccountAccessCheck } from '../api/types'
+import type { AccountAccessCheck, WorkspaceAccount } from '../api/types'
+import { useAuthStore } from '../stores/auth'
 
 function verifyAccessErrorMessage(err: unknown): string {
   const ax = err as AxiosError<{ detail?: unknown }>
@@ -31,6 +32,17 @@ function verifyAccessErrorMessage(err: unknown): string {
   return ax.message || 'Error de red o del servidor. Revisá la consola de red (F12).'
 }
 
+type LiveVerifyState = {
+  accountId: string
+  accountEmail: string
+  streaming: boolean
+  progressPct: number
+  message: string
+  gmailActivity: string
+  result: AccountAccessCheck | null
+  error: string | null
+}
+
 export default function AccountsPage() {
   const [search, setSearch] = useState('')
   const [onlyEnabled, setOnlyEnabled] = useState(false)
@@ -38,8 +50,9 @@ export default function AccountsPage() {
   const sync = useSyncAccounts()
   const approve = useApproveAccount()
   const revoke = useRevokeAccount()
-  const verifyAccess = useVerifyAccountAccess()
-  const [accessCheck, setAccessCheck] = useState<AccountAccessCheck | null>(null)
+  const startStream = useStartVerifyAccessStream()
+  const [liveVerify, setLiveVerify] = useState<LiveVerifyState | null>(null)
+  const wsRef = useRef<WebSocket | null>(null)
 
   const filtered = useMemo(() => {
     const term = search.trim().toLowerCase()
@@ -52,10 +65,105 @@ export default function AccountsPage() {
     )
   }, [data, search])
 
+  function closeVerifyModal() {
+    wsRef.current?.close()
+    wsRef.current = null
+    setLiveVerify(null)
+  }
+
+  async function onComprobar(a: WorkspaceAccount) {
+    const token = useAuthStore.getState().accessToken
+    if (!token) {
+      toast.error('Sesión expirada')
+      return
+    }
+    wsRef.current?.close()
+    wsRef.current = null
+    setLiveVerify({
+      accountId: a.id,
+      accountEmail: a.email,
+      streaming: true,
+      progressPct: 0,
+      message: 'Conectando…',
+      gmailActivity: '',
+      result: null,
+      error: null,
+    })
+    try {
+      const { session_id } = await startStream.mutateAsync(a.id)
+      const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+      const wsUrl = `${proto}//${window.location.host}/api/backup/ws/progress/${encodeURIComponent(session_id)}?token=${encodeURIComponent(token)}`
+      const ws = new WebSocket(wsUrl)
+      wsRef.current = ws
+      ws.onmessage = (ev) => {
+        try {
+          const data = JSON.parse(ev.data as string) as Record<string, unknown>
+          if (data.stage !== 'verify_access') return
+          const phase = data.phase as string | undefined
+          const pct =
+            typeof data.progress_pct === 'number' ? (data.progress_pct as number) : undefined
+          const msg = typeof data.message === 'string' ? (data.message as string) : ''
+          setLiveVerify((prev) => {
+            if (!prev) return null
+            const next = { ...prev }
+            if (pct !== undefined) next.progressPct = pct
+            if (msg) next.message = msg
+            if (typeof data.gmail_activity === 'string')
+              next.gmailActivity = data.gmail_activity as string
+            return next
+          })
+          if (phase === 'complete' && data.result && typeof data.result === 'object') {
+            setLiveVerify((prev) =>
+              prev
+                ? {
+                    ...prev,
+                    streaming: false,
+                    progressPct: 100,
+                    result: data.result as AccountAccessCheck,
+                  }
+                : null,
+            )
+            ws.close()
+            wsRef.current = null
+          }
+          if (phase === 'error') {
+            const errMsg =
+              typeof data.message === 'string' ? (data.message as string) : 'Error en comprobación'
+            setLiveVerify((prev) =>
+              prev ? { ...prev, streaming: false, error: errMsg, progressPct: prev.progressPct } : null,
+            )
+            toast.error(errMsg.length > 200 ? `${errMsg.slice(0, 200)}…` : errMsg)
+            ws.close()
+            wsRef.current = null
+          }
+        } catch {
+          /* JSON inválido */
+        }
+      }
+      ws.onerror = () => {
+        setLiveVerify((prev) =>
+          prev ? { ...prev, streaming: false, error: 'Error de WebSocket (¿proxy/NPM?)' } : null,
+        )
+        toast.error('WebSocket cerrado o no disponible')
+        wsRef.current = null
+      }
+    } catch (err) {
+      setLiveVerify((prev) =>
+        prev
+          ? { ...prev, streaming: false, error: verifyAccessErrorMessage(err) }
+          : null,
+      )
+      toast.error(verifyAccessErrorMessage(err))
+    }
+  }
+
   async function onSync() {
     await sync.mutateAsync()
     toast.success('Sincronización con Workspace completada')
   }
+
+  const showModal = liveVerify !== null
+  const result = liveVerify?.result
 
   return (
     <div className="space-y-6">
@@ -102,6 +210,7 @@ export default function AccountsPage() {
                   <th>IMAP</th>
                   <th>Bandeja local</th>
                   <th>Último backup</th>
+                  <th>Acceso</th>
                   <th></th>
                 </tr>
               </thead>
@@ -117,8 +226,8 @@ export default function AccountsPage() {
                           a.workspace_status === 'discovered'
                             ? 'info'
                             : a.workspace_status === 'deleted_in_workspace'
-                            ? 'failure'
-                            : 'warning'
+                              ? 'failure'
+                              : 'warning'
                         }
                       >
                         {a.workspace_status}
@@ -152,17 +261,11 @@ export default function AccountsPage() {
                       <Button
                         size="xs"
                         color="light"
-                        isProcessing={verifyAccess.isPending && verifyAccess.variables === a.id}
-                        onClick={() => {
-                          toast(
-                            'Comprobando acceso… La parte Gmail puede tardar varios minutos; no cierres la pestaña.',
-                            { duration: 6000 },
-                          )
-                          verifyAccess.mutate(a.id, {
-                            onSuccess: (data) => setAccessCheck(data),
-                            onError: (err) => toast.error(verifyAccessErrorMessage(err)),
-                          })
-                        }}
+                        isProcessing={
+                          startStream.isPending ||
+                          (!!liveVerify?.streaming && liveVerify.accountId === a.id)
+                        }
+                        onClick={() => void onComprobar(a)}
                       >
                         Comprobar
                       </Button>
@@ -203,48 +306,86 @@ export default function AccountsPage() {
         )}
       </Card>
 
-      <Modal show={accessCheck !== null} onClose={() => setAccessCheck(null)} size="xl">
+      <Modal show={showModal} onClose={closeVerifyModal} size="xl">
         <Modal.Header>Comprobación de acceso</Modal.Header>
         <Modal.Body className="space-y-4 text-sm max-h-[75vh] overflow-y-auto">
-          {accessCheck && (
+          {liveVerify && (
             <>
-              <p className="text-slate-600 dark:text-slate-400">{accessCheck.email}</p>
-              <div className="grid gap-3 sm:grid-cols-2">
-                <div className="rounded-lg border border-slate-200 dark:border-slate-700 p-3">
-                  <div className="font-medium mb-1">Google Drive</div>
-                  <Badge color={accessCheck.drive_ok ? 'success' : 'failure'}>
-                    {accessCheck.drive_ok ? 'OK' : 'Fallo'}
-                  </Badge>
-                  <pre className="mt-2 text-xs whitespace-pre-wrap break-words bg-slate-50 dark:bg-slate-900 p-2 rounded max-h-40 overflow-y-auto">
-                    {accessCheck.drive_detail ?? '—'}
-                  </pre>
+              <p className="text-slate-600 dark:text-slate-400">{liveVerify.accountEmail}</p>
+
+              {(liveVerify.streaming || (!liveVerify.result && !liveVerify.error)) && (
+                <div className="space-y-2 rounded-lg border border-slate-200 dark:border-slate-700 p-3 bg-slate-50/80 dark:bg-slate-900/40">
+                  <div className="flex justify-between text-xs text-slate-600 dark:text-slate-400">
+                    <span>Progreso estimado</span>
+                    <span>{Math.round(liveVerify.progressPct)}%</span>
+                  </div>
+                  <div className="w-full bg-slate-200 rounded-full h-2.5 dark:bg-slate-700 overflow-hidden">
+                    <div
+                      className="bg-blue-600 h-2.5 rounded-full transition-all duration-300 ease-out"
+                      style={{ width: `${Math.min(100, Math.max(0, liveVerify.progressPct))}%` }}
+                    />
+                  </div>
+                  <p className="text-xs text-slate-700 dark:text-slate-300">{liveVerify.message}</p>
+                  {liveVerify.gmailActivity ? (
+                    <pre className="text-[11px] whitespace-pre-wrap break-words bg-slate-100 dark:bg-slate-950 p-2 rounded max-h-24 overflow-y-auto font-mono opacity-90">
+                      {liveVerify.gmailActivity}
+                    </pre>
+                  ) : null}
+                  {liveVerify.streaming ? (
+                    <p className="text-xs text-slate-500">
+                      Los eventos llegan en vivo por WebSocket. La fase Gmail (GYB) suele ser la más
+                      larga.
+                    </p>
+                  ) : null}
                 </div>
-                <div className="rounded-lg border border-slate-200 dark:border-slate-700 p-3">
-                  <div className="font-medium mb-1">Gmail (API / GYB)</div>
-                  <Badge color={accessCheck.gmail_ok ? 'success' : 'failure'}>
-                    {accessCheck.gmail_ok ? 'OK' : 'Fallo'}
-                  </Badge>
-                  <pre className="mt-2 text-xs whitespace-pre-wrap break-words bg-slate-50 dark:bg-slate-900 p-2 rounded max-h-40 overflow-y-auto">
-                    {accessCheck.gmail_detail ?? '—'}
-                  </pre>
+              )}
+
+              {liveVerify.error && !liveVerify.result ? (
+                <div className="rounded-lg border border-red-200 dark:border-red-900/50 bg-red-50/50 dark:bg-red-950/20 p-3 text-red-800 dark:text-red-200 text-xs whitespace-pre-wrap">
+                  {liveVerify.error}
                 </div>
-              </div>
-              <div className="rounded-lg border border-slate-200 dark:border-slate-700 p-3">
-                <div className="font-medium mb-1">Maildir en el servidor (Dovecot)</div>
-                <Badge color={accessCheck.maildir_layout_ok ? 'success' : 'warning'}>
-                  {accessCheck.maildir_layout_ok ? 'cur/new/tmp OK' : 'Sin layout completo'}
-                </Badge>
-                <p className="mt-2 text-xs font-mono break-all">{accessCheck.maildir_path ?? '—'}</p>
-                <p className="mt-2 text-xs text-slate-500">
-                  Esto solo indica si la carpeta Maildir existe en disco; el contenido depende del último
-                  backup Gmail.
-                </p>
-              </div>
+              ) : null}
+
+              {result ? (
+                <>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <div className="rounded-lg border border-slate-200 dark:border-slate-700 p-3">
+                      <div className="font-medium mb-1">Google Drive</div>
+                      <Badge color={result.drive_ok ? 'success' : 'failure'}>
+                        {result.drive_ok ? 'OK' : 'Fallo'}
+                      </Badge>
+                      <pre className="mt-2 text-xs whitespace-pre-wrap break-words bg-slate-50 dark:bg-slate-900 p-2 rounded max-h-40 overflow-y-auto">
+                        {result.drive_detail ?? '—'}
+                      </pre>
+                    </div>
+                    <div className="rounded-lg border border-slate-200 dark:border-slate-700 p-3">
+                      <div className="font-medium mb-1">Gmail (API / GYB)</div>
+                      <Badge color={result.gmail_ok ? 'success' : 'failure'}>
+                        {result.gmail_ok ? 'OK' : 'Fallo'}
+                      </Badge>
+                      <pre className="mt-2 text-xs whitespace-pre-wrap break-words bg-slate-50 dark:bg-slate-900 p-2 rounded max-h-40 overflow-y-auto">
+                        {result.gmail_detail ?? '—'}
+                      </pre>
+                    </div>
+                  </div>
+                  <div className="rounded-lg border border-slate-200 dark:border-slate-700 p-3">
+                    <div className="font-medium mb-1">Maildir en el servidor (Dovecot)</div>
+                    <Badge color={result.maildir_layout_ok ? 'success' : 'warning'}>
+                      {result.maildir_layout_ok ? 'cur/new/tmp OK' : 'Sin layout completo'}
+                    </Badge>
+                    <p className="mt-2 text-xs font-mono break-all">{result.maildir_path ?? '—'}</p>
+                    <p className="mt-2 text-xs text-slate-500">
+                      Indica si la carpeta Maildir existe en disco; el contenido depende del último backup
+                      Gmail.
+                    </p>
+                  </div>
+                </>
+              ) : null}
             </>
           )}
         </Modal.Body>
         <Modal.Footer>
-          <Button color="gray" onClick={() => setAccessCheck(null)}>
+          <Button color="gray" onClick={closeVerifyModal}>
             Cerrar
           </Button>
         </Modal.Footer>

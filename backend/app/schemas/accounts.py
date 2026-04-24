@@ -56,3 +56,9 @@ class AccountAccessCheckOut(BaseModel):
     gmail_detail: str | None
     maildir_path: str | None
     maildir_layout_ok: bool
+
+
+class VerifyAccessStreamStartOut(BaseModel):
+    """Inicio de comprobación con progreso por WebSocket ``/api/backup/ws/progress/{session_id}``."""
+
+    session_id: str
