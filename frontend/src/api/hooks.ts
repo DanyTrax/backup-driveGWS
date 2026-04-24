@@ -175,6 +175,14 @@ export function useBackupLogs(params?: { status?: string; taskId?: string }) {
   })
 }
 
+export function useBackupLogDetail(logId: string | null) {
+  return useQuery({
+    queryKey: ['backup-log-detail', logId],
+    queryFn: async () => (await api.get<BackupLog>(`/backup/logs/${logId}`)).data,
+    enabled: Boolean(logId),
+  })
+}
+
 export function useRestoreJobs() {
   return useQuery({
     queryKey: ['restore-jobs'],

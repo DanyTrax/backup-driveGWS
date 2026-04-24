@@ -2,6 +2,7 @@ import { Badge, Button, Card, Modal, Select } from 'flowbite-react'
 import { useState } from 'react'
 import toast from 'react-hot-toast'
 import {
+  useBackupLogDetail,
   useBackupLogs,
   useCancelBackupBatch,
   useCancelBackupLog,
@@ -33,6 +34,8 @@ export default function LogsPage() {
   const cancelBatch = useCancelBackupBatch()
 
   const [confirmLog, setConfirmLog] = useState<BackupLog | null>(null)
+  const [detailId, setDetailId] = useState<string | null>(null)
+  const detailQuery = useBackupLogDetail(detailId)
 
   async function doCancelThisOnly(log: BackupLog) {
     try {
@@ -73,7 +76,8 @@ export default function LogsPage() {
       <div>
         <h1 className="text-2xl font-semibold">Historial de ejecuciones</h1>
         <p className="text-slate-500">
-          Cancelá una cuenta en curso o todo el lote (mismo disparo manual o programado).
+          Hacé clic en una fila para ver el detalle completo (IDs, rutas, error del servidor).
+          Podés cancelar una cuenta en curso o todo el lote desde el botón de la fila.
         </p>
       </div>
       <Card>
@@ -110,7 +114,19 @@ export default function LogsPage() {
               </thead>
               <tbody>
                 {data.map((l) => (
-                  <tr key={l.id} className="border-t border-slate-100 dark:border-slate-800">
+                  <tr
+                    key={l.id}
+                    role="button"
+                    tabIndex={0}
+                    className="border-t border-slate-100 dark:border-slate-800 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/60"
+                    onClick={() => setDetailId(l.id)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault()
+                        setDetailId(l.id)
+                      }
+                    }}
+                  >
                     <td className="py-2">{l.started_at ?? '—'}</td>
                     <td>{l.finished_at ?? '—'}</td>
                     <td className="text-xs font-mono">{l.task_id.slice(0, 8)}…</td>
@@ -150,7 +166,10 @@ export default function LogsPage() {
                           size="xs"
                           color="failure"
                           disabled={cancelLog.isPending || cancelBatch.isPending}
-                          onClick={() => onClickCancel(l)}
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            onClickCancel(l)
+                          }}
                         >
                           Cancelar
                         </Button>
@@ -163,6 +182,111 @@ export default function LogsPage() {
           </div>
         )}
       </Card>
+
+      <Modal show={detailId !== null} onClose={() => setDetailId(null)} size="xl">
+        <Modal.Header>Detalle de ejecución</Modal.Header>
+        <Modal.Body className="space-y-4 max-h-[75vh] overflow-y-auto">
+          {detailQuery.isLoading ? (
+            <p className="text-slate-500">Cargando…</p>
+          ) : detailQuery.isError ? (
+            <p className="text-red-600">No se pudo cargar el detalle. Reintentá.</p>
+          ) : detailQuery.data ? (
+            <>
+              <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-2 text-sm">
+                <div>
+                  <dt className="text-slate-500">ID del log</dt>
+                  <dd className="font-mono text-xs break-all">{detailQuery.data.id}</dd>
+                </div>
+                <div>
+                  <dt className="text-slate-500">Estado</dt>
+                  <dd>
+                    <Badge
+                      color={
+                        detailQuery.data.status === 'success'
+                          ? 'success'
+                          : detailQuery.data.status === 'failed'
+                            ? 'failure'
+                            : detailQuery.data.status === 'running'
+                              ? 'info'
+                              : 'gray'
+                      }
+                    >
+                      {detailQuery.data.status}
+                    </Badge>
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-slate-500">Tarea (task_id)</dt>
+                  <dd className="font-mono text-xs break-all">{detailQuery.data.task_id}</dd>
+                </div>
+                <div>
+                  <dt className="text-slate-500">Cuenta (account_id)</dt>
+                  <dd className="font-mono text-xs break-all">{detailQuery.data.account_id}</dd>
+                </div>
+                <div>
+                  <dt className="text-slate-500">Lote (run_batch_id)</dt>
+                  <dd className="font-mono text-xs break-all">
+                    {detailQuery.data.run_batch_id ?? '—'}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-slate-500">Celery task id</dt>
+                  <dd className="font-mono text-xs break-all">
+                    {detailQuery.data.celery_task_id ?? '—'}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-slate-500">Scope / modo</dt>
+                  <dd>
+                    {detailQuery.data.scope} · {detailQuery.data.mode}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-slate-500">Inicio / fin</dt>
+                  <dd className="text-xs">
+                    {detailQuery.data.started_at ?? '—'}
+                    <br />
+                    {detailQuery.data.finished_at ?? '—'}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-slate-500">Bytes / archivos / mensajes / errores (contador)</dt>
+                  <dd>
+                    {humanBytes(detailQuery.data.bytes_transferred)} · {detailQuery.data.files_count}{' '}
+                    arch. · {detailQuery.data.messages_count} msg. · {detailQuery.data.errors_count}{' '}
+                    err.
+                  </dd>
+                </div>
+                <div className="sm:col-span-2">
+                  <dt className="text-slate-500">Ruta destino</dt>
+                  <dd className="font-mono text-xs break-all">
+                    {detailQuery.data.destination_path ?? '—'}
+                  </dd>
+                </div>
+                <div className="sm:col-span-2">
+                  <dt className="text-slate-500">Manifiesto SHA-256</dt>
+                  <dd className="font-mono text-xs break-all">
+                    {detailQuery.data.sha256_manifest_path ?? '—'}
+                  </dd>
+                </div>
+              </dl>
+              <div>
+                <div className="text-sm text-slate-500 mb-1">Motivo / traza del servidor</div>
+                <pre className="text-xs whitespace-pre-wrap break-words bg-slate-100 dark:bg-slate-900 text-slate-800 dark:text-slate-200 rounded-lg p-3 max-h-64 overflow-y-auto border border-slate-200 dark:border-slate-700">
+                  {detailQuery.data.error_summary?.trim()
+                    ? detailQuery.data.error_summary
+                    : '— (sin mensaje; si falló Gmail, revisá que la imagen del worker tenga GYB y reconstruyá con docker compose build --no-cache worker)'}
+                </pre>
+              </div>
+            </>
+          ) : null}
+        </Modal.Body>
+        <Modal.Footer>
+          <Button color="gray" onClick={() => setDetailId(null)}>
+            Cerrar
+          </Button>
+        </Modal.Footer>
+      </Modal>
 
       <Modal show={confirmLog !== null} onClose={() => setConfirmLog(null)} size="md">
         <Modal.Header>¿Cómo cancelar?</Modal.Header>

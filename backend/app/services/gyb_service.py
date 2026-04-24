@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import shutil
 import tempfile
 from contextlib import asynccontextmanager, suppress
 from dataclasses import dataclass
@@ -14,6 +15,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.services.backup_batch_registry import is_log_cancelled
 from app.services.google.credentials import load_sa_info
+
+
+def gyb_executable() -> str:
+    """Ruta al binario GYB (imagen Docker o instalación manual)."""
+    for p in ("/usr/local/bin/gyb", "/opt/gyb/gyb", shutil.which("gyb") or ""):
+        if p and os.path.isfile(p) and os.access(p, os.X_OK):
+            return p
+    return "/usr/local/bin/gyb"
 
 
 @dataclass(slots=True)
@@ -87,7 +96,7 @@ async def run_gyb(
     cancel_log_id: str | None = None,
 ) -> tuple[int, str]:
     process = await asyncio.create_subprocess_exec(
-        "/usr/local/bin/gyb",
+        gyb_executable(),
         *argv,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.STDOUT,
