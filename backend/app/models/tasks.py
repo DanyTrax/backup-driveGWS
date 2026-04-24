@@ -102,7 +102,9 @@ class BackupTask(UUIDPKMixin, TimestampMixin, Base):
         lazy="selectin",
     )
     logs: Mapped[list["BackupLog"]] = relationship(
-        back_populates="task", cascade="all, delete-orphan"
+        back_populates="task",
+        cascade="all, delete-orphan",
+        lazy="selectin",
     )
 
     __table_args__ = (Index("ix_backup_tasks_is_enabled", "is_enabled"),)
@@ -119,7 +121,7 @@ class BackupLog(UUIDPKMixin, TimestampMixin, Base):
         nullable=False,
         index=True,
     )
-    task: Mapped["BackupTask"] = relationship(back_populates="logs")
+    task: Mapped["BackupTask"] = relationship(back_populates="logs", lazy="selectin")
 
     account_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
