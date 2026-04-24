@@ -16,6 +16,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.services.backup_batch_registry import is_log_cancelled
 from app.services.google.credentials import load_sa_info
 
+# GYB 1.9x lee la clave de servicio desde config_folder/oauth2service.json (--sa-file fue eliminado).
+
 
 def gyb_executable() -> str:
     """Ruta al binario GYB (imagen Docker o instalación manual)."""
@@ -29,8 +31,7 @@ def gyb_executable() -> str:
 
 @dataclass(slots=True)
 class GybWorkspace:
-    sa_json_path: str
-    oauth_json_path: str
+    config_folder: str
     local_folder: str
 
 
@@ -38,29 +39,20 @@ class GybWorkspace:
 async def prepare_gyb_workspace(
     db: AsyncSession, *, account_email: str, local_folder: str
 ) -> AsyncIterator[GybWorkspace]:
+    _ = account_email
     sa_info = await load_sa_info(db)
 
     tmpdir = tempfile.mkdtemp(prefix="gyb_", dir="/tmp")
-    sa_path = str(Path(tmpdir) / "sa.json")
-    oauth_path = str(Path(tmpdir) / "oauth2.txt")
+    sa_file = Path(tmpdir) / "oauth2service.json"
 
-    with open(sa_path, "w", encoding="utf-8") as f:
-        json.dump(sa_info, f)
-    os.chmod(sa_path, 0o600)
-
-    with open(oauth_path, "w", encoding="utf-8") as f:
-        f.write(sa_info.get("client_email", ""))
-    os.chmod(oauth_path, 0o600)
-
-    Path(local_folder).mkdir(parents=True, exist_ok=True)
     try:
-        yield GybWorkspace(sa_path, oauth_path, local_folder)
+        sa_file.write_text(json.dumps(sa_info, ensure_ascii=False, indent=2), encoding="utf-8")
+        os.chmod(sa_file, 0o600)
+
+        Path(local_folder).mkdir(parents=True, exist_ok=True)
+        yield GybWorkspace(config_folder=tmpdir, local_folder=local_folder)
     finally:
-        for p in (sa_path, oauth_path):
-            try:
-                os.unlink(p)
-            except OSError:
-                pass
+        shutil.rmtree(tmpdir, ignore_errors=True)
 
 
 def build_gyb_argv(
@@ -78,8 +70,8 @@ def build_gyb_argv(
         "--email", email,
         "--action", action,
         "--local-folder", workspace.local_folder,
+        "--config-folder", workspace.config_folder,
         "--service-account",
-        "--sa-file", workspace.sa_json_path,
         "--use-admin", email,
     ]
     if search:
