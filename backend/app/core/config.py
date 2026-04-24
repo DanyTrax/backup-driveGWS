@@ -62,6 +62,8 @@ class Settings(BaseSettings):
     git_refresh_mode: Literal["webhook", "bind_mount", "both"] = "webhook"
     git_repo_url: str = ""
     git_branch: str = "main"
+    # Ruta con carpeta .git (solo bind-mount avanzado). La imagen estándar no incluye .git en /app.
+    git_working_tree: str = "/app"
 
     platform_backup_age_recipient: str = ""
     platform_backup_daily_hour: int = 3

@@ -20,8 +20,6 @@ from app.services.git_refresh import pull_and_status
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
-settings = get_settings()
-
 
 @router.post("/git-refresh")
 async def git_refresh(
@@ -29,7 +27,31 @@ async def git_refresh(
     db: AsyncSession = Depends(get_db),
     current: SysUser = Depends(require_permission("platform.refresh")),
 ) -> dict:
-    repo_path = Path("/app")
+    cfg = get_settings()
+    repo_path = Path(cfg.git_working_tree)
+    if not (repo_path / ".git").is_dir():
+        result = {
+            "ok": False,
+            "error": "not_a_git_repository",
+            "hint": (
+                "En la imagen Docker el código se copia sin carpeta .git. "
+                "Actualizá en el servidor con: cd /opt/stacks/backup-stack && git pull "
+                "&& cd docker && docker compose up -d --build. "
+                "Opcional: montá un clon del repo con .git y definí GIT_WORKING_TREE en .env."
+            ),
+        }
+        await record_audit(
+            db,
+            action=AuditAction.GIT_REFRESH,
+            actor_user_id=current.id,
+            actor_label=current.email,
+            ip_address=get_client_ip(request),
+            user_agent=get_user_agent(request),
+            success=False,
+            metadata=result,
+        )
+        await db.commit()
+        return result
     result = await pull_and_status(repo_path)
     await record_audit(
         db,

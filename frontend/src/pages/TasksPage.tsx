@@ -14,8 +14,24 @@ import {
 } from '../api/hooks'
 import type { BackupTask, WorkspaceAccount } from '../api/types'
 
+function formatApiDetail(d: unknown): string | null {
+  if (d == null) return null
+  if (typeof d === 'string') return d
+  if (Array.isArray(d)) {
+    return d
+      .map((item) => {
+        if (item && typeof item === 'object' && 'msg' in item)
+          return String((item as { msg: string }).msg)
+        return JSON.stringify(item)
+      })
+      .join(' · ')
+  }
+  if (typeof d === 'object') return JSON.stringify(d)
+  return String(d)
+}
+
 function toastTaskSaveError(err: unknown) {
-  const ax = err as { response?: { status?: number; data?: { detail?: unknown } } }
+  const ax = err as { response?: { status?: number; data?: { detail?: unknown } }; message?: string }
   const st = ax.response?.status
   const d = ax.response?.data?.detail
   if (st === 403) {
@@ -44,11 +60,29 @@ function toastTaskSaveError(err: unknown) {
     return
   }
   if (st === 422) {
-    toast.error('Datos de la tarea inválidos. Revisá hora, modo y campos obligatorios.')
+    const msg = formatApiDetail(d)
+    toast.error(
+      msg
+        ? `Revisá el formulario: ${msg.slice(0, 400)}`
+        : 'Datos de la tarea inválidos. Revisá hora, modo y campos obligatorios.',
+    )
+    return
+  }
+  const detailMsg = formatApiDetail(d)
+  if (detailMsg && st && st >= 400) {
+    toast.error(`No se pudo guardar la tarea: ${detailMsg.slice(0, 420)}`)
+    return
+  }
+  if (!ax.response) {
+    toast.error(
+      ax.message?.includes('Network')
+        ? 'Sin conexión con el servidor. Revisá red o VPN.'
+        : 'Sin respuesta del servidor (timeout o corte). Reintentá.',
+    )
     return
   }
   toast.error(
-    'No se pudo guardar la tarea. Si el problema persiste, revisá permisos y los logs del servidor.',
+    'No se pudo guardar la tarea. Revisá docker logs msa-backup-app y la consola de red (F12).',
   )
 }
 

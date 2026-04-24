@@ -6,6 +6,13 @@ set -euo pipefail
 ROLE="${ROLE:-api}"
 cd /app
 
+# Volumen compartido app/worker/dovecot: permisos para crear Maildir aunque el volumen
+# se cree con otro propietario (p. ej. dovecot en el primer arranque).
+prepare_maildir_volume() {
+  mkdir -p /var/mail/vhosts
+  chmod 0777 /var/mail/vhosts 2>/dev/null || true
+}
+
 wait_for_postgres() {
   echo "[entrypoint] waiting for Postgres..."
   python - <<'PY'
@@ -47,6 +54,7 @@ run_migrations() {
 
 case "${ROLE}" in
   api)
+    prepare_maildir_volume
     wait_for_postgres
     wait_for_redis
     run_migrations
@@ -58,6 +66,7 @@ case "${ROLE}" in
     exec celery -A app.workers.celery_app worker --loglevel=INFO --concurrency="${CELERY_CONCURRENCY:-2}"
     ;;
   beat)
+    prepare_maildir_volume
     wait_for_postgres
     wait_for_redis
     exec celery -A app.workers.celery_app beat --loglevel=INFO --schedule=/data/celerybeat-schedule

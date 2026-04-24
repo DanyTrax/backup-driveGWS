@@ -15,6 +15,10 @@ export default function SettingsPage() {
   async function onGitRefresh() {
     try {
       const r = await gitRefresh.mutateAsync()
+      if (r.error === 'not_a_git_repository' && r.hint) {
+        toast.error(r.hint, { duration: 14_000 })
+        return
+      }
       if (r.ok) {
         const short = r.head ? `${r.head.slice(0, 7)}` : '—'
         toast.success(`Repositorio actualizado (fetch, checkout, reset). HEAD ${short}`)
@@ -95,12 +99,12 @@ export default function SettingsPage() {
         <Card>
           <h2 className="font-semibold mb-2">Git y respaldo de plataforma</h2>
           <p className="text-sm text-slate-500 mb-4">
-            Misma acción que <strong>Git Refresh</strong> en despliegues con código montado en{' '}
-            <code className="text-xs bg-slate-100 dark:bg-slate-800 px-1 rounded">/app</code>:{' '}
-            <code className="text-xs bg-slate-100 dark:bg-slate-800 px-1 rounded">git fetch</code>,{' '}
-            <code className="text-xs bg-slate-100 dark:bg-slate-800 px-1 rounded">checkout</code> y{' '}
-            <code className="text-xs bg-slate-100 dark:bg-slate-800 px-1 rounded">reset --hard origin/&lt;rama&gt;</code>
-            . Reiniciá el contenedor <code className="text-xs">app</code> si hace falta cargar dependencias nuevas.
+            <strong>En VPS con imagen Docker</strong> el código en <code className="text-xs">/app</code> no trae carpeta{' '}
+            <code className="text-xs">.git</code>: ahí tenés que actualizar con{' '}
+            <code className="text-xs">git pull</code> en el host (<code className="text-xs">/opt/stacks/backup-stack</code>) y{' '}
+            <code className="text-xs">docker compose up -d --build</code> desde <code className="text-xs">docker/</code>.
+            El botón solo sirve si montás un repo con <code className="text-xs">.git</code> y configurás{' '}
+            <code className="text-xs">GIT_WORKING_TREE</code> en <code className="text-xs">.env</code>.
           </p>
           <div className="flex flex-wrap gap-2">
             {canGitRefresh ? (

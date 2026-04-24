@@ -123,6 +123,8 @@ export interface GitRefreshStep {
 
 export interface GitRefreshResult {
   ok: boolean
+  error?: string
+  hint?: string
   head?: string
   steps?: GitRefreshStep[]
 }
