@@ -101,10 +101,12 @@ class BackupTask(UUIDPKMixin, TimestampMixin, Base):
         back_populates="backup_tasks",
         lazy="selectin",
     )
+    # Sin delete-orphan: los logs se crean con task_id explícito; al borrar la tarea aplica ON DELETE CASCADE.
+    # noload + passive_deletes evita cargas lazy/sync durante flush con AsyncSession (greenlet_spawn).
     logs: Mapped[list["BackupLog"]] = relationship(
         back_populates="task",
-        cascade="all, delete-orphan",
-        lazy="selectin",
+        passive_deletes=True,
+        lazy="noload",
     )
 
     __table_args__ = (Index("ix_backup_tasks_is_enabled", "is_enabled"),)
@@ -121,7 +123,7 @@ class BackupLog(UUIDPKMixin, TimestampMixin, Base):
         nullable=False,
         index=True,
     )
-    task: Mapped["BackupTask"] = relationship(back_populates="logs", lazy="selectin")
+    task: Mapped["BackupTask"] = relationship(back_populates="logs", lazy="noload")
 
     account_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),

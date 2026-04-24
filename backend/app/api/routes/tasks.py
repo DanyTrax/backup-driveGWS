@@ -27,7 +27,8 @@ router = APIRouter(prefix="/tasks", tags=["tasks"])
 log = get_logger("tasks")
 
 
-def _to_out(t: BackupTask) -> TaskOut:
+def _to_out(t: BackupTask, *, account_ids: list[str] | None = None) -> TaskOut:
+    ids = account_ids if account_ids is not None else [str(a.id) for a in (t.accounts or [])]
     return TaskOut(
         id=str(t.id),
         name=t.name,
@@ -46,7 +47,7 @@ def _to_out(t: BackupTask) -> TaskOut:
         dry_run=t.dry_run,
         checksum_enabled=t.checksum_enabled,
         max_parallel_accounts=t.max_parallel_accounts,
-        account_ids=[str(a.id) for a in (t.accounts or [])],
+        account_ids=ids,
         last_run_at=t.last_run_at,
         last_status=t.last_status,
         created_at=t.created_at,
@@ -155,7 +156,8 @@ async def create_task(
             message="task_created",
         )
         await db.commit()
-        return _to_out(await _load(db, task.id))
+        t = (await db.execute(select(BackupTask).where(BackupTask.id == task.id))).scalar_one()
+        return _to_out(t, account_ids=await _junction_account_ids(db, task.id))
     except HTTPException:
         await db.rollback()
         raise
@@ -207,7 +209,8 @@ async def update_task(
         message="task_updated",
     )
     await db.commit()
-    return _to_out(await _load(db, task.id))
+    t = (await db.execute(select(BackupTask).where(BackupTask.id == task_id))).scalar_one()
+    return _to_out(t, account_ids=await _junction_account_ids(db, task_id))
 
 
 @router.delete(
