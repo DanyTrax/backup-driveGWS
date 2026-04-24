@@ -28,9 +28,10 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 # - libmagic1: magic sniffing
 # - tini: init
 # - age: cifrado de platform backups
+# - xz-utils: tar -xJf necesita el binario `xz` para extraer .tar.xz (GYB)
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
-      curl ca-certificates unzip git gcc libpq-dev libmagic1 tini age \
+      curl ca-certificates unzip xz-utils git gcc libpq-dev libmagic1 tini age \
       postgresql-client \
       tzdata supervisor \
  && rm -rf /var/lib/apt/lists/*
