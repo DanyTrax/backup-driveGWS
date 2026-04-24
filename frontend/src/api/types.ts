@@ -113,3 +113,24 @@ export interface SetupState {
   google_client_id: string | null
   required_scopes: string[]
 }
+
+export interface GitRefreshStep {
+  cmd: string
+  rc: number
+  stdout: string
+  stderr: string
+}
+
+export interface GitRefreshResult {
+  ok: boolean
+  head?: string
+  steps?: GitRefreshStep[]
+}
+
+export interface PlatformBackupResult {
+  ok: boolean
+  error?: string
+  file_id?: string
+  filename?: string
+  retention_deleted?: string[]
+}

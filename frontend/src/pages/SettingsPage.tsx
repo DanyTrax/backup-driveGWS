@@ -1,7 +1,63 @@
-import { Card } from 'flowbite-react'
+import { Button, Card } from 'flowbite-react'
+import toast from 'react-hot-toast'
+import { HiRefresh } from 'react-icons/hi'
 import { Link } from 'react-router-dom'
+import { useGitRefresh, usePlatformBackupRun, useProfile } from '../api/hooks'
 
 export default function SettingsPage() {
+  const { data: profile } = useProfile()
+  const gitRefresh = useGitRefresh()
+  const platformBackup = usePlatformBackupRun()
+  const perms = new Set(profile?.permissions ?? [])
+  const canGitRefresh = perms.has('platform.refresh')
+  const canPlatformBackup = perms.has('platform.backup')
+
+  async function onGitRefresh() {
+    try {
+      const r = await gitRefresh.mutateAsync()
+      if (r.ok) {
+        const short = r.head ? `${r.head.slice(0, 7)}` : '—'
+        toast.success(`Repositorio actualizado (fetch, checkout, reset). HEAD ${short}`)
+      } else {
+        const last = r.steps?.filter((s) => s.rc !== 0).pop() ?? r.steps?.[r.steps.length - 1]
+        const hint = [last?.stderr, last?.stdout].filter(Boolean).join('\n').trim()
+        toast.error(hint ? `Git refresh falló:\n${hint.slice(0, 500)}` : 'Git refresh falló (revisá logs del contenedor).')
+      }
+    } catch (err: unknown) {
+      const st = (err as { response?: { status?: number } })?.response?.status
+      if (st === 403) {
+        toast.error('No tenés permiso para Git refresh (hace falta platform.refresh).')
+      } else {
+        toast.error('No se pudo ejecutar Git refresh.')
+      }
+    }
+  }
+
+  async function onPlatformBackup() {
+    try {
+      const r = await platformBackup.mutateAsync()
+      if (r.ok) {
+        toast.success(`Backup de plataforma subido: ${r.filename ?? 'archivo .age'}`)
+      } else {
+        const code = r.error ?? 'error_desconocido'
+        const msg =
+          code === 'age_recipient_not_configured'
+            ? 'Falta configurar el destinatario age (PLATFORM_BACKUP_AGE_RECIPIENT) en el servidor.'
+            : code === 'vault_root_missing'
+              ? 'Falta vault de Drive configurado.'
+              : `No se pudo generar el backup (${code}).`
+        toast.error(msg)
+      }
+    } catch (err: unknown) {
+      const st = (err as { response?: { status?: number } })?.response?.status
+      if (st === 403) {
+        toast.error('No tenés permiso para backup de plataforma (platform.backup).')
+      } else {
+        toast.error('No se pudo ejecutar el backup de plataforma.')
+      }
+    }
+  }
+
   return (
     <div className="space-y-6">
       <div>
@@ -31,10 +87,42 @@ export default function SettingsPage() {
           </p>
         </Card>
         <Card>
-          <h2 className="font-semibold">Git Refresh</h2>
-          <p className="text-sm text-slate-500">
-            Despliega la última versión de la plataforma desde el repositorio.
+          <h2 className="font-semibold mb-2">Git y respaldo de plataforma</h2>
+          <p className="text-sm text-slate-500 mb-4">
+            Misma acción que <strong>Git Refresh</strong> en despliegues con código montado en{' '}
+            <code className="text-xs bg-slate-100 dark:bg-slate-800 px-1 rounded">/app</code>:{' '}
+            <code className="text-xs bg-slate-100 dark:bg-slate-800 px-1 rounded">git fetch</code>,{' '}
+            <code className="text-xs bg-slate-100 dark:bg-slate-800 px-1 rounded">checkout</code> y{' '}
+            <code className="text-xs bg-slate-100 dark:bg-slate-800 px-1 rounded">reset --hard origin/&lt;rama&gt;</code>
+            . Reiniciá el contenedor <code className="text-xs">app</code> si hace falta cargar dependencias nuevas.
           </p>
+          <div className="flex flex-wrap gap-2">
+            {canGitRefresh ? (
+              <Button
+                color="blue"
+                onClick={() => void onGitRefresh()}
+                disabled={gitRefresh.isPending}
+                isProcessing={gitRefresh.isPending}
+              >
+                <HiRefresh className="h-4 w-4 mr-2" />
+                Actualizar repositorio (Git refresh)
+              </Button>
+            ) : (
+              <p className="text-sm text-amber-700 dark:text-amber-400">
+                Tu rol no incluye permiso <code className="text-xs">platform.refresh</code>.
+              </p>
+            )}
+            {canPlatformBackup ? (
+              <Button
+                color="light"
+                onClick={() => void onPlatformBackup()}
+                disabled={platformBackup.isPending}
+                isProcessing={platformBackup.isPending}
+              >
+                Backup cifrado de plataforma
+              </Button>
+            ) : null}
+          </div>
         </Card>
       </div>
     </div>

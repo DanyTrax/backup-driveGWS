@@ -3,6 +3,8 @@ import api from './client'
 import type {
   BackupLog,
   BackupTask,
+  GitRefreshResult,
+  PlatformBackupResult,
   Profile,
   RestoreJob,
   RunTaskResult,
@@ -172,5 +174,17 @@ export function useSetupState() {
   return useQuery({
     queryKey: ['setup-state'],
     queryFn: async () => (await api.get<SetupState>('/setup/state')).data,
+  })
+}
+
+export function useGitRefresh() {
+  return useMutation({
+    mutationFn: async () => (await api.post<GitRefreshResult>('/admin/git-refresh')).data,
+  })
+}
+
+export function usePlatformBackupRun() {
+  return useMutation({
+    mutationFn: async () => (await api.post<PlatformBackupResult>('/admin/platform-backup')).data,
   })
 }
