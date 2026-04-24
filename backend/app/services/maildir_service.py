@@ -1,6 +1,7 @@
-"""Convert GYB `.mbox` exports into Maildir layouts served by Dovecot."""
+"""Convert GYB exports into Maildir layouts served by Dovecot."""
 from __future__ import annotations
 
+import email
 import email.utils
 import hashlib
 import mailbox
@@ -9,6 +10,7 @@ import re
 import shutil
 import time
 from dataclasses import dataclass
+from email.message import Message
 from pathlib import Path
 
 
@@ -47,6 +49,7 @@ def clear_maildir_tree(maildir_root: Path) -> None:
 @dataclass(slots=True)
 class MaildirImportStats:
     mbox_files: int = 0
+    eml_files: int = 0
     messages: int = 0
     folders: int = 0
     skipped_duplicates: int = 0
@@ -56,43 +59,66 @@ def _message_digest(raw: bytes) -> str:
     return hashlib.sha1(raw).hexdigest()
 
 
+def _add_rfc822_to_maildirs(
+    msg: Message,
+    raw: bytes,
+    *,
+    maildir_root: Path,
+    default: mailbox.Maildir,
+    seen: set[str],
+    stats: MaildirImportStats,
+) -> None:
+    digest = _message_digest(raw)
+    if digest in seen:
+        stats.skipped_duplicates += 1
+        return
+    seen.add(digest)
+
+    labels = msg.get("X-Gmail-Labels") or msg.get("X-GMAIL-LABELS") or ""
+    targets: list[mailbox.Maildir] = [default]
+    if labels:
+        for label in [l.strip() for l in str(labels).split(",") if l.strip()]:
+            folder = _safe_folder(label)
+            sub_path = maildir_root / f".{folder}"
+            targets.append(_maildir(sub_path))
+            stats.folders += 1
+    for md in targets:
+        md.add(msg)
+    stats.messages += 1
+
+
 def import_mbox_tree_to_maildir(
     *,
     mbox_root: Path,
     maildir_root: Path,
 ) -> MaildirImportStats:
-    """Walk the GYB folder tree and merge every `.mbox` into a Maildir layout.
+    """Importa un directorio de backup GYB hacia Maildir.
 
-    GYB stores messages under `messages/` in one or more `.mbox` files plus a
-    sqlite index. We ignore the sqlite index and replay the mbox payloads,
-    turning Gmail labels into Maildir sub-folders.
+    GYB reciente guarda cada mensaje como ``.eml`` bajo ``YYYY/M/D/<id>.eml``.
+    Versiones antiguas usaban ``.mbox``. Se procesan ambos formatos.
     """
     stats = MaildirImportStats()
     seen: set[str] = set()
     maildir_root.mkdir(parents=True, exist_ok=True)
-
     default = _maildir(maildir_root)
+
     for mbox_file in mbox_root.rglob("*.mbox"):
         stats.mbox_files += 1
         box = mailbox.mbox(str(mbox_file))
         for msg in box:
             raw = bytes(msg.as_bytes())
-            digest = _message_digest(raw)
-            if digest in seen:
-                stats.skipped_duplicates += 1
-                continue
-            seen.add(digest)
+            _add_rfc822_to_maildirs(
+                msg, raw, maildir_root=maildir_root, default=default, seen=seen, stats=stats
+            )
 
-            labels = msg.get("X-Gmail-Labels") or msg.get("X-GMAIL-LABELS") or ""
-            targets: list[mailbox.Maildir] = [default]
-            if labels:
-                for label in [l.strip() for l in labels.split(",") if l.strip()]:
-                    folder = _safe_folder(label)
-                    sub_path = maildir_root / f".{folder}"
-                    targets.append(_maildir(sub_path))
-                    stats.folders += 1
-            for md in targets:
-                md.add(msg)
-            stats.messages += 1
+    for eml_path in mbox_root.rglob("*.eml"):
+        stats.eml_files += 1
+        raw = eml_path.read_bytes()
+        if not raw.strip():
+            continue
+        msg = email.message_from_bytes(raw)
+        _add_rfc822_to_maildirs(
+            msg, raw, maildir_root=maildir_root, default=default, seen=seen, stats=stats
+        )
 
     return stats

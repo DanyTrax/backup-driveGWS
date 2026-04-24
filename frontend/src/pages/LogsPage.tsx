@@ -243,10 +243,10 @@ export default function LogsPage() {
                 </div>
                 {detailQuery.data.scope === 'gmail' ? (
                   <div className="sm:col-span-2 rounded-lg bg-slate-50 dark:bg-slate-800/50 p-3 text-xs text-slate-600 dark:text-slate-400">
-                    <strong>Gmail:</strong> los mensajes se descargan con GYB al disco del servidor y se
-                    convierten a <strong>Maildir</strong> (ver «Ruta destino»). Eso es lo que ve Roundcube;
-                    no rellena la carpeta «Gmail» dentro de Google Drive. Si «mensajes» es 0, el buzón de
-                    origen puede estar vacío o la importación no encontró correos en esta corrida.
+                    <strong>Gmail:</strong> GYB guarda <code>.eml</code> en el servidor y la plataforma los
+                    importa a <strong>Maildir</strong> (ruta destino); Roundcube lee eso, no la carpeta
+                    «Gmail» de Drive. Si antes veías 0 mensajes con éxito, actualizá el worker: la importación
+                    antigua solo buscaba <code>.mbox</code>.
                   </div>
                 ) : null}
                 <div>
