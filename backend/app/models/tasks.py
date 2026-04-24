@@ -126,6 +126,9 @@ class BackupLog(UUIDPKMixin, TimestampMixin, Base):
         index=True,
     )
 
+    # Mismo UUID para todos los jobs encolados en un mismo disparo (manual o beat).
+    run_batch_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), index=True)
+
     parent_log_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("backup_logs.id", ondelete="SET NULL"),

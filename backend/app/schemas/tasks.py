@@ -60,12 +60,14 @@ class TaskOut(BaseModel):
 class RunResultOut(BaseModel):
     queued: int
     celery_ids: list[str]
+    batch_id: str
 
 
 class BackupLogOut(BaseModel):
     id: str
     task_id: str
     account_id: str
+    run_batch_id: str | None
     status: str
     scope: str
     mode: str

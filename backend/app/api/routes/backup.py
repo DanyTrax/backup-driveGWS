@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, WebSocket, status
 from sqlalchemy import select
@@ -21,6 +20,7 @@ from app.models.tasks import BackupLog
 from app.models.users import SysUser
 from app.schemas.tasks import BackupLogOut
 from app.services.audit_service import record_audit
+from app.services.backup_batch_registry import cancel_entire_batch
 from app.services.backup_engine import cancel_backup
 from app.services.progress_bus import last_event, subscribe
 
@@ -32,6 +32,7 @@ def _to_out(l: BackupLog) -> BackupLogOut:
         id=str(l.id),
         task_id=str(l.task_id),
         account_id=str(l.account_id),
+        run_batch_id=str(l.run_batch_id) if l.run_batch_id else None,
         status=l.status,
         scope=l.scope,
         mode=l.mode,
@@ -79,6 +80,34 @@ async def get_log(
     if log is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "log_not_found")
     return _to_out(log)
+
+
+@router.post(
+    "/batches/{batch_id}/cancel",
+    status_code=status.HTTP_200_OK,
+)
+async def cancel_batch(
+    batch_id: uuid.UUID,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    current: SysUser = Depends(require_permission("tasks.run")),
+) -> dict[str, int]:
+    """Cancela todo un lote (revoca Celery + marca logs en curso). Las cuentas ya finalizadas no cambian."""
+    stats = await cancel_entire_batch(db, batch_id=batch_id)
+    await record_audit(
+        db,
+        action=AuditAction.BACKUP_CANCELLED,
+        actor_user_id=current.id,
+        actor_label=current.email,
+        ip_address=get_client_ip(request),
+        user_agent=get_user_agent(request),
+        target_table="backup_logs",
+        target_id=str(batch_id),
+        message="batch_cancelled",
+        metadata=stats,
+    )
+    await db.commit()
+    return stats
 
 
 @router.post(

@@ -128,7 +128,7 @@ async def approve_account(
     *,
     approved_by_user_id: str,
 ) -> None:
-    """Enable backup for an account and provision its vault folders lazily."""
+    """Habilita backup y asegura el vault en Drive (reutiliza carpetas si ya existían tras un revoke)."""
     from app.services.google.drive import ensure_account_vault
     from app.services.settings_service import (
         KEY_VAULT_ROOT_FOLDER_ID,
@@ -159,6 +159,7 @@ async def approve_account(
 
 
 async def revoke_account(db: AsyncSession, account: GwAccount) -> None:
+    """Desactiva backup e IMAP de gestión; no borra Maildir ni datos en el vault de Drive."""
     account.is_backup_enabled = False
     account.imap_enabled = False
     await db.flush()

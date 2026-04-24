@@ -25,7 +25,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.accounts import GwAccount
 from app.models.enums import BackupScope, BackupStatus
 from app.models.tasks import BackupLog, BackupTask
-from app.services import gyb_service, maildir_service, rclone_service
+from app.services import drive_retention, gyb_service, maildir_service, rclone_service
+from app.services.backup_batch_registry import is_batch_cancelled, set_log_cancelled
 from app.services.maildir_paths import maildir_home_from_email, maildir_root_for_account
 from app.services.progress_bus import publish
 from app.services.settings_service import (
@@ -42,10 +43,12 @@ async def _create_log(
     account: GwAccount,
     scope: BackupScope,
     celery_task_id: str | None,
+    run_batch_id: uuid.UUID | None = None,
 ) -> BackupLog:
     log = BackupLog(
         task_id=task.id,
         account_id=account.id,
+        run_batch_id=run_batch_id,
         status=BackupStatus.RUNNING.value,
         scope=scope.value,
         mode=task.mode,
@@ -106,14 +109,26 @@ async def run_drive_backup(
     task: BackupTask,
     account: GwAccount,
     celery_task_id: str | None = None,
+    run_batch_id: uuid.UUID | None = None,
 ) -> BackupLog:
     log = await _create_log(
-        db, task=task, account=account, scope=BackupScope.DRIVE_ROOT, celery_task_id=celery_task_id
+        db,
+        task=task,
+        account=account,
+        scope=BackupScope.DRIVE_ROOT,
+        celery_task_id=celery_task_id,
+        run_batch_id=run_batch_id,
     )
     await db.commit()
 
     log_id = str(log.id)
     await publish(log_id, {"stage": "start", "scope": "drive", "account": account.email})
+
+    if run_batch_id and await is_batch_cancelled(str(run_batch_id)):
+        await _finalise_log(db, log, status=BackupStatus.CANCELLED, error_summary="batch_aborted")
+        await publish(log_id, {"stage": "cancelled", "reason": "batch"})
+        await db.commit()
+        return log
 
     vault = account.drive_vault_folder_id
     if not vault:
@@ -160,7 +175,14 @@ async def run_drive_backup(
                     asyncio.get_event_loop(),
                 )
 
-            rc, output = await rclone_service.run_rclone(argv, on_line=lambda l: None)
+            rc, output = await rclone_service.run_rclone(
+                argv, on_line=lambda l: None, cancel_log_id=log_id
+            )
+            await db.refresh(log)
+            if log.status == BackupStatus.CANCELLED.value:
+                await publish(log_id, {"stage": "cancelled"})
+                await db.commit()
+                return log
             if rc != 0:
                 await _finalise_log(
                     db,
@@ -180,6 +202,13 @@ async def run_drive_backup(
     status = BackupStatus.SUCCESS
     await _finalise_log(db, log, status=status)
     account.last_successful_backup_at = datetime.now(timezone.utc)
+    if not task.dry_run:
+        try:
+            removed = await drive_retention.prune_after_drive_backup(db, task=task, account=account)
+            if removed:
+                await publish(log_id, {"stage": "retention", "deleted_snapshots": removed})
+        except Exception as exc:  # pragma: no cover
+            await publish(log_id, {"stage": "retention_warning", "error": str(exc)})
     await publish(log_id, {"stage": "done", "status": status.value})
     await db.commit()
     return log
@@ -191,13 +220,25 @@ async def run_gmail_backup(
     task: BackupTask,
     account: GwAccount,
     celery_task_id: str | None = None,
+    run_batch_id: uuid.UUID | None = None,
 ) -> BackupLog:
     log = await _create_log(
-        db, task=task, account=account, scope=BackupScope.GMAIL, celery_task_id=celery_task_id
+        db,
+        task=task,
+        account=account,
+        scope=BackupScope.GMAIL,
+        celery_task_id=celery_task_id,
+        run_batch_id=run_batch_id,
     )
     await db.commit()
     log_id = str(log.id)
     await publish(log_id, {"stage": "start", "scope": "gmail", "account": account.email})
+
+    if run_batch_id and await is_batch_cancelled(str(run_batch_id)):
+        await _finalise_log(db, log, status=BackupStatus.CANCELLED, error_summary="batch_aborted")
+        await publish(log_id, {"stage": "cancelled", "reason": "batch"})
+        await db.commit()
+        return log
 
     work_root = Path(f"/var/msa/work/gmail/{account.email}")
     work_root.mkdir(parents=True, exist_ok=True)
@@ -212,7 +253,12 @@ async def run_gmail_backup(
             db, account_email=account.email, local_folder=str(work_root)
         ) as workspace:
             argv = gyb_service.build_gyb_argv(workspace, email=account.email, action="backup")
-            rc, output = await gyb_service.run_gyb(argv)
+            rc, output = await gyb_service.run_gyb(argv, cancel_log_id=log_id)
+            await db.refresh(log)
+            if log.status == BackupStatus.CANCELLED.value:
+                await publish(log_id, {"stage": "cancelled"})
+                await db.commit()
+                return log
             if rc != 0:
                 await _finalise_log(
                     db,
@@ -232,6 +278,12 @@ async def run_gmail_backup(
             )
         else:
             stats = maildir_service.MaildirImportStats()
+
+        await db.refresh(log)
+        if log.status == BackupStatus.CANCELLED.value:
+            await publish(log_id, {"stage": "cancelled"})
+            await db.commit()
+            return log
 
         files, total_bytes = await asyncio.to_thread(_write_manifest, maildir_target, manifest_path)
     except Exception as exc:  # pragma: no cover
@@ -256,6 +308,8 @@ async def run_gmail_backup(
     account.total_messages_cache = stats.messages
     account.total_bytes_cache = total_bytes
     account.last_successful_backup_at = datetime.now(timezone.utc)
+    if not task.dry_run:
+        account.maildir_user_cleared_at = None
     await publish(log_id, {"stage": "done", "status": "success", "messages": stats.messages})
     await db.commit()
     return log
@@ -268,6 +322,7 @@ async def cancel_backup(db: AsyncSession, log_id: uuid.UUID) -> bool:
         return False
     if log.status not in {BackupStatus.RUNNING.value, BackupStatus.PENDING.value, BackupStatus.QUEUED.value}:
         return False
+    await set_log_cancelled(str(log.id))
     log.status = BackupStatus.CANCELLED.value
     log.finished_at = datetime.now(timezone.utc)
     await db.commit()

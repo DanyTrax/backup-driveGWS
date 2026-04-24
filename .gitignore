@@ -29,6 +29,9 @@ build/
 node_modules/
 frontend/dist/
 frontend/.vite/
+frontend/tsconfig*.tsbuildinfo
+frontend/vite.config.js
+frontend/vite.config.d.ts
 .npm/
 .yarn/
 pnpm-lock.yaml.bak

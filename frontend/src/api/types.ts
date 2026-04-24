@@ -36,6 +36,8 @@ export interface WorkspaceAccount {
   last_successful_backup_at: string | null
   total_bytes_cache: number | null
   total_messages_cache: number | null
+  maildir_on_disk: boolean
+  maildir_user_cleared_at: string | null
 }
 
 export interface BackupTask {
@@ -66,6 +68,7 @@ export interface BackupLog {
   id: string
   task_id: string
   account_id: string
+  run_batch_id: string | null
   status: string
   scope: string
   mode: string
@@ -79,6 +82,12 @@ export interface BackupLog {
   sha256_manifest_path: string | null
   destination_path: string | null
   error_summary: string | null
+}
+
+export interface RunTaskResult {
+  queued: number
+  celery_ids: string[]
+  batch_id: string
 }
 
 export interface RestoreJob {

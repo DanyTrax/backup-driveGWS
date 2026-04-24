@@ -24,7 +24,7 @@ function emptyPayload(): TaskPayload {
     run_at_hour: 3,
     run_at_minute: 0,
     timezone: 'America/Bogota',
-    retention_policy: {},
+    retention_policy: { keep_drive_snapshots: 0 },
     filters: {},
     notify_channels: {},
     dry_run: false,
@@ -123,7 +123,7 @@ export default function TasksPage() {
       if (runAfterSave) {
         try {
           const r = await run.mutateAsync(taskId)
-          toast.success(`${r.queued} jobs en cola`)
+          toast.success(`${r.queued} jobs · lote ${r.batch_id.slice(0, 8)}…`)
         } catch {
           toast.error('Tarea guardada pero no se pudo ejecutar ahora')
         }
@@ -207,8 +207,12 @@ export default function TasksPage() {
                         size="xs"
                         onClick={() =>
                           run.mutate(t.id, {
-                            onSuccess: (data) => toast.success(`${data.queued} jobs en cola`),
-                            onError: () => toast.error('No se pudo encolar'),
+                            onSuccess: (data) =>
+                              toast.success(
+                                `${data.queued} jobs en cola · lote ${data.batch_id.slice(0, 8)}…`,
+                              ),
+                            onError: () =>
+                              toast.error('No se pudo encolar (¿sin cuentas con backup activo?)'),
                           })
                         }
                       >
@@ -328,6 +332,36 @@ export default function TasksPage() {
                 onChange={(e) => setDatedRun(e.target.checked)}
               />
               <Label htmlFor="dated" value="Vault: subcarpeta por ejecución (MSA_Runs/AAAA-MM-DDTHH-MM/)" />
+            </div>
+          )}
+          {datedRun && driveScope && (
+            <div>
+              <Label
+                htmlFor="t-keep-snaps"
+                value="Retención Drive: mantener últimas N corridas bajo MSA_Runs (0 = no borrar automático)"
+              />
+              <TextInput
+                id="t-keep-snaps"
+                type="number"
+                min={0}
+                max={500}
+                value={Number(
+                  (form.retention_policy as Record<string, unknown>).keep_drive_snapshots ?? 0,
+                )}
+                onChange={(e) =>
+                  setForm((f) => ({
+                    ...f,
+                    retention_policy: {
+                      ...f.retention_policy,
+                      keep_drive_snapshots: Math.max(0, parseInt(e.target.value, 10) || 0),
+                    },
+                  }))
+                }
+              />
+              <p className="text-xs text-slate-500 mt-1">
+                Gmail/Maildir no usa este límite. Al cambiar N, la poda corre en la próxima ejecución
+                exitosa de backup Drive de esta tarea.
+              </p>
             </div>
           )}
           <p className="text-xs text-slate-500">

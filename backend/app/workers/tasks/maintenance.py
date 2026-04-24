@@ -1,6 +1,7 @@
 """Scheduled maintenance tasks: platform backup, directory sync, cleanup."""
 from __future__ import annotations
 
+import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -66,6 +67,8 @@ def dispatch_scheduled_backups() -> dict[str, Any]:
         )
         tasks = (await db.execute(stmt)).scalars().all()
         queued = 0
+        from app.services.backup_batch_registry import store_batch_celery_ids
+
         for task in tasks:
             if task.schedule_kind != "daily":
                 continue
@@ -76,13 +79,20 @@ def dispatch_scheduled_backups() -> dict[str, Any]:
                 if task.accounts
                 else []
             )
+            batch_id = uuid.uuid4()
+            batch_str = str(batch_id)
+            celery_ids: list[str] = []
             for account in accounts:
                 if task.scope in ("drive_root", "drive_computadoras", "full"):
-                    run_drive.delay(str(task.id), str(account.id))
+                    r = run_drive.delay(str(task.id), str(account.id), batch_str)
+                    celery_ids.append(r.id)
                     queued += 1
                 if task.scope in ("gmail", "full"):
-                    run_gmail.delay(str(task.id), str(account.id))
+                    r = run_gmail.delay(str(task.id), str(account.id), batch_str)
+                    celery_ids.append(r.id)
                     queued += 1
+            if celery_ids:
+                await store_batch_celery_ids(batch_str, celery_ids)
         return {"dispatched": queued}
 
     return run_async(with_session(inner))

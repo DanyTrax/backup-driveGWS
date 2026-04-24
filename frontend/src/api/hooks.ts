@@ -5,6 +5,7 @@ import type {
   BackupTask,
   Profile,
   RestoreJob,
+  RunTaskResult,
   SetupState,
   WorkspaceAccount,
 } from './types'
@@ -87,8 +88,29 @@ export function useTasks() {
 export function useRunTask() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: async (id: string) => (await api.post(`/tasks/${id}/run`)).data,
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['tasks'] }),
+    mutationFn: async (id: string) => (await api.post<RunTaskResult>(`/tasks/${id}/run`)).data,
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['tasks'] })
+      qc.invalidateQueries({ queryKey: ['backup-logs'] })
+    },
+  })
+}
+
+export function useCancelBackupLog() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (logId: string) => api.post(`/backup/logs/${logId}/cancel`),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['backup-logs'] }),
+  })
+}
+
+export function useCancelBackupBatch() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (batchId: string) =>
+      (await api.post<{ revoked_celery: number; cancelled_logs: number }>(`/backup/batches/${batchId}/cancel`))
+        .data,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['backup-logs'] }),
   })
 }
 
@@ -113,6 +135,14 @@ export function useProvisionMailbox() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: async (accountId: string) => api.post(`/accounts/${accountId}/provision-mailbox`),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['accounts'] }),
+  })
+}
+
+export function useClearMailbox() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (accountId: string) => api.post(`/accounts/${accountId}/mailbox/clear`),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['accounts'] }),
   })
 }

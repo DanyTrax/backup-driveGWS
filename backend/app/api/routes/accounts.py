@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import uuid
+from datetime import datetime, timezone
+from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from sqlalchemy import select
@@ -18,6 +20,7 @@ from app.models.accounts import GwAccount
 from app.models.enums import AuditAction
 from app.models.users import SysUser
 from app.schemas.accounts import AccountApproveIn, AccountOut, AccountRevokeIn, SyncOut
+from app.services.maildir_paths import maildir_home_from_email, maildir_root_for_account
 from app.services.accounts_service import (
     approve_account,
     revoke_account,
@@ -28,7 +31,13 @@ from app.services.audit_service import record_audit
 router = APIRouter(prefix="/accounts", tags=["accounts"])
 
 
+def _maildir_ready(root: Path) -> bool:
+    return all((root / sub).is_dir() for sub in ("cur", "new", "tmp"))
+
+
 def _to_out(a: GwAccount) -> AccountOut:
+    mroot = maildir_root_for_account(a)
+    on_disk = _maildir_ready(mroot)
     return AccountOut(
         id=str(a.id),
         email=a.email,
@@ -44,6 +53,8 @@ def _to_out(a: GwAccount) -> AccountOut:
         last_successful_backup_at=a.last_successful_backup_at,
         total_bytes_cache=a.total_bytes_cache,
         total_messages_cache=a.total_messages_cache,
+        maildir_on_disk=on_disk,
+        maildir_user_cleared_at=a.maildir_user_cleared_at,
     )
 
 
@@ -133,7 +144,6 @@ async def provision_mailbox(
     current: SysUser = Depends(require_permission("accounts.approve")),
 ) -> None:
     """Crea Maildir (cur/new/tmp) en el volumen compartido con Dovecot."""
-    from app.services.maildir_paths import maildir_home_from_email, maildir_root_for_account
     from app.services.maildir_service import ensure_maildir_layout
 
     acc = await _load(db, account_id)
@@ -141,6 +151,7 @@ async def provision_mailbox(
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "backup_not_enabled")
     if not (acc.maildir_path or "").strip():
         acc.maildir_path = maildir_home_from_email(acc.email)
+    acc.maildir_user_cleared_at = None
     ensure_maildir_layout(maildir_root_for_account(acc))
     await record_audit(
         db,
@@ -152,6 +163,47 @@ async def provision_mailbox(
         target_table="gw_accounts",
         target_id=str(acc.id),
         message="maildir_provisioned",
+    )
+    await db.commit()
+
+
+@router.post(
+    "/{account_id}/mailbox/clear",
+    status_code=status.HTTP_204_NO_CONTENT,
+    response_class=Response,
+    response_model=None,
+)
+async def clear_mailbox(
+    account_id: uuid.UUID,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    current: SysUser = Depends(require_permission("accounts.approve")),
+) -> None:
+    """Vacía Maildir en disco; la UI marca bandeja vacía hasta el próximo backup Gmail o aprovisionamiento."""
+    from app.services.maildir_service import clear_maildir_tree
+
+    acc = await _load(db, account_id)
+    if not acc.imap_enabled and not acc.is_backup_enabled:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            "imap_or_backup_required",
+        )
+    if not (acc.maildir_path or "").strip():
+        acc.maildir_path = maildir_home_from_email(acc.email)
+    clear_maildir_tree(maildir_root_for_account(acc))
+    acc.maildir_user_cleared_at = datetime.now(timezone.utc)
+    acc.total_messages_cache = 0
+    acc.total_bytes_cache = 0
+    await record_audit(
+        db,
+        action=AuditAction.SETTING_CHANGED,
+        actor_user_id=current.id,
+        actor_label=current.email,
+        ip_address=get_client_ip(request),
+        user_agent=get_user_agent(request),
+        target_table="gw_accounts",
+        target_id=str(acc.id),
+        message="maildir_cleared_by_admin",
     )
     await db.commit()
 

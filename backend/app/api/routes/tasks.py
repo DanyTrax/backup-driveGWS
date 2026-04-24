@@ -19,6 +19,7 @@ from app.models.enums import AuditAction, BackupScope
 from app.models.tasks import BackupTask
 from app.models.users import SysUser
 from app.schemas.tasks import RunResultOut, TaskCreate, TaskOut, TaskUpdate
+from app.services.backup_batch_registry import store_batch_celery_ids
 from app.services.audit_service import record_audit
 
 router = APIRouter(prefix="/tasks", tags=["tasks"])
@@ -222,14 +223,18 @@ async def run_task(
     if not accounts:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "no_enabled_accounts")
 
+    batch_id = uuid.uuid4()
+    batch_str = str(batch_id)
     celery_ids: list[str] = []
     for account in accounts:
         if task.scope in (BackupScope.DRIVE_ROOT.value, BackupScope.DRIVE_COMPUTADORAS.value, BackupScope.FULL.value):
-            res = run_drive.delay(str(task.id), str(account.id))
+            res = run_drive.delay(str(task.id), str(account.id), batch_str)
             celery_ids.append(res.id)
         if task.scope in (BackupScope.GMAIL.value, BackupScope.FULL.value):
-            res = run_gmail.delay(str(task.id), str(account.id))
+            res = run_gmail.delay(str(task.id), str(account.id), batch_str)
             celery_ids.append(res.id)
+
+    await store_batch_celery_ids(batch_str, celery_ids)
 
     await record_audit(
         db,
@@ -240,7 +245,7 @@ async def run_task(
         user_agent=get_user_agent(request),
         target_table="backup_tasks",
         target_id=str(task.id),
-        metadata={"celery_ids": celery_ids},
+        metadata={"celery_ids": celery_ids, "run_batch_id": batch_str},
     )
     await db.commit()
-    return RunResultOut(queued=len(celery_ids), celery_ids=celery_ids)
+    return RunResultOut(queued=len(celery_ids), celery_ids=celery_ids, batch_id=batch_str)

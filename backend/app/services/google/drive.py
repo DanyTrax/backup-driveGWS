@@ -106,6 +106,90 @@ async def ensure_folder(
     return await asyncio.to_thread(_op)
 
 
+async def get_folder_by_name(
+    db: AsyncSession,
+    *,
+    name: str,
+    parent_id: str,
+    drive_id: str | None = None,
+) -> dict[str, Any] | None:
+    """Return first non-trashed folder named `name` under `parent_id`, or None."""
+    service = await _build_service(db)
+
+    def _op() -> dict[str, Any] | None:
+        safe_name = name.replace("'", "\\'")
+        q = (
+            f"name = '{safe_name}' and "
+            f"'{parent_id}' in parents and "
+            "mimeType = 'application/vnd.google-apps.folder' and trashed = false"
+        )
+        kwargs: dict[str, Any] = {
+            "q": q,
+            "fields": "files(id,name)",
+            "pageSize": 1,
+            "supportsAllDrives": True,
+            "includeItemsFromAllDrives": True,
+        }
+        if drive_id:
+            kwargs["corpora"] = "drive"
+            kwargs["driveId"] = drive_id
+        resp = service.files().list(**kwargs).execute()
+        files = resp.get("files", []) or []
+        return files[0] if files else None
+
+    return await asyncio.to_thread(_op)
+
+
+async def list_child_folders(
+    db: AsyncSession,
+    *,
+    parent_id: str,
+    drive_id: str | None = None,
+) -> list[dict[str, Any]]:
+    """Immediate subfolders of parent_id (folders only)."""
+    service = await _build_service(db)
+
+    def _op() -> list[dict[str, Any]]:
+        q = (
+            f"'{parent_id}' in parents and "
+            "mimeType = 'application/vnd.google-apps.folder' and trashed = false"
+        )
+        kwargs: dict[str, Any] = {
+            "q": q,
+            "fields": "files(id,name)",
+            "pageSize": 100,
+            "supportsAllDrives": True,
+            "includeItemsFromAllDrives": True,
+        }
+        if drive_id:
+            kwargs["corpora"] = "drive"
+            kwargs["driveId"] = drive_id
+        out: list[dict[str, Any]] = []
+        token: str | None = None
+        while True:
+            req = {**kwargs}
+            if token:
+                req["pageToken"] = token
+            resp = service.files().list(**req).execute()
+            out.extend(resp.get("files", []) or [])
+            token = resp.get("nextPageToken")
+            if not token:
+                break
+        return out
+
+    return await asyncio.to_thread(_op)
+
+
+async def delete_drive_file(db: AsyncSession, *, file_id: str) -> None:
+    """Permanently remove a Drive file/folder (vault cleanup)."""
+    service = await _build_service(db)
+
+    def _op() -> None:
+        service.files().delete(fileId=file_id, supportsAllDrives=True).execute()
+
+    await asyncio.to_thread(_op)
+
+
 async def ensure_account_vault(
     db: AsyncSession,
     *,

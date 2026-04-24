@@ -21,6 +21,9 @@ class AccountOut(BaseModel):
     last_successful_backup_at: datetime | None
     total_bytes_cache: int | None
     total_messages_cache: int | None
+    # Bandeja en volumen (Dovecot); False si no existe cur/new/tmp o está vaciada hasta próximo Gmail backup.
+    maildir_on_disk: bool
+    maildir_user_cleared_at: datetime | None
 
 
 class AccountApproveIn(BaseModel):

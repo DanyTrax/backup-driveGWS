@@ -12,13 +12,14 @@ import asyncio
 import json
 import os
 import tempfile
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import AsyncIterator, Iterable
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.services.backup_batch_registry import is_log_cancelled
 from app.services.google.credentials import load_sa_info
 from app.services.settings_service import (
     KEY_VAULT_ROOT_FOLDER_ID,
@@ -145,6 +146,7 @@ async def run_rclone(
     *,
     on_line: "callable[[str], None] | None" = None,
     timeout: int | None = None,
+    cancel_log_id: str | None = None,
 ) -> tuple[int, str]:
     """Run rclone streaming stdout so callers can emit progress events."""
     process = await asyncio.create_subprocess_exec(
@@ -155,6 +157,18 @@ async def run_rclone(
     )
     assert process.stdout is not None  # for type-checkers
     collected: list[str] = []
+    stop = asyncio.Event()
+
+    async def _watch_cancel() -> None:
+        while not stop.is_set():
+            if cancel_log_id and await is_log_cancelled(cancel_log_id):
+                if process.returncode is None:
+                    process.terminate()
+                stop.set()
+                return
+            await asyncio.sleep(0.5)
+
+    watcher = asyncio.create_task(_watch_cancel()) if cancel_log_id else None
 
     async def _drain() -> None:
         while True:
@@ -168,11 +182,25 @@ async def run_rclone(
                     on_line(decoded)
                 except Exception:  # pragma: no cover — progress callbacks must not crash backup
                     pass
+            if cancel_log_id and await is_log_cancelled(cancel_log_id):
+                if process.returncode is None:
+                    process.terminate()
+                break
 
     try:
         await asyncio.wait_for(_drain(), timeout=timeout)
     except asyncio.TimeoutError:
         process.kill()
         raise
-    rc = await process.wait()
+    finally:
+        stop.set()
+        if watcher:
+            watcher.cancel()
+            with suppress(asyncio.CancelledError):
+                await watcher
+
+    if process.returncode is None:
+        rc = await process.wait()
+    else:
+        rc = process.returncode
     return rc, "\n".join(collected)

@@ -1,11 +1,21 @@
-import { Button, Card } from 'flowbite-react'
+import { Badge, Button, Card } from 'flowbite-react'
 import toast from 'react-hot-toast'
 import api from '../api/client'
-import { useAccounts, useProvisionMailbox } from '../api/hooks'
+import { useAccounts, useClearMailbox, useProvisionMailbox } from '../api/hooks'
+
+function bandejaLabel(a: {
+  maildir_on_disk: boolean
+  maildir_user_cleared_at: string | null
+}) {
+  if (!a.maildir_on_disk) return 'sin carpeta Maildir'
+  if (a.maildir_user_cleared_at) return 'vacía (esperando backup Gmail)'
+  return 'en disco'
+}
 
 export default function WebmailPage() {
-  const { data = [] } = useAccounts(true)
+  const { data = [] } = useAccounts()
   const provision = useProvisionMailbox()
+  const clearMb = useClearMailbox()
 
   async function ssoAdmin(id: string) {
     try {
@@ -22,6 +32,15 @@ export default function WebmailPage() {
       toast.success('Bandeja Maildir creada (lista para Dovecot/Roundcube)')
     } catch {
       toast.error('Solo cuentas con backup activo pueden aprovisionar bandeja')
+    }
+  }
+
+  async function clearMailbox(id: string) {
+    try {
+      await clearMb.mutateAsync(id)
+      toast.success('Correo local borrado; se repoblará en la próxima tarea Gmail')
+    } catch {
+      toast.error('No se pudo vaciar la bandeja (requiere backup o IMAP activo)')
     }
   }
 
@@ -49,8 +68,10 @@ export default function WebmailPage() {
             <thead className="text-left text-slate-500">
               <tr>
                 <th className="py-2">Correo</th>
-                <th>Mensajes en respaldo</th>
-                <th>Webmail listo</th>
+                <th>Backup cuenta</th>
+                <th>Bandeja local</th>
+                <th>Mensajes (caché)</th>
+                <th>IMAP gestión</th>
                 <th></th>
               </tr>
             </thead>
@@ -58,7 +79,15 @@ export default function WebmailPage() {
               {data.map((a) => (
                 <tr key={a.id} className="border-t border-slate-100 dark:border-slate-800">
                   <td className="py-2 font-medium">{a.email}</td>
-                  <td>{a.total_messages_cache ?? '—'}</td>
+                  <td>
+                    {a.is_backup_enabled ? (
+                      <Badge color="success">conectado</Badge>
+                    ) : (
+                      <Badge color="gray">desconectado</Badge>
+                    )}
+                  </td>
+                  <td className="text-xs">{bandejaLabel(a)}</td>
+                  <td>{a.maildir_user_cleared_at ? '0' : (a.total_messages_cache ?? '—')}</td>
                   <td>{a.imap_enabled ? 'sí' : 'no'}</td>
                   <td className="text-right space-x-2 flex flex-wrap justify-end gap-2">
                     <Button
@@ -68,6 +97,16 @@ export default function WebmailPage() {
                       onClick={() => provisionMailbox(a.id)}
                     >
                       Crear bandeja
+                    </Button>
+                    <Button
+                      size="xs"
+                      color="failure"
+                      disabled={
+                        (!a.imap_enabled && !a.is_backup_enabled) || clearMb.isPending
+                      }
+                      onClick={() => clearMailbox(a.id)}
+                    >
+                      Vaciar correo local
                     </Button>
                     <Button size="xs" color="light" onClick={() => issueMagicLink(a.id)}>
                       Generar magic link

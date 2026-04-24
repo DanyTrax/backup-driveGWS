@@ -56,6 +56,7 @@ def test_gw_accounts_has_imap_and_vault_columns() -> None:
         "imap_password_hash",
         "imap_locked_until",
         "maildir_path",
+        "maildir_user_cleared_at",
         "drive_vault_folder_id",
         "is_backup_enabled",
         "org_unit_path",
@@ -66,7 +67,14 @@ def test_backup_logs_tracks_rclone_rc_and_checksum() -> None:
     from app.models import Base
 
     cols = set(Base.metadata.tables["backup_logs"].columns.keys())
-    assert {"pid", "rclone_rc_port", "rclone_job_id", "sha256_manifest_path", "celery_task_id"} <= cols
+    assert {
+        "pid",
+        "rclone_rc_port",
+        "rclone_job_id",
+        "sha256_manifest_path",
+        "celery_task_id",
+        "run_batch_id",
+    } <= cols
 
 
 def test_permissions_catalog_is_consistent() -> None:

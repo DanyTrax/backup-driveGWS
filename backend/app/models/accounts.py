@@ -76,6 +76,8 @@ class GwAccount(UUIDPKMixin, TimestampMixin, Base):
 
     # --- Filesystem paths -------------------------------------------------
     maildir_path: Mapped[str | None] = mapped_column(String(500))
+    # Si no es None, el admin vació la bandeja; UI muestra “sin bandeja” hasta próximo backup/provisión.
+    maildir_user_cleared_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     drive_vault_folder_id: Mapped[str | None] = mapped_column(String(128))
 
     # --- Sync stats -------------------------------------------------------

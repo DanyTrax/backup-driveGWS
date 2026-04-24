@@ -6,6 +6,7 @@ import hashlib
 import mailbox
 import os
 import re
+import shutil
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -27,7 +28,14 @@ def _maildir(path: Path) -> mailbox.Maildir:
 
 def ensure_maildir_layout(maildir_root: Path) -> None:
     """Crea cur/new/tmp; idempotente."""
-    _maildir(maildir_root, create=True)
+    _maildir(maildir_root)
+
+
+def clear_maildir_tree(maildir_root: Path) -> None:
+    """Borra el árbol Maildir y deja solo cur/new/tmp vacíos (Dovecot)."""
+    if maildir_root.exists():
+        shutil.rmtree(maildir_root)
+    _maildir(maildir_root)
 
 
 @dataclass(slots=True)

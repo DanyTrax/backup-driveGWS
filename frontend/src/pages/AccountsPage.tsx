@@ -75,7 +75,8 @@ export default function AccountsPage() {
                   <th>OU</th>
                   <th>Estado Workspace</th>
                   <th>Backup</th>
-                  <th>Webmail</th>
+                  <th>IMAP</th>
+                  <th>Bandeja local</th>
                   <th>Último backup</th>
                   <th></th>
                 </tr>
@@ -112,6 +113,13 @@ export default function AccountsPage() {
                       ) : (
                         <Badge color="gray">no</Badge>
                       )}
+                    </td>
+                    <td className="text-xs text-slate-600 dark:text-slate-400 max-w-[10rem]">
+                      {!a.maildir_on_disk
+                        ? 'sin carpeta'
+                        : a.maildir_user_cleared_at
+                          ? 'vacía (sync Gmail)'
+                          : 'en disco'}
                     </td>
                     <td className="text-xs text-slate-500">
                       {a.last_successful_backup_at ?? '—'}
