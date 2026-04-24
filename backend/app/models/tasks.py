@@ -97,7 +97,9 @@ class BackupTask(UUIDPKMixin, TimestampMixin, Base):
     last_status: Mapped[str | None] = mapped_column(backup_status_enum)
 
     accounts: Mapped[list["GwAccount"]] = relationship(  # noqa: F821
-        secondary=backup_task_accounts, back_populates="backup_tasks"
+        secondary=backup_task_accounts,
+        back_populates="backup_tasks",
+        lazy="selectin",
     )
     logs: Mapped[list["BackupLog"]] = relationship(
         back_populates="task", cascade="all, delete-orphan"

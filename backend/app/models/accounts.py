@@ -92,6 +92,7 @@ class GwAccount(UUIDPKMixin, TimestampMixin, Base):
     backup_tasks: Mapped[list["BackupTask"]] = relationship(
         secondary="backup_task_accounts",
         back_populates="accounts",
+        lazy="selectin",
     )
 
     __table_args__ = (

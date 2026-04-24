@@ -50,6 +50,9 @@ export default function SettingsPage() {
             ? `Backup de plataforma: ${reason.slice(0, 400)}`
             : code === 'age_recipient_not_configured'
               ? 'Falta configurar el destinatario age (PLATFORM_BACKUP_AGE_RECIPIENT) en el servidor.'
+              : code === 'age_recipient_invalid'
+                ? reason ||
+                  'PLATFORM_BACKUP_AGE_RECIPIENT debe ser una clave pública age1… (no el texto del comentario del .env).'
               : code === 'vault_root_missing'
                 ? 'Falta vault de Drive configurado.'
                 : reason

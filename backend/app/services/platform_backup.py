@@ -34,6 +34,18 @@ from app.services.settings_service import (
 settings = get_settings()
 
 
+def _age_recipient_from_env(raw: str | None) -> str:
+    """Primera línea no vacía que no sea comentario (age no acepta '#' en el valor)."""
+    if not raw:
+        return ""
+    for line in raw.replace("\r\n", "\n").split("\n"):
+        s = line.strip()
+        if not s or s.startswith("#"):
+            continue
+        return s
+    return ""
+
+
 async def _pg_dump(target: Path) -> None:
     env = os.environ.copy()
     env["PGPASSWORD"] = settings.postgres_password
@@ -125,9 +137,18 @@ async def _enforce_retention(
 
 
 async def run_platform_backup(db: AsyncSession) -> dict[str, Any]:
-    recipient = settings.platform_backup_age_recipient
+    recipient = _age_recipient_from_env(settings.platform_backup_age_recipient)
     if not recipient:
         return {"ok": False, "error": "age_recipient_not_configured"}
+    if not recipient.startswith("age1"):
+        return {
+            "ok": False,
+            "error": "age_recipient_invalid",
+            "reason": (
+                "PLATFORM_BACKUP_AGE_RECIPIENT debe ser la clave pública (una línea age1…), "
+                "no el texto de comentario del .env.example. Generá una con: age-keygen -y -o backup.pub"
+            ),
+        }
 
     root = await get_value(db, KEY_VAULT_ROOT_FOLDER_ID)
     drive_id = await get_value(db, KEY_VAULT_SHARED_DRIVE_ID)
