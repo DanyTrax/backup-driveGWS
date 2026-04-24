@@ -1,6 +1,7 @@
 """Reusable FastAPI dependencies."""
 from __future__ import annotations
 
+import ipaddress
 import uuid
 from collections.abc import AsyncGenerator, Callable
 from typing import Any
@@ -22,6 +23,31 @@ from app.services.rate_limit import check_rate_limit
 _bearer = HTTPBearer(auto_error=False)
 
 
+def _parse_inet_ip(raw: str | None) -> str | None:
+    """Devuelve una IP válida para columnas PostgreSQL INET, o None.
+
+    Evita 500 si el proxy manda basura en ``X-Forwarded-For`` (vacío, hostname, etc.).
+    """
+    if raw is None:
+        return None
+    s = str(raw).strip()
+    if not s:
+        return None
+    if "%" in s:
+        s = s.split("%", 1)[0]
+    try:
+        return str(ipaddress.ip_address(s))
+    except ValueError:
+        pass
+    if s.count(":") == 1 and "." in s.split(":", 1)[0]:
+        host = s.rsplit(":", 1)[0]
+        try:
+            return str(ipaddress.ip_address(host))
+        except ValueError:
+            return None
+    return None
+
+
 async def get_db() -> AsyncGenerator[AsyncSession, None]:
     async with AsyncSessionLocal() as session:
         yield session
@@ -30,9 +56,12 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
 def get_client_ip(request: Request) -> str | None:
     fwd = request.headers.get("x-forwarded-for")
     if fwd:
-        return fwd.split(",")[0].strip()
-    if request.client:
-        return request.client.host
+        for part in fwd.split(","):
+            parsed = _parse_inet_ip(part)
+            if parsed:
+                return parsed
+    if request.client and request.client.host:
+        return _parse_inet_ip(request.client.host)
     return None
 
 
