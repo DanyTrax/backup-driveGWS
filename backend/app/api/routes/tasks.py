@@ -4,7 +4,7 @@ from __future__ import annotations
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
-from sqlalchemy import select
+from sqlalchemy import delete, insert, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -16,7 +16,7 @@ from app.api.deps import (
 )
 from app.models.accounts import GwAccount
 from app.models.enums import AuditAction, BackupScope
-from app.models.tasks import BackupTask
+from app.models.tasks import BackupTask, backup_task_accounts
 from app.models.users import SysUser
 from app.schemas.tasks import RunResultOut, TaskCreate, TaskOut, TaskUpdate
 from app.core.logging import get_logger
@@ -66,8 +66,12 @@ async def _load(db: AsyncSession, task_id: uuid.UUID) -> BackupTask:
 
 
 async def _sync_accounts(db: AsyncSession, task: BackupTask, account_ids: list[str]) -> None:
+    """Persiste M2M solo vía SQL Core (evita greenlet/async al asignar task.accounts)."""
+    await db.flush()
+    tid = task.id
+    await db.execute(delete(backup_task_accounts).where(backup_task_accounts.c.task_id == tid))
     if not account_ids:
-        task.accounts = []
+        await db.flush()
         return
     raw = [(a or "").strip() for a in account_ids if (a or "").strip()]
     try:
@@ -88,7 +92,11 @@ async def _sync_accounts(db: AsyncSession, task: BackupTask, account_ids: list[s
             status.HTTP_400_BAD_REQUEST,
             detail={"error": "accounts_backup_not_enabled", "emails": disabled},
         )
-    task.accounts = list(rows)
+    for row in rows:
+        await db.execute(
+            insert(backup_task_accounts).values(task_id=tid, account_id=row.id),
+        )
+    await db.flush()
 
 
 @router.get("", response_model=list[TaskOut])
