@@ -19,9 +19,19 @@ function toastProvisionError(err: unknown) {
     toast.error('Activá backup o IMAP de gestión para esta cuenta antes de crear la bandeja.')
     return
   }
-  if (d === 'maildir_volume_unavailable' || st === 503) {
+  if (
+    (typeof d === 'object' && d !== null && (d as { error?: string }).error === 'maildir_volume_unavailable') ||
+    d === 'maildir_volume_unavailable' ||
+    st === 503
+  ) {
+    const reason =
+      typeof d === 'object' && d !== null && 'reason' in d
+        ? String((d as { reason?: string }).reason ?? '')
+        : ''
     toast.error(
-      'No se pudo escribir en el volumen Maildir. Revisá que el contenedor app tenga montado /var/mail/vhosts como en Dovecot.',
+      reason
+        ? `Maildir: ${reason.slice(0, 380)}`
+        : 'No se pudo escribir en /var/mail/vhosts. Revisá que app y worker monten el volumen maildirs igual que Dovecot y reiniciá los contenedores.',
     )
     return
   }

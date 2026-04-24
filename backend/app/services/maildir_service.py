@@ -27,8 +27,14 @@ def _maildir(path: Path) -> mailbox.Maildir:
 
 
 def ensure_maildir_layout(maildir_root: Path) -> None:
-    """Crea cur/new/tmp; idempotente."""
-    _maildir(maildir_root)
+    """Crea cur/new/tmp; idempotente.
+
+    No usa ``mailbox.Maildir(create=True)`` aquí: en volúmenes Docker compartidos a veces
+    falla con permisos o locks; bastan directorios vacíos para Dovecot.
+    """
+    maildir_root.mkdir(parents=True, exist_ok=True)
+    for sub in ("cur", "new", "tmp"):
+        (maildir_root / sub).mkdir(parents=True, exist_ok=True)
 
 
 def clear_maildir_tree(maildir_root: Path) -> None:

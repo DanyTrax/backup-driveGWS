@@ -168,7 +168,10 @@ async def provision_mailbox(
     except (OSError, PermissionError) as exc:
         raise HTTPException(
             status.HTTP_503_SERVICE_UNAVAILABLE,
-            "maildir_volume_unavailable",
+            detail={
+                "error": "maildir_volume_unavailable",
+                "reason": str(exc)[:500],
+            },
         ) from exc
     await record_audit(
         db,

@@ -213,6 +213,11 @@ export default function TasksPage() {
       )
     }
 
+    if (!editing && account_ids.length === 0) {
+      toast.error('Marcá al menos una cuenta en la lista (debe tener backup activo).')
+      return
+    }
+
     const payload: TaskPayload = { ...form, filters, account_ids }
 
     try {
