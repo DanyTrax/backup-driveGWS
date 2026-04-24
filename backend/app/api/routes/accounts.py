@@ -154,7 +154,8 @@ async def provision_mailbox(
     from app.services.maildir_service import ensure_maildir_layout
 
     acc = await _load(db, account_id)
-    if not acc.is_backup_enabled and not acc.imap_enabled:
+    await db.refresh(acc)
+    if acc.is_backup_enabled is not True and acc.imap_enabled is not True:
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST,
             "backup_or_imap_required",

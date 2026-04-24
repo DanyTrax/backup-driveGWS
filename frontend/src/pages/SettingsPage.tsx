@@ -64,6 +64,12 @@ export default function SettingsPage() {
         <h1 className="text-2xl font-semibold">Configuración</h1>
         <p className="text-slate-500">Integraciones, branding y operación</p>
       </div>
+      <p className="text-xs text-slate-400">
+        Compilación de esta interfaz:{' '}
+        <code className="bg-slate-100 dark:bg-slate-800 px-1 rounded">{import.meta.env.VITE_UI_BUILD_ID}</code>
+        . Si los mensajes de error no coinciden con lo esperado o ves textos “viejos”, recargá sin caché
+        (Ctrl+Shift+R o Cmd+Shift+R) o reconstruí la imagen Docker del frontend.
+      </p>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <Card>
           <h2 className="font-semibold">Asistente inicial</h2>

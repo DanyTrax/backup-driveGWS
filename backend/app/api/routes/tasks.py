@@ -77,10 +77,12 @@ async def _sync_accounts(db: AsyncSession, task: BackupTask, account_ids: list[s
         .where(GwAccount.id.in_(uids))
         .execution_options(populate_existing=True)
     )
-    rows = (await db.execute(stmt)).scalars().all()
+    rows = list((await db.execute(stmt)).scalars().all())
     if len(rows) != len(uids):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "unknown_account_ids")
-    disabled = [a.email for a in rows if not a.is_backup_enabled]
+    for row in rows:
+        await db.refresh(row)
+    disabled = [a.email for a in rows if a.is_backup_enabled is not True]
     if disabled:
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST,

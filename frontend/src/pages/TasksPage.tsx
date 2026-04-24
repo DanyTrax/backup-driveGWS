@@ -150,8 +150,14 @@ export default function TasksPage() {
     let freshEnabled: WorkspaceAccount[] = enabledAccounts
     try {
       freshEnabled = await qc.fetchQuery({
-        queryKey: ['accounts', true],
-        queryFn: async () => (await api.get<WorkspaceAccount[]>('/accounts', { params: { enabled: true } })).data,
+        queryKey: ['accounts', true, 'preflight-save'],
+        queryFn: async () =>
+          (
+            await api.get<WorkspaceAccount[]>('/accounts', {
+              params: { enabled: true, _t: Date.now() },
+            })
+          ).data,
+        staleTime: 0,
       })
     } catch {
       toast.error('No se pudo actualizar la lista de cuentas. Reintentá.')
