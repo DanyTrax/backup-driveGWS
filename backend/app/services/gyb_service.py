@@ -19,7 +19,9 @@ from app.services.google.credentials import load_sa_info
 
 def gyb_executable() -> str:
     """Ruta al binario GYB (imagen Docker o instalación manual)."""
-    for p in ("/usr/local/bin/gyb", "/opt/gyb/gyb", shutil.which("gyb") or ""):
+    env = (os.environ.get("GYB_PATH") or "").strip()
+    candidates = [env, "/usr/local/bin/gyb", "/opt/gyb/gyb", shutil.which("gyb") or ""]
+    for p in candidates:
         if p and os.path.isfile(p) and os.access(p, os.X_OK):
             return p
     return "/usr/local/bin/gyb"

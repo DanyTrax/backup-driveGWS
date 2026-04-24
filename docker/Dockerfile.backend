@@ -39,15 +39,24 @@ RUN apt-get update \
 RUN curl -fsSL https://rclone.org/install.sh | bash \
  && rclone version
 
-# Install GYB (Got Your Back) — binary release
-ARG GYB_VERSION=1.82
-RUN curl -fsSL -o /tmp/gyb.tar.xz \
-      "https://github.com/GAM-team/got-your-back/releases/download/v${GYB_VERSION}/gyb-${GYB_VERSION}-linux-x86_64.tar.xz" \
- && mkdir -p /opt/gyb \
- && tar -xJf /tmp/gyb.tar.xz -C /opt/gyb --strip-components=1 \
- && ln -s /opt/gyb/gyb /usr/local/bin/gyb \
- && rm /tmp/gyb.tar.xz \
- && gyb --version || true
+# Install GYB (Got Your Back) — binary release (nombre del .tar cambió desde ~v1.82)
+# Ver assets en: https://github.com/GAM-team/got-your-back/releases
+ARG GYB_VERSION=1.95
+ARG GYB_ASSET=gyb-${GYB_VERSION}-linux-x86_64-glibc2.35.tar.xz
+RUN set -eux \
+ && curl -fsSL -o /tmp/gyb.tar.xz \
+      "https://github.com/GAM-team/got-your-back/releases/download/v${GYB_VERSION}/${GYB_ASSET}" \
+ && mkdir -p /tmp/gyb-ex /opt/gyb \
+ && tar -xJf /tmp/gyb.tar.xz -C /tmp/gyb-ex \
+ && BIN="$(find /tmp/gyb-ex -type f -name gyb | head -1)" \
+ && test -n "${BIN}" \
+ && cp "${BIN}" /opt/gyb/gyb \
+ && chmod 755 /opt/gyb/gyb \
+ && cp /opt/gyb/gyb /usr/local/bin/gyb \
+ && rm -rf /tmp/gyb-ex /tmp/gyb.tar.xz \
+ && /usr/local/bin/gyb --version
+
+ENV GYB_PATH=/usr/local/bin/gyb
 
 WORKDIR /app
 ENV PYTHONPATH=/app
