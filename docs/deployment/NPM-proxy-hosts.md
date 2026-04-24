@@ -48,7 +48,7 @@ location /ws/ {
   - Forward Hostname / IP: `msa-backup-roundcube`
   - Forward Port: `80`
   - Cache Assets: on
-  - Block Common Exploits: on
+  - **Block Common Exploits: off** (recomendado). Con *on*, NPM puede bloquear o alterar la URL del SSO (`?_action=plugin.msa_sso&token=<jwt>`) y Roundcube termina en el login sin token.
   - Websockets Support: off (Roundcube no lo necesita)
 - **SSL**
   - Request new SSL cert, Force SSL, HTTP/2, HSTS on

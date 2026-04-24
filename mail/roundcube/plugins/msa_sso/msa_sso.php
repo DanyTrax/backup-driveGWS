@@ -47,6 +47,9 @@ class msa_sso extends rcube_plugin
     {
         $token = rcube_utils::get_input_value('token', rcube_utils::INPUT_GET);
         if (!$token) {
+            $token = rcube_utils::get_input_value('token', rcube_utils::INPUT_POST);
+        }
+        if (!$token) {
             header('Location: ./');
             exit;
         }

@@ -5,15 +5,19 @@
  */
 
 // Force single IMAP backend (internal dovecot). Users cannot change.
-$config['default_host']       = getenv('ROUNDCUBEMAIL_DEFAULT_HOST') ?: 'tls://dovecot';
+// Dovecot en esta pila usa IMAP en claro en 143 (ssl=no en la red Docker). No uses
+// tls:// ni ssl:// aquí salvo que habilites STARTTLS/TLS en Dovecot.
+$config['default_host']       = getenv('ROUNDCUBEMAIL_DEFAULT_HOST') ?: 'dovecot';
 $config['default_port']       = (int)(getenv('ROUNDCUBEMAIL_DEFAULT_PORT') ?: 143);
 $config['imap_timeout']       = 60;
 $config['imap_cache']         = 'db';
 $config['messages_cache']     = 'db';
 $config['session_lifetime']   = 60;          // minutes
 $config['login_rate_limit']   = 5;
-$config['force_https']        = false;       // NPM terminates TLS
-$config['use_https']          = false;
+// NPM termina HTTPS; el contenedor ve HTTP. use_https=true hace cookies Secure y
+// evita perder sesión tras el redirect del SSO.
+$config['force_https']        = false;
+$config['use_https']          = true;
 $config['trusted_host_patterns'] = ['.*'];   // NPM hostname varies; adjust later in prod
 
 // SMTP disabled: this is a backup viewer, not a mail client.

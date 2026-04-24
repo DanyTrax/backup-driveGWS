@@ -102,10 +102,11 @@ export default function WebmailPage() {
         <p className="text-slate-500 text-sm mt-2 max-w-3xl">
           Accedé a cualquier buzón o enviá un enlace al cliente. El correo local sale del backup{' '}
           <strong>Gmail</strong> (Maildir en el VPS, no la carpeta «Gmail» de Drive).{' '}
-          <strong>Entrar como admin</strong> inicia sesión en IMAP con el usuario maestro de Dovecot; el
-          plugin valida el JWT contra Redis (<code className="text-xs bg-slate-100 dark:bg-slate-800 px-1 rounded">SECRET_KEY</code>
-          igual en API y Roundcube). Si ves el login de Roundcube con el token en la URL, reconstruí la
-          imagen <strong>roundcube</strong> (<code className="text-xs">docker compose build --no-cache roundcube</code>).
+          <strong>Entrar como admin</strong> usa IMAP en claro hacia Dovecot interno: en{' '}
+          <code className="text-xs">.env</code> debe ser <code className="text-xs">ROUNDCUBE_DEFAULT_HOST=dovecot</code>{' '}
+          (sin <code className="text-xs">tls://</code>). Tras NPM con HTTPS, hace falta imagen Roundcube con{' '}
+          <code className="text-xs">use_https=true</code> en config (cookies de sesión). En NPM, desactivá{' '}
+          <strong>Block Common Exploits</strong> en el host webmail si el SSO cae en login vacío.
         </p>
       </div>
       <Card>

@@ -26,6 +26,10 @@ Roundcube msa_sso: verifica JWT + Redis jti, luego authenticate (master-user o c
 
 ## Proxy / CSP (Nginx Proxy Manager, Cloudflare)
 
+En **Nginx Proxy Manager**, dejá **Block Common Exploits** en **off** para el Proxy Host de
+webmail: con *on*, a veces se bloquea o reescribe la URL del SSO (`token=<jwt>`) y Roundcube
+cae en el login genérico sin mensaje.
+
 Si la consola bloquea **scripts inline** de Roundcube, en el host **webmail** aflojá CSP o
 desactivá inyecciones (p. ej. Rocket Loader). El backend de la plataforma no controla los
 headers del contenedor Roundcube.

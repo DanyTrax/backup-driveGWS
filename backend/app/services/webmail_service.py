@@ -5,6 +5,7 @@ import hashlib
 import secrets
 from datetime import datetime, timedelta, timezone
 from typing import Any
+from urllib.parse import quote
 
 from jose import jwt
 from sqlalchemy import select
@@ -146,5 +147,6 @@ async def issue_sso_jwt(
     )
     redis = get_redis()
     await redis.setex(f"sso:jti:{jti}", ttl_seconds + 10, "pending")
-    url = f"{_webmail_base_url()}/?_action=plugin.msa_sso&token={token}"
+    tok_q = quote(token, safe="")
+    url = f"{_webmail_base_url()}/?_action=plugin.msa_sso&token={tok_q}"
     return {"token": token, "url": url, "expires_at": exp.isoformat(), "jti": jti}
