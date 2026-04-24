@@ -136,6 +136,21 @@ def require_permission(*codes: str) -> Callable[[SysUser], SysUser]:
     return _dep
 
 
+def require_any_permission(*codes: str) -> Callable[[SysUser], SysUser]:
+    """Al menos uno de los permisos listados (útil para flujos webmail vs cuentas)."""
+
+    async def _dep(user: SysUser = Depends(get_current_user)) -> SysUser:
+        perms = get_user_permissions(user)
+        if not any(c in perms for c in codes):
+            raise HTTPException(
+                status.HTTP_403_FORBIDDEN,
+                detail={"error": "forbidden", "missing": list(codes)},
+            )
+        return user
+
+    return _dep
+
+
 def require_role(*roles: UserRole) -> Callable[[SysUser], SysUser]:
     async def _dep(user: SysUser = Depends(get_current_user)) -> SysUser:
         if user.role_code not in {r.value for r in roles}:

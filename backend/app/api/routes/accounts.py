@@ -14,6 +14,7 @@ from app.api.deps import (
     get_current_user,
     get_db,
     get_user_agent,
+    require_any_permission,
     require_permission,
 )
 from app.models.accounts import GwAccount
@@ -141,18 +142,33 @@ async def provision_mailbox(
     account_id: uuid.UUID,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    current: SysUser = Depends(require_permission("accounts.approve")),
+    current: SysUser = Depends(
+        require_any_permission(
+            "accounts.approve",
+            "webmail.sso_admin",
+            "webmail.issue_magic_link",
+        )
+    ),
 ) -> None:
     """Crea Maildir (cur/new/tmp) en el volumen compartido con Dovecot."""
     from app.services.maildir_service import ensure_maildir_layout
 
     acc = await _load(db, account_id)
-    if not acc.is_backup_enabled:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "backup_not_enabled")
+    if not acc.is_backup_enabled and not acc.imap_enabled:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            "backup_or_imap_required",
+        )
     if not (acc.maildir_path or "").strip():
         acc.maildir_path = maildir_home_from_email(acc.email)
     acc.maildir_user_cleared_at = None
-    ensure_maildir_layout(maildir_root_for_account(acc))
+    try:
+        ensure_maildir_layout(maildir_root_for_account(acc))
+    except (OSError, PermissionError) as exc:
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            "maildir_volume_unavailable",
+        ) from exc
     await record_audit(
         db,
         action=AuditAction.SETTING_CHANGED,

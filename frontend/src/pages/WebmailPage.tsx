@@ -3,6 +3,35 @@ import toast from 'react-hot-toast'
 import api from '../api/client'
 import { useAccounts, useClearMailbox, useProvisionMailbox } from '../api/hooks'
 
+function toastProvisionError(err: unknown) {
+  const ax = err as { response?: { status?: number; data?: { detail?: unknown } } }
+  const st = ax.response?.status
+  const d = ax.response?.data?.detail
+  const forbidden =
+    st === 403 || (typeof d === 'object' && d !== null && (d as { error?: string }).error === 'forbidden')
+  if (forbidden) {
+    toast.error(
+      'No tenés permiso para crear la bandeja. Hace falta permiso de aprobar cuentas o de webmail (SSO / magic link).',
+    )
+    return
+  }
+  if (d === 'backup_or_imap_required' || d === 'backup_not_enabled') {
+    toast.error('Activá backup o IMAP de gestión para esta cuenta antes de crear la bandeja.')
+    return
+  }
+  if (d === 'maildir_volume_unavailable' || st === 503) {
+    toast.error(
+      'No se pudo escribir en el volumen Maildir. Revisá que el contenedor app tenga montado /var/mail/vhosts como en Dovecot.',
+    )
+    return
+  }
+  if (st === 404 || d === 'account_not_found') {
+    toast.error('Cuenta no encontrada.')
+    return
+  }
+  toast.error('No se pudo crear la bandeja. Reintentá o revisá los logs del servidor.')
+}
+
 function bandejaLabel(a: {
   maildir_on_disk: boolean
   maildir_user_cleared_at: string | null
@@ -30,8 +59,8 @@ export default function WebmailPage() {
     try {
       await provision.mutateAsync(id)
       toast.success('Bandeja Maildir creada (lista para Dovecot/Roundcube)')
-    } catch {
-      toast.error('Solo cuentas con backup activo pueden aprovisionar bandeja')
+    } catch (err) {
+      toastProvisionError(err)
     }
   }
 
@@ -93,7 +122,9 @@ export default function WebmailPage() {
                     <Button
                       size="xs"
                       color="light"
-                      disabled={!a.is_backup_enabled || provision.isPending}
+                      disabled={
+                        !(a.is_backup_enabled || a.imap_enabled) || provision.isPending
+                      }
                       onClick={() => provisionMailbox(a.id)}
                     >
                       Crear bandeja

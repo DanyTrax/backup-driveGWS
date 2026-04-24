@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { HiEye, HiEyeOff } from 'react-icons/hi'
 import { Alert, Button, Card, Label, TextInput } from 'flowbite-react'
 import toast from 'react-hot-toast'
 import api from '../api/client'
@@ -13,6 +14,7 @@ export default function LoginPage() {
   const [needMfa, setNeedMfa] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [showPassword, setShowPassword] = useState(false)
   const setTokens = useAuthStore((s) => s.setTokens)
   const navigate = useNavigate()
 
@@ -77,13 +79,24 @@ export default function LoginPage() {
           </div>
           <div>
             <Label htmlFor="password" value="Contraseña" />
-            <TextInput
-              id="password"
-              type="password"
-              required
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-            />
+            <div className="relative">
+              <TextInput
+                id="password"
+                type={showPassword ? 'text' : 'password'}
+                required
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                className="pr-11"
+              />
+              <button
+                type="button"
+                className="absolute end-2 top-1/2 -translate-y-1/2 rounded p-1 text-slate-500 hover:bg-slate-100 hover:text-slate-800 dark:hover:bg-slate-800 dark:hover:text-slate-200"
+                onClick={() => setShowPassword((v) => !v)}
+                aria-label={showPassword ? 'Ocultar contraseña' : 'Mostrar contraseña'}
+              >
+                {showPassword ? <HiEyeOff className="h-5 w-5" /> : <HiEye className="h-5 w-5" />}
+              </button>
+            </div>
           </div>
           {needMfa && (
             <div>
