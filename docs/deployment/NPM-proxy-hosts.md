@@ -29,6 +29,9 @@ Prerrequisitos:
 
 ```nginx
 client_max_body_size 200M;
+# Comprobación «Cuentas → Comprobar» llama a GYB (estimate) y puede tardar varios minutos.
+proxy_read_timeout 360s;
+proxy_send_timeout 360s;
 
 location /ws/ {
     proxy_pass http://msa-backup-app:8000;

@@ -81,10 +81,17 @@ export function useRevokeAccount() {
   })
 }
 
+/** GYB estimate puede tardar varios minutos; el cliente por defecto corta a 30s. */
+const VERIFY_ACCESS_TIMEOUT_MS = 360_000
+
 export function useVerifyAccountAccess() {
   return useMutation({
     mutationFn: async (id: string) =>
-      (await api.get<AccountAccessCheck>(`/accounts/${id}/verify-access`)).data,
+      (
+        await api.get<AccountAccessCheck>(`/accounts/${id}/verify-access`, {
+          timeout: VERIFY_ACCESS_TIMEOUT_MS,
+        })
+      ).data,
   })
 }
 

@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react'
+import type { AxiosError } from 'axios'
 import { Badge, Button, Card, Modal, TextInput, ToggleSwitch } from 'flowbite-react'
 import { HiSearch, HiRefresh } from 'react-icons/hi'
 import toast from 'react-hot-toast'
@@ -10,6 +11,25 @@ import {
   useVerifyAccountAccess,
 } from '../api/hooks'
 import type { AccountAccessCheck } from '../api/types'
+
+function verifyAccessErrorMessage(err: unknown): string {
+  const ax = err as AxiosError<{ detail?: unknown }>
+  if (ax.code === 'ECONNABORTED') {
+    return 'Tiempo de espera agotado en el navegador. La parte Gmail puede tardar varios minutos; reintentá o ampliá el proxy (NPM) si corta antes de 6 min.'
+  }
+  const st = ax.response?.status
+  const d = ax.response?.data?.detail
+  if (st === 403) {
+    return 'Sin permiso (accounts.view). Pedí acceso de operador o auditor al administrador.'
+  }
+  if (st === 404) return 'Cuenta no encontrada.'
+  if (typeof d === 'string') return d.length > 280 ? `${d.slice(0, 280)}…` : d
+  if (d && typeof d === 'object' && 'error' in d) {
+    const o = d as { error?: string }
+    if (o.error) return o.error
+  }
+  return ax.message || 'Error de red o del servidor. Revisá la consola de red (F12).'
+}
 
 export default function AccountsPage() {
   const [search, setSearch] = useState('')
@@ -133,13 +153,16 @@ export default function AccountsPage() {
                         size="xs"
                         color="light"
                         isProcessing={verifyAccess.isPending && verifyAccess.variables === a.id}
-                        onClick={() =>
+                        onClick={() => {
+                          toast(
+                            'Comprobando acceso… La parte Gmail puede tardar varios minutos; no cierres la pestaña.',
+                            { duration: 6000 },
+                          )
                           verifyAccess.mutate(a.id, {
                             onSuccess: (data) => setAccessCheck(data),
-                            onError: () =>
-                              toast.error('No se pudo comprobar (permiso accounts.view o error de red)'),
+                            onError: (err) => toast.error(verifyAccessErrorMessage(err)),
                           })
-                        }
+                        }}
                       >
                         Comprobar
                       </Button>
