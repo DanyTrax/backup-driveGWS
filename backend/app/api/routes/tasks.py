@@ -67,8 +67,17 @@ async def _sync_accounts(db: AsyncSession, task: BackupTask, account_ids: list[s
     if not account_ids:
         task.accounts = []
         return
-    uids = [uuid.UUID(a) for a in account_ids]
-    rows = (await db.execute(select(GwAccount).where(GwAccount.id.in_(uids)))).scalars().all()
+    raw = [(a or "").strip() for a in account_ids if (a or "").strip()]
+    try:
+        uids = list(dict.fromkeys(uuid.UUID(x) for x in raw))
+    except ValueError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "invalid_account_id") from exc
+    stmt = (
+        select(GwAccount)
+        .where(GwAccount.id.in_(uids))
+        .execution_options(populate_existing=True)
+    )
+    rows = (await db.execute(stmt)).scalars().all()
     if len(rows) != len(uids):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "unknown_account_ids")
     disabled = [a.email for a in rows if not a.is_backup_enabled]

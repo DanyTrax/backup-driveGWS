@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
 import { Badge, Button, Card, Checkbox, Label, Modal, Select, TextInput, Textarea } from 'flowbite-react'
 import { HiPencil, HiPlay, HiPlus } from 'react-icons/hi'
 import toast from 'react-hot-toast'
+import api from '../api/client'
 import {
   useAccounts,
   useCreateTask,
@@ -10,7 +12,45 @@ import {
   useUpdateTask,
   type TaskPayload,
 } from '../api/hooks'
-import type { BackupTask } from '../api/types'
+import type { BackupTask, WorkspaceAccount } from '../api/types'
+
+function toastTaskSaveError(err: unknown) {
+  const ax = err as { response?: { status?: number; data?: { detail?: unknown } } }
+  const st = ax.response?.status
+  const d = ax.response?.data?.detail
+  if (st === 403) {
+    toast.error('No tenés permiso para crear o editar tareas.')
+    return
+  }
+  if (
+    typeof d === 'object' &&
+    d !== null &&
+    (d as { error?: string }).error === 'accounts_backup_not_enabled'
+  ) {
+    const emails = (d as { emails?: string[] }).emails ?? []
+    toast.error(
+      emails.length
+        ? `El servidor indica que estas cuentas no tienen backup activo: ${emails.join(', ')}. En Cuentas verificá «activo», sincronizá directorio o recargá la página.`
+        : 'Hay cuentas sin backup activo en la tarea.',
+    )
+    return
+  }
+  if (d === 'unknown_account_ids') {
+    toast.error('ID de cuenta inválido o duplicado. Recargá la página y volvé a marcar las cuentas.')
+    return
+  }
+  if (d === 'invalid_account_id') {
+    toast.error('Formato de ID de cuenta inválido. Recargá la página.')
+    return
+  }
+  if (st === 422) {
+    toast.error('Datos de la tarea inválidos. Revisá hora, modo y campos obligatorios.')
+    return
+  }
+  toast.error(
+    'No se pudo guardar la tarea. Si el problema persiste, revisá permisos y los logs del servidor.',
+  )
+}
 
 function emptyPayload(): TaskPayload {
   return {
@@ -35,6 +75,7 @@ function emptyPayload(): TaskPayload {
 }
 
 export default function TasksPage() {
+  const qc = useQueryClient()
   const { data: tasks = [], isLoading } = useTasks()
   const { data: enabledAccounts = [] } = useAccounts(true)
   const run = useRunTask()
@@ -106,7 +147,33 @@ export default function TasksPage() {
       delete filters.drive_layout
     }
 
-    const payload: TaskPayload = { ...form, filters }
+    let freshEnabled: WorkspaceAccount[] = enabledAccounts
+    try {
+      freshEnabled = await qc.fetchQuery({
+        queryKey: ['accounts', true],
+        queryFn: async () => (await api.get<WorkspaceAccount[]>('/accounts', { params: { enabled: true } })).data,
+      })
+    } catch {
+      toast.error('No se pudo actualizar la lista de cuentas. Reintentá.')
+      return
+    }
+
+    const allowed = new Set(freshEnabled.map((a) => a.id))
+    const account_ids = form.account_ids.filter((id) => allowed.has(id))
+    if (form.account_ids.length > 0 && account_ids.length === 0) {
+      toast.error(
+        'Ninguna cuenta seleccionada sigue con backup activo. Abrí Cuentas, verificá «activo» y recargá esta pantalla.',
+      )
+      return
+    }
+    if (account_ids.length < form.account_ids.length) {
+      toast(
+        'Se quitaron de la tarea cuentas que ya no tienen backup activo (datos actualizados desde el servidor).',
+        { icon: '⚠️' },
+      )
+    }
+
+    const payload: TaskPayload = { ...form, filters, account_ids }
 
     try {
       let taskId: string
@@ -128,10 +195,8 @@ export default function TasksPage() {
           toast.error('Tarea guardada pero no se pudo ejecutar ahora')
         }
       }
-    } catch {
-      toast.error(
-        'No se pudo guardar. Solo puedes asignar cuentas con backup activo; revisa también permisos.',
-      )
+    } catch (err) {
+      toastTaskSaveError(err)
     }
   }
 
