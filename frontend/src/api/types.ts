@@ -132,6 +132,7 @@ export interface GitRefreshResult {
 export interface PlatformBackupResult {
   ok: boolean
   error?: string
+  reason?: string
   file_id?: string
   filename?: string
   retention_deleted?: string[]

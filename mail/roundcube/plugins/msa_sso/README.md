@@ -6,22 +6,29 @@ Allows the platform to open Roundcube sessions on behalf of two actors:
   their IMAP password, by leveraging Dovecot's master-user feature.
 - **Client session**, initiated by a magic link the platform sends to the client.
 
-## Expected flow
+## Magic link (first_setup, etc.)
+
+El enlace apunta al **API** (no a Roundcube): `https://<DOMAIN_PLATFORM>/api/webmail/magic-redeem?token=...&purpose=...`.
+Ahí se valida el token, se marca como consumido y se responde **302** a  
+`https://<DOMAIN_WEBMAIL>/?_action=plugin.msa_sso&token=<jwt>`.
+
+Sin `DOMAIN_PLATFORM` en `.env`, el enlace puede construirse mal; configurá ambos dominios.
+
+## SSO directo (admin / cliente)
 
 ```text
-Platform UI (React) ──> POST /api/webmail/sso  ─┐
-                                                ▼
-                               Backend signs JWT (HS256, exp=120s, jti=uuid)
-                                                │
-                               303 Redirect to  │
-                               https://webmail.example.com/?_sso=<jwt>
-                                                │
-Roundcube (msa_sso plugin) ─── verifies JWT ──┐
-                                              ▼
-                            Fills login form + calls authenticate hook
-                            Admin mode uses "user*master" + master password
-                            Client mode uses short-lived encoded password
+Platform UI ──> POST /api/webmail/accounts/:id/sso-admin (o magic-redeem arriba)
+       └── issue_sso_jwt ──> redirect a
+       https://webmail/?_action=plugin.msa_sso&token=<jwt>
+
+Roundcube msa_sso: verifica JWT + Redis jti, luego authenticate (master-user o cliente).
 ```
+
+## Proxy / CSP (Nginx Proxy Manager, Cloudflare)
+
+Si la consola bloquea **scripts inline** de Roundcube, en el host **webmail** aflojá CSP o
+desactivá inyecciones (p. ej. Rocket Loader). El backend de la plataforma no controla los
+headers del contenedor Roundcube.
 
 ## Security assumptions
 

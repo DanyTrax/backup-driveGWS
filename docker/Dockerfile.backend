@@ -31,6 +31,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
       curl ca-certificates unzip git gcc libpq-dev libmagic1 tini age \
+      postgresql-client \
       tzdata supervisor \
  && rm -rf /var/lib/apt/lists/*
 

@@ -19,10 +19,12 @@ from app.models.enums import AuditAction, BackupScope
 from app.models.tasks import BackupTask
 from app.models.users import SysUser
 from app.schemas.tasks import RunResultOut, TaskCreate, TaskOut, TaskUpdate
+from app.core.logging import get_logger
 from app.services.backup_batch_registry import store_batch_celery_ids
 from app.services.audit_service import record_audit
 
 router = APIRouter(prefix="/tasks", tags=["tasks"])
+log = get_logger("tasks")
 
 
 def _to_out(t: BackupTask) -> TaskOut:
@@ -112,41 +114,52 @@ async def create_task(
     db: AsyncSession = Depends(get_db),
     current: SysUser = Depends(require_permission("tasks.create")),
 ) -> TaskOut:
-    task = BackupTask(
-        name=payload.name,
-        description=payload.description,
-        is_enabled=payload.is_enabled,
-        scope=payload.scope.value,
-        mode=payload.mode.value,
-        schedule_kind=payload.schedule_kind.value,
-        cron_expression=payload.cron_expression,
-        run_at_hour=payload.run_at_hour,
-        run_at_minute=payload.run_at_minute,
-        timezone=payload.timezone,
-        retention_policy_json=payload.retention_policy,
-        filters_json=payload.filters,
-        notify_channels_json=payload.notify_channels,
-        dry_run=payload.dry_run,
-        checksum_enabled=payload.checksum_enabled,
-        max_parallel_accounts=payload.max_parallel_accounts,
-        created_by_user_id=current.id,
-    )
-    db.add(task)
-    await db.flush()
-    await _sync_accounts(db, task, payload.account_ids)
-    await record_audit(
-        db,
-        action=AuditAction.SETTING_CHANGED,
-        actor_user_id=current.id,
-        actor_label=current.email,
-        ip_address=get_client_ip(request),
-        user_agent=get_user_agent(request),
-        target_table="backup_tasks",
-        target_id=str(task.id),
-        message="task_created",
-    )
-    await db.commit()
-    return _to_out(await _load(db, task.id))
+    try:
+        task = BackupTask(
+            name=payload.name,
+            description=payload.description,
+            is_enabled=payload.is_enabled,
+            scope=payload.scope.value,
+            mode=payload.mode.value,
+            schedule_kind=payload.schedule_kind.value,
+            cron_expression=payload.cron_expression,
+            run_at_hour=payload.run_at_hour,
+            run_at_minute=payload.run_at_minute,
+            timezone=payload.timezone,
+            retention_policy_json=payload.retention_policy,
+            filters_json=payload.filters,
+            notify_channels_json=payload.notify_channels,
+            dry_run=payload.dry_run,
+            checksum_enabled=payload.checksum_enabled,
+            max_parallel_accounts=payload.max_parallel_accounts,
+            created_by_user_id=current.id,
+        )
+        db.add(task)
+        await db.flush()
+        await _sync_accounts(db, task, payload.account_ids)
+        await record_audit(
+            db,
+            action=AuditAction.SETTING_CHANGED,
+            actor_user_id=current.id,
+            actor_label=current.email,
+            ip_address=get_client_ip(request),
+            user_agent=get_user_agent(request),
+            target_table="backup_tasks",
+            target_id=str(task.id),
+            message="task_created",
+        )
+        await db.commit()
+        return _to_out(await _load(db, task.id))
+    except HTTPException:
+        await db.rollback()
+        raise
+    except Exception as exc:
+        await db.rollback()
+        log.exception("task_create_failed", error=str(exc))
+        raise HTTPException(
+            status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={"error": "task_create_failed", "reason": str(exc)[:500]},
+        ) from exc
 
 
 @router.patch("/{task_id}", response_model=TaskOut)

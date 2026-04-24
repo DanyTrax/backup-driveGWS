@@ -4,6 +4,7 @@ from __future__ import annotations
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
+from fastapi.responses import RedirectResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -28,10 +29,48 @@ from app.services.webmail_service import (
     SSO_JWT_TYPE_CLIENT,
     issue_magic_link,
     issue_sso_jwt,
+    redeem_magic_link,
     set_webmail_password,
 )
 
 router = APIRouter(prefix="/webmail", tags=["webmail"])
+
+
+@router.get("/magic-redeem")
+async def magic_link_redeem(
+    request: Request,
+    token: str,
+    purpose: str,
+    db: AsyncSession = Depends(get_db),
+) -> RedirectResponse:
+    """Canjea token de un solo uso (magic link) y redirige a Roundcube con JWT SSO.
+
+    Debe estar en el host de la API (DOMAIN_PLATFORM), no en el de webmail.
+    """
+    try:
+        pur = WebmailTokenPurpose(purpose)
+    except ValueError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "invalid_purpose") from exc
+    try:
+        acc = await redeem_magic_link(
+            db,
+            token=token,
+            purpose=pur,
+            consumer_ip=get_client_ip(request),
+            consumer_user_agent=get_user_agent(request),
+        )
+    except ValueError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+    await db.commit()
+
+    if pur in (WebmailTokenPurpose.FIRST_SETUP, WebmailTokenPurpose.PASSWORD_RESET):
+        kind = SSO_JWT_TYPE_ADMIN
+    elif pur == WebmailTokenPurpose.CLIENT_SSO:
+        kind = SSO_JWT_TYPE_CLIENT
+    else:
+        kind = SSO_JWT_TYPE_ADMIN
+    data = await issue_sso_jwt(email=acc.email, kind=kind)
+    return RedirectResponse(url=data["url"], status_code=302)
 
 
 async def _load_account(db: AsyncSession, account_id: uuid.UUID) -> GwAccount:

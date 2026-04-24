@@ -44,12 +44,17 @@ export default function SettingsPage() {
         toast.success(`Backup de plataforma subido: ${r.filename ?? 'archivo .age'}`)
       } else {
         const code = r.error ?? 'error_desconocido'
+        const reason = (r as { reason?: string }).reason ?? ''
         const msg =
-          code === 'age_recipient_not_configured'
-            ? 'Falta configurar el destinatario age (PLATFORM_BACKUP_AGE_RECIPIENT) en el servidor.'
-            : code === 'vault_root_missing'
-              ? 'Falta vault de Drive configurado.'
-              : `No se pudo generar el backup (${code}).`
+          code === 'platform_backup_exception' && reason
+            ? `Backup de plataforma: ${reason.slice(0, 400)}`
+            : code === 'age_recipient_not_configured'
+              ? 'Falta configurar el destinatario age (PLATFORM_BACKUP_AGE_RECIPIENT) en el servidor.'
+              : code === 'vault_root_missing'
+                ? 'Falta vault de Drive configurado.'
+                : reason
+                  ? `${code}: ${reason.slice(0, 300)}`
+                  : `No se pudo generar el backup (${code}).`
         toast.error(msg)
       }
     } catch (err: unknown) {

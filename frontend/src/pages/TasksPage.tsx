@@ -41,6 +41,19 @@ function toastTaskSaveError(err: unknown) {
   if (
     typeof d === 'object' &&
     d !== null &&
+    (d as { error?: string }).error === 'task_create_failed'
+  ) {
+    const reason = (d as { reason?: string }).reason ?? ''
+    toast.error(
+      reason
+        ? `Error al crear la tarea: ${reason.slice(0, 380)}`
+        : 'Error al crear la tarea. Revisá docker logs msa-backup-app.',
+    )
+    return
+  }
+  if (
+    typeof d === 'object' &&
+    d !== null &&
     (d as { error?: string }).error === 'accounts_backup_not_enabled'
   ) {
     const emails = (d as { emails?: string[] }).emails ?? []
@@ -211,11 +224,6 @@ export default function TasksPage() {
         'Se quitaron de la tarea cuentas que ya no tienen backup activo (datos actualizados desde el servidor).',
         { icon: '⚠️' },
       )
-    }
-
-    if (!editing && account_ids.length === 0) {
-      toast.error('Marcá al menos una cuenta en la lista (debe tener backup activo).')
-      return
     }
 
     const payload: TaskPayload = { ...form, filters, account_ids }

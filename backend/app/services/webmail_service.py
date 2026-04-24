@@ -27,6 +27,21 @@ def _webmail_base_url() -> str:
     return "https://webmail.example.com"
 
 
+def _magic_redeem_public_url(*, token: str, purpose: str) -> str:
+    """URL pública que abre el usuario: debe resolver al API (FastAPI), no a Roundcube."""
+    from urllib.parse import quote
+
+    q_tok = quote(token, safe="")
+    q_pur = quote(purpose, safe="")
+    dom = (settings.domain_platform or "").strip()
+    if dom:
+        host = dom.split("/")[0].strip()
+        return f"https://{host}/api/webmail/magic-redeem?token={q_tok}&purpose={q_pur}"
+    # Último recurso: mismo origen que webmail (solo si NPM enruta /api al backend).
+    base = _webmail_base_url().rstrip("/")
+    return f"{base}/api/webmail/magic-redeem?token={q_tok}&purpose={q_pur}"
+
+
 # ---------------------------------------------------------------------------
 # Magic links (first_setup / password_reset / client_sso)
 # ---------------------------------------------------------------------------
@@ -51,7 +66,7 @@ async def issue_magic_link(
     db.add(token_row)
     await db.flush()
 
-    url = f"{_webmail_base_url()}/msa/webmail/redeem?token={plain}&purpose={purpose.value}"
+    url = _magic_redeem_public_url(token=plain, purpose=purpose.value)
     return {
         "token": plain,
         "url": url,

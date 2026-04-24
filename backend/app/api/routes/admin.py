@@ -75,7 +75,14 @@ async def run_platform_backup(
 ) -> dict:
     from app.services.platform_backup import run_platform_backup as _run
 
-    result = await _run(db)
+    try:
+        result = await _run(db)
+    except Exception as exc:
+        result = {
+            "ok": False,
+            "error": "platform_backup_exception",
+            "reason": str(exc)[:800],
+        }
     await record_audit(
         db,
         action=AuditAction.PLATFORM_BACKUP,
