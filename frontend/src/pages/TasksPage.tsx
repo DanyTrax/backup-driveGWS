@@ -1,12 +1,13 @@
 import { useEffect, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { Badge, Button, Card, Checkbox, Label, Modal, Select, TextInput, Textarea } from 'flowbite-react'
-import { HiPencil, HiPlay, HiPlus } from 'react-icons/hi'
+import { HiPencil, HiPlay, HiPlus, HiTrash } from 'react-icons/hi'
 import toast from 'react-hot-toast'
 import api from '../api/client'
 import {
   useAccounts,
   useCreateTask,
+  useDeleteTask,
   useRunTask,
   useTasks,
   useUpdateTask,
@@ -128,8 +129,10 @@ export default function TasksPage() {
   const run = useRunTask()
   const create = useCreateTask()
   const update = useUpdateTask()
+  const remove = useDeleteTask()
 
   const [modalOpen, setModalOpen] = useState(false)
+  const [taskToDelete, setTaskToDelete] = useState<BackupTask | null>(null)
   const [editing, setEditing] = useState<BackupTask | null>(null)
   const [form, setForm] = useState<TaskPayload>(emptyPayload)
   const [datedRun, setDatedRun] = useState(false)
@@ -317,7 +320,7 @@ export default function TasksPage() {
                       )}
                     </td>
                     <td className="text-xs text-slate-500">{t.last_run_at ?? '—'}</td>
-                    <td className="text-right space-x-2">
+                    <td className="text-right space-x-2 whitespace-nowrap">
                       <Button size="xs" color="light" onClick={() => openEdit(t)}>
                         <HiPencil className="h-4 w-4 mr-1" /> Editar
                       </Button>
@@ -335,6 +338,9 @@ export default function TasksPage() {
                         }
                       >
                         <HiPlay className="h-4 w-4 mr-1" /> Ejecutar
+                      </Button>
+                      <Button size="xs" color="failure" onClick={() => setTaskToDelete(t)}>
+                        <HiTrash className="h-4 w-4 mr-1" /> Eliminar
                       </Button>
                     </td>
                   </tr>
@@ -550,6 +556,47 @@ export default function TasksPage() {
             Guardar
           </Button>
           <Button color="gray" onClick={() => setModalOpen(false)}>
+            Cancelar
+          </Button>
+        </Modal.Footer>
+      </Modal>
+
+      <Modal show={taskToDelete !== null} onClose={() => setTaskToDelete(null)} size="md">
+        <Modal.Header>Eliminar tarea</Modal.Header>
+        <Modal.Body>
+          <p className="text-sm text-slate-600 dark:text-slate-400">
+            ¿Eliminar la tarea <strong>{taskToDelete?.name}</strong>? No borra backups ya hechos; solo
+            la definición y la asignación de cuentas. El historial en Logs puede seguir mostrando
+            ejecuciones antiguas ligadas a este ID.
+          </p>
+        </Modal.Body>
+        <Modal.Footer>
+          <Button
+            color="failure"
+            disabled={remove.isPending}
+            onClick={() => {
+              if (!taskToDelete) return
+              const id = taskToDelete.id
+              const name = taskToDelete.name
+              remove.mutate(id, {
+                onSuccess: () => {
+                  toast.success(`Tarea «${name}» eliminada`)
+                  setTaskToDelete(null)
+                },
+                onError: (err) => {
+                  const st = (err as { response?: { status?: number } }).response?.status
+                  if (st === 403) {
+                    toast.error('No tenés permiso para eliminar tareas (se requiere tasks.delete).')
+                  } else {
+                    toast.error('No se pudo eliminar la tarea.')
+                  }
+                },
+              })
+            }}
+          >
+            Eliminar
+          </Button>
+          <Button color="gray" onClick={() => setTaskToDelete(null)}>
             Cancelar
           </Button>
         </Modal.Footer>

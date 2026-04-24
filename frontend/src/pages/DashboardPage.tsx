@@ -51,6 +51,7 @@ export default function DashboardPage() {
                 <th>Scope</th>
                 <th>Estado</th>
                 <th>Inicio</th>
+                <th>Detalle</th>
               </tr>
             </thead>
             <tbody>
@@ -73,6 +74,18 @@ export default function DashboardPage() {
                     </span>
                   </td>
                   <td>{l.started_at ?? '—'}</td>
+                  <td
+                    className="max-w-[200px] truncate text-xs text-slate-500"
+                    title={l.error_summary ?? undefined}
+                  >
+                    {l.status === 'failed' && l.error_summary?.trim()
+                      ? l.error_summary.length > 90
+                        ? `${l.error_summary.slice(0, 90)}…`
+                        : l.error_summary
+                      : l.status === 'failed'
+                        ? 'Ver Logs'
+                        : '—'}
+                  </td>
                 </tr>
               ))}
             </tbody>

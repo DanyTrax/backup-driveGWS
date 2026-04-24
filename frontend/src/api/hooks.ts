@@ -133,6 +133,19 @@ export function useUpdateTask() {
   })
 }
 
+export function useDeleteTask() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (id: string) => {
+      await api.delete(`/tasks/${id}`)
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['tasks'] })
+      qc.invalidateQueries({ queryKey: ['backup-logs'] })
+    },
+  })
+}
+
 export function useProvisionMailbox() {
   const qc = useQueryClient()
   return useMutation({

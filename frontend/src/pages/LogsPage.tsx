@@ -8,6 +8,12 @@ import {
 } from '../api/hooks'
 import type { BackupLog } from '../api/types'
 
+function truncateDetail(s: string | null | undefined, max = 140): string {
+  if (!s?.trim()) return '—'
+  const t = s.trim()
+  return t.length <= max ? t : `${t.slice(0, max)}…`
+}
+
 function humanBytes(n: number) {
   if (!n) return '0 B'
   const units = ['B', 'KB', 'MB', 'GB', 'TB']
@@ -98,6 +104,7 @@ export default function LogsPage() {
                   <th>Bytes</th>
                   <th>Mensajes</th>
                   <th>Errores</th>
+                  <th>Motivo / detalle</th>
                   <th></th>
                 </tr>
               </thead>
@@ -129,6 +136,14 @@ export default function LogsPage() {
                     <td>{humanBytes(l.bytes_transferred)}</td>
                     <td>{l.messages_count}</td>
                     <td>{l.errors_count}</td>
+                    <td
+                      className="max-w-[220px] text-xs text-slate-600 dark:text-slate-400 align-top"
+                      title={l.error_summary ?? undefined}
+                    >
+                      {l.status === 'failed' && !l.error_summary?.trim()
+                        ? 'Sin texto (ver logs del worker: msa-backup-worker)'
+                        : truncateDetail(l.error_summary)}
+                    </td>
                     <td className="text-right">
                       {l.status === 'running' ? (
                         <Button

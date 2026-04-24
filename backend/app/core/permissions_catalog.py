@@ -75,7 +75,7 @@ DEFAULT_ROLE_PERMISSIONS: dict[UserRole, frozenset[str]] = {
         {
             "users.view",
             "accounts.view", "accounts.approve", "accounts.revoke", "accounts.sync", "accounts.edit",
-            "tasks.view", "tasks.create", "tasks.edit", "tasks.run",
+            "tasks.view", "tasks.create", "tasks.edit", "tasks.delete", "tasks.run",
             "logs.view", "logs.export",
             "restore.view", "restore.create", "restore.cancel",
             "webmail.sso_admin", "webmail.issue_magic_link", "webmail.revoke_access",
