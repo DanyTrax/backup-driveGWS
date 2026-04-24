@@ -19,6 +19,7 @@ from typing import AsyncIterator, Iterable
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import get_settings
 from app.services.backup_batch_registry import is_log_cancelled
 from app.services.google.credentials import load_sa_info
 from app.utils.async_process import SUBPROCESS_PIPE_LIMIT
@@ -35,6 +36,17 @@ class RcloneConfig:
     remote_source: str
     remote_dest: str
     cleanup_paths: list[str] = field(default_factory=list)
+
+
+def _subprocess_env_for_rclone() -> dict[str, str]:
+    """Rclone aplica ``RCLONE_*`` del entorno global; un bwlimit mal formado rompe cualquier invocación."""
+    env = dict(os.environ)
+    lim = get_settings().rclone_bwlimit.strip()
+    if lim:
+        env["RCLONE_BWLIMIT"] = lim
+    else:
+        env.pop("RCLONE_BWLIMIT", None)
+    return env
 
 
 @asynccontextmanager
@@ -200,6 +212,7 @@ async def run_rclone(
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.STDOUT,
         limit=SUBPROCESS_PIPE_LIMIT,
+        env=_subprocess_env_for_rclone(),
     )
     assert process.stdout is not None  # for type-checkers
     collected: list[str] = []

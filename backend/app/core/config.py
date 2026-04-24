@@ -4,7 +4,7 @@ from __future__ import annotations
 from functools import lru_cache
 from typing import Literal
 
-from pydantic import Field, computed_field
+from pydantic import Field, computed_field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -74,6 +74,19 @@ class Settings(BaseSettings):
     rclone_rc_port_range_start: int = 5572
     rclone_rc_port_range_end: int = 5599
     rclone_bwlimit: str = ""
+
+    @field_validator("rclone_bwlimit", mode="before")
+    @classmethod
+    def _clean_rclone_bwlimit(cls, v: object) -> str:
+        """Evita que un .env tipo ``RCLONE_BWLIMIT=  # comentario`` rompa rclone (lee RCLONE_* del entorno)."""
+        if v is None:
+            return ""
+        s = str(v).strip()
+        if "#" in s:
+            s = s.split("#", 1)[0].strip()
+        if not s or s.startswith("#"):
+            return ""
+        return s
 
     @computed_field  # type: ignore[misc]
     @property
