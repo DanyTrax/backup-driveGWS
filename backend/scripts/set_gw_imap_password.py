@@ -126,6 +126,11 @@ def main() -> None:
             f"[set_gw_imap_password] app → postgres host={s.postgres_host!r} port={s.postgres_port} "
             f"db={s.postgres_db!r} user={s.postgres_user!r}"
         )
+        print(
+            "[set_gw_imap_password] Debe ser la misma instancia que Dovecot (auth SQL). Compara en el VPS con:\n"
+            "  docker exec msa-backup-dovecot printenv POSTGRES_HOST POSTGRES_PORT POSTGRES_DB\n"
+            "  Si el host o la BD difieren, set_gw_imap_password actualiza otra base y dovecot auth falla."
+        )
         return
 
     if args.verify_password is not None:

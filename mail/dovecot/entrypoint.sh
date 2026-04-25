@@ -2,6 +2,12 @@
 # Renders templated configs with envsubst, waits for Postgres, then exec dovecot.
 set -euo pipefail
 
+# Alinear con Pydantic (app): si .env no define POSTGRES_*, el backend usa 'postgres' por defecto;
+# aquí el shell no tiene esos default salvo que los fijemos antes de envsubst/psql.
+POSTGRES_HOST="${POSTGRES_HOST:-postgres}"
+POSTGRES_PORT="${POSTGRES_PORT:-5432}"
+export POSTGRES_HOST POSTGRES_PORT
+
 echo "[dovecot-entrypoint] rendering config from templates..."
 # Asegurar no heredar 10-auth de capas viejas o de la base si el build estuvo mal.
 rm -f /etc/dovecot/conf.d/10-auth.conf /etc/dovecot/conf.d/auth-sql.conf

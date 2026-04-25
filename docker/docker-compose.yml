@@ -160,11 +160,10 @@ services:
       dockerfile: Dockerfile
     container_name: msa-backup-dovecot
     restart: unless-stopped
-    # Mismo .env que app/worker (repo en backup-stack, compose en docker/): asegurar credenciales en contenedor
+    # Mismo .env que app. NO forzar POSTGRES_HOST/PORT aquí: si lo hacéis, Dovecot y la app
+    # (set_gw_imap_password / API) pueden apuntar a Postgres distintos y IMAP nunca acierta.
     env_file: ../.env
     environment:
-      POSTGRES_HOST: postgres
-      POSTGRES_PORT: 5432
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_DB: ${POSTGRES_DB}
