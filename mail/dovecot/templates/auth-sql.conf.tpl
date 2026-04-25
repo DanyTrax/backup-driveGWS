@@ -4,10 +4,10 @@
 driver = pgsql
 connect = host=${POSTGRES_HOST} port=${POSTGRES_PORT} dbname=${POSTGRES_DB} user=${POSTGRES_USER} password=${POSTGRES_PASSWORD}
 
-# Valor por defecto solo aplica si el hash en BD no trae esquema explícito; $argon2id$ / $2b$ / {BLF-CRYPT} se autodetectan.
-default_pass_scheme = BLF-CRYPT
+# Valor por defecto si el hash en columna no trae prefijo; $6$ (sha512-crypt) y $2$ se autodetectan.
+default_pass_scheme = SHA512-CRYPT
 
-# `imap_password_hash`: bcrypt como `$2a$` / `$2b$` (recomendado) o con prefijo {BLF-CRYPT} legado; argon2 legado.
+# imap_password_hash: preferible $6$ (SHA512-CRYPT, mismo crypt que glibc). Legado: bcrypt/argon2.
 # Filas con imap_enabled = true y sin bloqueo.
 # email con lower(): evita fallo si la BD trae mezcla de mayúsculas (API Google) y el usuario
 # escribe en minúsculas en Roundcube (Postgres: = '%u' es sensible a mayúsculas).

@@ -18,24 +18,24 @@ def test_password_roundtrip() -> None:
     assert not verify_password("wrong", hashed)
 
 
-def test_imap_password_bcrypt_dovecot_compat() -> None:
+def test_imap_password_sha512_dovecot_compat() -> None:
     from app.core.security import (
         DOVECOT_BCRYPT_PREFIX,
         hash_imap_password,
         verify_imap_password,
         verify_password,
     )
+    import bcrypt
 
     plain = "IMAP-Min10chars!"
     h = hash_imap_password(plain)
-    assert h.startswith("$2a$")
+    assert h.startswith("$6$")
     assert verify_imap_password(plain, h)
     assert not verify_imap_password("wrong", h)
-    # no confundir con hash de plataforma (Argon2)
     assert not verify_password(plain, h)
-    # legado: prefijo explícito Dovecot
-    legacy = f"{DOVECOT_BCRYPT_PREFIX}{h}"
-    assert verify_imap_password(plain, legacy)
+    # legado: bcrypt + prefijo {BLF-CRYPT} (filas anteriores a SHA512-CRYPT)
+    raw = bcrypt.hashpw(plain.encode("utf-8"), bcrypt.gensalt(rounds=4, prefix=b"2a")).decode("ascii")
+    assert verify_imap_password(plain, f"{DOVECOT_BCRYPT_PREFIX}{raw}")
 
 
 def test_jwt_roundtrip() -> None:

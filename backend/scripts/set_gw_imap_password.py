@@ -1,6 +1,6 @@
 """Fijar o rectificar la contraseña IMAP (gw_accounts) desde SSH, con el MISMO hash que la API / Dovecot.
 
-Misma lógica que "Fijar contraseña" en la plataforma (bcrypt $2a$ en columna, sin {BLF-CRYPT} extra). No uses UPDATE manual
+Misma lógica que "Fijar contraseña" en la plataforma (SHA512-CRYPT $6$, mismo crypt(3) que Dovecot). No uses UPDATE manual
 en psql con la salida de doveadm en bash: el carácter $ en el hash se rompe con las comillas del shell.
 
 Uso (contenedor de la app, el que tiene /app y Python):
@@ -74,7 +74,7 @@ async def _run(email: str, password: str) -> None:
         acc.imap_failed_attempts = 0
         acc.imap_locked_until = None
         await session.commit()
-        print(f"[set_gw_imap_password] IMAP listo (bcrypt $2a$ en BD, compatible Dovecot) para: {acc.email}")
+        print(f"[set_gw_imap_password] IMAP listo (SHA512-CRYPT $6$ en BD, verificación alineada con Dovecot) para: {acc.email}")
 
 
 async def _verify_from_db(email: str, password: str) -> None:

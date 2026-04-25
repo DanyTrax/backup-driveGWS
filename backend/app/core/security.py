@@ -12,6 +12,7 @@ import bcrypt as bcrypt_lib
 import pyotp
 from jose import JWTError, jwt
 from passlib.context import CryptContext
+from passlib.hash import sha512_crypt as imap_sha512
 
 from app.core.config import get_settings
 
@@ -25,13 +26,13 @@ pwd_context = CryptContext(
     argon2__parallelism=4,
 )
 
-# IMAP (Dovecot passdb en Postgres). Argon2 (passlib) no se usa para IMAP: bcrypt vía el paquete `bcrypt`.
-# Guardar SOLO el tronco crypt `$2a$..` / `$2b$..` (sin `{BLF-CRYPT}...`): con `default_pass_scheme=BLF-CRYPT` en
-# auth-sql, algunas instalaciones de Dovecot+libc se confundían con `{BLF-CRYPT}$2b$` (doble intención de esquema)
-# y passdb no verificaba aunque la fila existiera. Las filas legadas con prefijo {BLF-CRYPT} se siguen aceptando.
-# Prefijo 2a para máxima compat con crypt(3) / Dovecot 2.3.
-IMAP_BCRYPT_ROUNDS = 12
+# IMAP (Dovecot passdb en Postgres): SHA512-CRYPT ($6$...) vía passlib — es el **mismo** algoritmo que
+# crypt(3) / glibc; Dovecot lo verifica igual que Python, sin el desfase Python-bcrypt vs libc-bcrypt
+# (verify_imap True + doveadm auth failed) que vimos con $2a$.
+# Bcrypt/Argon2 en filas antiguas siguen en verify_imap_password.
+IMAP_SHA512_ROUNDS = 5000
 DOVECOT_BCRYPT_PREFIX = "{BLF-CRYPT}"
+DOVECOT_SHA512_PREFIX = "{SHA512-CRYPT}"
 
 
 # ---------------------------- passwords --------------------------------------
@@ -50,15 +51,21 @@ def hash_imap_password(plain: str) -> str:
     """Solo `gw_accounts.imap_password_hash` (Dovecot). No usar para `sys_users`."""
     if len(plain) < 10:
         raise ValueError("password_too_short")
-    salt = bcrypt_lib.gensalt(rounds=IMAP_BCRYPT_ROUNDS, prefix=b"2a")
-    return bcrypt_lib.hashpw(plain.encode("utf-8"), salt).decode("ascii")
+    return imap_sha512.using(rounds=IMAP_SHA512_ROUNDS).hash(plain)
 
 
 def verify_imap_password(plain: str, stored: str) -> bool:
-    """Verifica IMAP: bcrypt (actual) o Argon2 passlib (legado, antes de migrar a bcrypt)."""
+    """Verifica IMAP: SHA512-CRYPT (actual, mismo crypt que Dovecot), bcrypt y Argon2 legado."""
     if not stored:
         return False
-    s = stored
+    s = stored.strip()
+    if s.startswith(DOVECOT_SHA512_PREFIX):
+        s = s[len(DOVECOT_SHA512_PREFIX) :]
+    if s.startswith("$6$"):
+        try:
+            return imap_sha512.verify(plain, s)
+        except Exception:
+            return False
     if s.startswith(DOVECOT_BCRYPT_PREFIX):
         s = s[len(DOVECOT_BCRYPT_PREFIX) :]
     if s.startswith(("$2a$", "$2b$", "$2y$")):
