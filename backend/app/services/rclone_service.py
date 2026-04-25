@@ -112,6 +112,114 @@ async def build_rclone_config(
 
 
 @asynccontextmanager
+async def build_rclone_vault_dest_only_config(
+    db: AsyncSession,
+    *,
+    vault_folder_id: str,
+) -> AsyncIterator[RcloneConfig]:
+    """Sólo remoto ``dest:`` hacia el vault (Shared Drive + carpeta de cuenta). ``rclone copy`` local→Drive."""
+    sa_info = await load_sa_info(db)
+    team_drive_id = await get_value(db, KEY_VAULT_SHARED_DRIVE_ID)
+
+    tmpdir = tempfile.mkdtemp(prefix="rclone_dst_", dir="/tmp")
+    sa_path = str(Path(tmpdir) / "sa.json")
+    cfg_path = str(Path(tmpdir) / "rclone.conf")
+    with open(sa_path, "w", encoding="utf-8") as f:
+        json.dump(sa_info, f)
+    os.chmod(sa_path, 0o600)
+
+    dest_lines = [
+        "[dest]",
+        "type = drive",
+        f"service_account_file = {sa_path}",
+        "scope = drive",
+    ]
+    if team_drive_id:
+        dest_lines.append(f"team_drive = {team_drive_id}")
+    dest_lines.append(f"root_folder_id = {vault_folder_id}")
+    dest_lines.append("")
+
+    with open(cfg_path, "w", encoding="utf-8") as f:
+        f.write("\n".join(dest_lines))
+    os.chmod(cfg_path, 0o600)
+    try:
+        yield RcloneConfig(
+            config_path=cfg_path,
+            remote_source="",
+            remote_dest="dest:",
+            cleanup_paths=[sa_path, cfg_path, tmpdir],
+        )
+    finally:
+        for p in (sa_path, cfg_path):
+            try:
+                os.unlink(p)
+            except OSError:
+                pass
+        try:
+            os.rmdir(tmpdir)
+        except OSError:
+            pass
+
+
+def build_rclone_local_to_vault_argv(
+    local_abs: str,
+    cfg: RcloneConfig,
+    *,
+    dest_subpath: str,
+    dry_run: bool = False,
+    extra_flags: Iterable[str] = (),
+) -> list[str]:
+    """``rclone copy <local> dest:<ruta>`` hacia un vault de cuenta (sin remoto de origen Google)."""
+    rel = dest_subpath.strip().lstrip("/")
+    remote = f"{cfg.remote_dest.rstrip(':')}:{rel}/" if rel else cfg.remote_dest
+    argv = [
+        "copy",
+        str(Path(local_abs).resolve()),
+        remote,
+        "--config",
+        cfg.config_path,
+        "--stats",
+        "5s",
+        "--stats-one-line",
+        "--stats-log-level",
+        "NOTICE",
+        "--transfers",
+        "4",
+        "--checkers",
+        "8",
+        "--retries",
+        "3",
+        "--low-level-retries",
+        "10",
+    ]
+    if dry_run:
+        argv.append("--dry-run")
+    argv += list(extra_flags)
+    return argv
+
+
+def build_rclone_check_local_vault_argv(
+    local_abs: str,
+    cfg: RcloneConfig,
+    *,
+    dest_subpath: str,
+) -> list[str]:
+    """``rclone check <local> dest:<ruta> --one-way`` — confirma que lo subido al vault cubre el árbol local."""
+    rel = dest_subpath.strip().lstrip("/")
+    remote = f"{cfg.remote_dest.rstrip(':')}:{rel}/" if rel else cfg.remote_dest
+    return [
+        "check",
+        str(Path(local_abs).resolve()),
+        remote,
+        "--config",
+        cfg.config_path,
+        "--one-way",
+        "--max-backlog",
+        "200000",
+    ]
+
+
+@asynccontextmanager
 async def build_rclone_source_only_config(
     db: AsyncSession,
     *,

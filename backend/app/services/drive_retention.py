@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.services.drive_snapshot_retention_plan import folder_ids_to_prune
 from app.services.google.drive import delete_drive_file, get_folder_by_name, list_child_folders
 from app.services.settings_service import KEY_VAULT_SHARED_DRIVE_ID, get_value
+from app.services.vault_layout import VAULT_DIR_DRIVE, use_separated_vault_layout
 
 if TYPE_CHECKING:
     from app.models.accounts import GwAccount
@@ -20,10 +21,11 @@ async def prune_after_drive_backup(
     task: BackupTask,
     account: GwAccount,
 ) -> int:
-    """Elimina las carpetas de ejecución más antiguas bajo MSA_Runs/, dejando las N más recientes.
+    """Elimina las carpetas de ejecución más antiguas bajo ``MSA_Runs/`` (o ``2-DRIVE/MSA_Runs/``).
 
     ``retention_policy_json.keep_drive_snapshots`` = N (entero > 0). N=0 o ausente = sin poda.
     Solo actúa si la tarea usa ``filters_json.drive_layout == \"dated_run\"``.
+    Con layout v2, ``MSA_Runs`` cuelga de ``2-DRIVE`` bajo el vault de la cuenta.
     """
     policy = task.retention_policy_json or {}
     keep = int(policy.get("keep_drive_snapshots") or 0)
@@ -41,7 +43,16 @@ async def prune_after_drive_backup(
     drive_id = await get_value(db, KEY_VAULT_SHARED_DRIVE_ID)
     prefix = str(filters.get("dated_run_prefix", "MSA_Runs")).strip("/") or "MSA_Runs"
 
-    runs = await get_folder_by_name(db, name=prefix, parent_id=vault_id, drive_id=drive_id)
+    parent_id = vault_id
+    if use_separated_vault_layout(filters):
+        two_drive = await get_folder_by_name(
+            db, name=VAULT_DIR_DRIVE, parent_id=vault_id, drive_id=drive_id
+        )
+        if not two_drive:
+            return 0
+        parent_id = two_drive["id"]
+
+    runs = await get_folder_by_name(db, name=prefix, parent_id=parent_id, drive_id=drive_id)
     if not runs:
         return 0
 

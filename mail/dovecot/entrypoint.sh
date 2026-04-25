@@ -23,8 +23,9 @@ if ! grep -qF 'auth_master_user_separator' /etc/dovecot/templates/10-auth.conf.t
 fi
 cat /etc/dovecot/templates/10-auth.conf.tpl > /etc/dovecot/conf.d/10-auth.conf
 chmod 600 /etc/dovecot/conf.d/10-auth.conf
-# Solo ${POSTGRES_*}; con envsubst "total", los $ de comentarios/argon2/bcrypt se comen a "".
-envsubst '$POSTGRES_HOST $POSTGRES_PORT $POSTGRES_DB $POSTGRES_USER $POSTGRES_PASSWORD' \
+# No incluir POSTGRES_PASSWORD en el .conf: ver comentario en auth-sql (PGPASSWORD para libpq).
+# Solo ${POSTGRES_*} sin password.
+envsubst '$POSTGRES_HOST $POSTGRES_PORT $POSTGRES_DB $POSTGRES_USER' \
   < /etc/dovecot/templates/auth-sql.conf.tpl > /etc/dovecot/conf.d/auth-sql.conf
 chmod 600 /etc/dovecot/conf.d/auth-sql.conf
 
@@ -64,5 +65,8 @@ until PGPASSWORD="${POSTGRES_PASSWORD}" psql \
   sleep 2
 done
 echo "[dovecot-entrypoint] Postgres is up. Starting Dovecot."
+
+# Misma semántica que psql: libpq en el driver pgsql de Dovecot usa PGPASSWORD si no va password= en connect.
+export PGPASSWORD="${POSTGRES_PASSWORD}"
 
 exec "$@"

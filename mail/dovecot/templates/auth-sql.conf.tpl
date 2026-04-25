@@ -2,7 +2,10 @@
 ## SQL auth driver config
 ##
 driver = pgsql
-connect = host=${POSTGRES_HOST} port=${POSTGRES_PORT} dbname=${POSTGRES_DB} user=${POSTGRES_USER} password=${POSTGRES_PASSWORD}
+# Nunca password= en esta línea: el .conf de Dovecot toma # como comentario y trunca el valor
+# (si POSTGRES_PASSWORD contiene # o =, libpq nunca recibe el secreto; psql vía PGPASSWORD seguía bien).
+# libpq toma el secreto de la variable de entorno PGPASSWORD (export en entrypoint).
+connect = host=${POSTGRES_HOST} port=${POSTGRES_PORT} dbname=${POSTGRES_DB} user=${POSTGRES_USER}
 
 # default_pass_scheme CRYPT: libcrypt con autodetección ($1$/$2a$/$5$/$6$). Más adecuado que
 # SHA512-CRYPT para un $6$ crudo visto por el driver SQL. Legado $2$ sigue con CRYPT.
