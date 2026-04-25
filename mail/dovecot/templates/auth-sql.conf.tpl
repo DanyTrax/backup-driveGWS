@@ -10,11 +10,11 @@ default_pass_scheme = CRYPT
 
 # imap_password_hash: nuevas = {BLF-CRYPT}$2b$… (bcrypt). Legado: $6$ SHA512, {SHA512-CRYPT}$6$, argon2.
 # Filas con imap_enabled = true y sin bloqueo.
-# WHERE con lower() ya une la fila; el campo "user" devuelto debe coincidir con el login que
-# envía IMAP (suele ser todo en minúsculas). Si devolvieras `email` tal cual (Google/Admin SDK
-# a veces mezcla mayúsculas), passdb verifica el hash pero Dovecot descarta el login: auth failed.
+# En PostgreSQL, user/password son palabras clave: sin comillas el alias puede no ser el nombre
+# de columna que libpq expone, y el passdb no ve el hash → auth falla aun con bcrypt en BD.
+# Usar AS "user" / AS "password" (Dovecot busca esos nombres de campo en el result set).
 password_query = \
-  SELECT lower(email) AS user, TRIM(BOTH FROM imap_password_hash) AS password \
+  SELECT lower(email) AS "user", TRIM(BOTH FROM imap_password_hash) AS "password" \
   FROM gw_accounts \
   WHERE lower(email) = lower('%u') \
     AND imap_enabled = TRUE \
@@ -22,9 +22,10 @@ password_query = \
     AND length(TRIM(BOTH FROM imap_password_hash)) > 10 \
     AND (imap_locked_until IS NULL OR imap_locked_until < now())
 
-# User is resolved into a Maildir path built from the account record.
+# Incluir "user" explícitamente; sin él el userdb SQL puede dejar el login inconsistente.
 user_query = \
   SELECT \
+    lower(email) AS "user", \
     5000 AS uid, \
     5000 AS gid, \
     COALESCE(maildir_path, '/var/mail/vhosts/' || split_part(email, '@', 2) || '/' || split_part(email, '@', 1)) AS home, \
@@ -32,4 +33,4 @@ user_query = \
   FROM gw_accounts \
   WHERE lower(email) = lower('%u')
 
-iterate_query = SELECT lower(email) AS user FROM gw_accounts WHERE imap_enabled = TRUE
+iterate_query = SELECT lower(email) AS "user" FROM gw_accounts WHERE imap_enabled = TRUE
