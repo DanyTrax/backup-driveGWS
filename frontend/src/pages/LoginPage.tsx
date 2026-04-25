@@ -48,6 +48,10 @@ export default function LoginPage() {
         setError(
           'Correo o contraseña incorrectos. Si acabás de cambiar la clave por SSH, probá escribir la contraseña a mano (el autocompletado a veces guarda la anterior).',
         )
+      } else if (err?.response?.status && err.response.status >= 500) {
+        setError('Error en el servidor. Revisá que el contenedor app esté en marcha y el .env tenga SECRET_KEY, FERNET_KEY y acceso a Postgres/Redis (sin tocar, solo que existan y coincidan con el despliegue).')
+      } else if (!err?.response) {
+        setError('Sin conexión con el servidor o timeout. Revisá la URL y Nginx/SSL.')
       } else {
         setError('No se pudo iniciar sesión. Revisá correo y contraseña.')
       }

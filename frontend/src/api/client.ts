@@ -38,6 +38,12 @@ api.interceptors.response.use(
   async (error: AxiosError) => {
     const original = error.config as AxiosRequestConfig & { _retry?: boolean }
     if (error.response?.status === 401 && !original?._retry) {
+      // No intentar refresh en el propio login: acaba en logout+throw sin `response` y el panel muestra
+      // "Revisá correo y contraseña" aunque el backend haya devuelto invalid_credentials.
+      const path = String(original?.url ?? '')
+      if (path.includes('/auth/login')) {
+        return Promise.reject(error)
+      }
       const detail = (error.response.data as { detail?: { error?: string } })?.detail
       if (detail?.error === 'mfa_required') {
         return Promise.reject(error)
