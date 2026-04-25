@@ -54,9 +54,12 @@ def verify_password(plain: str, hashed: str) -> bool:
 def hash_imap_password(plain: str) -> str:
     """Solo `gw_accounts.imap_password_hash` (Dovecot). No usar para `sys_users`.
 
-    Almacenamos `{SHA512-CRYPT}$6$...` (prefijo al estilo Dovecot) para que el passdb SQL
-    no tenga dudas con `default_pass_scheme` / autodetección. El cuerpo es siempre
-    SHA512-CRYPT vía `crypt(3)` en Linux; passlib solo si no hay libc SHA-512 (p. ej. dev).
+    Devolvemos el hash crudo de SHA512-CRYPT: ``$6$rounds=...$...`` (glibc `crypt(3)`).
+    **Sin** prefijo ``{SHA512-CRYPT}``: en el passdb SQL, Dovecot compara vía la ruta
+    "crypt" genérica; el esquema con nombre explícito a veces no coincide con nuestro
+    ``$6$`` (comportamientos distintos a ``crypt(3)`` en la app). Los valores con ``$6$…``
+    se autodetectan. Legado: filas con ``{SHA512-CRYPT}$6$…`` — se siguen aceptando en
+    :func:`verify_imap_password`.
     """
     if len(plain) < 10:
         raise ValueError("password_too_short")
@@ -76,7 +79,7 @@ def hash_imap_password(plain: str) -> str:
             body = imap_sha512_passlib.using(rounds=IMAP_SHA512_ROUNDS).hash(plain)
     if not body.startswith("$6$"):
         raise ValueError("imap_hash_unexpected")
-    return f"{DOVECOT_SHA512_PREFIX}{body}"
+    return body
 
 
 def verify_imap_password(plain: str, stored: str) -> bool:
