@@ -214,9 +214,10 @@ async def verify_account_access(
         ) as workspace:
             argv = gyb_service.build_gyb_argv(workspace, email=email, action="estimate")
             gyb_tmo = get_settings().account_verify_gyb_timeout_seconds
+            tmo: int | None = None if gyb_tmo <= 0 else gyb_tmo
             rc, text = await gyb_service.run_gyb(
                 argv,
-                timeout=gyb_tmo,
+                timeout=tmo,
                 async_on_line=_gyb_activity if progress_id else None,
             )
         if rc != 0:

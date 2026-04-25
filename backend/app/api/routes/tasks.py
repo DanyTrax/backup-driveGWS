@@ -12,16 +12,18 @@ from app.api.deps import (
     get_client_ip,
     get_db,
     get_user_agent,
+    require_any_permission,
     require_permission,
 )
 from app.models.accounts import GwAccount
 from app.models.enums import AuditAction, BackupScope
 from app.models.tasks import BackupTask, backup_task_accounts
 from app.models.users import SysUser
-from app.schemas.tasks import RunResultOut, TaskCreate, TaskOut, TaskUpdate
+from app.schemas.tasks import RunEstimateOut, RunResultOut, TaskCreate, TaskOut, TaskUpdate
 from app.core.logging import get_logger
 from app.services.backup_batch_registry import store_batch_celery_ids
 from app.services.audit_service import record_audit
+from app.services.backup_estimate_service import run_estimate_payload
 
 router = APIRouter(prefix="/tasks", tags=["tasks"])
 log = get_logger("tasks")
@@ -240,6 +242,22 @@ async def delete_task(
     )
     await db.delete(task)
     await db.commit()
+
+
+@router.get(
+    "/{task_id}/run-estimate",
+    response_model=RunEstimateOut,
+    summary="Estimación aproximada de duración antes de ejecutar",
+)
+async def run_task_estimate(
+    task_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _u: SysUser = Depends(require_any_permission("tasks.run", "tasks.view")),
+) -> RunEstimateOut:
+    """Heurística según caché de cuenta y último log Drive; no es compromiso de tiempo real."""
+    task = await _load(db, task_id)
+    data = await run_estimate_payload(db, task)
+    return RunEstimateOut.model_validate(data)
 
 
 @router.post("/{task_id}/run", response_model=RunResultOut)

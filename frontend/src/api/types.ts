@@ -75,6 +75,28 @@ export interface BackupTask {
   created_at: string
 }
 
+export interface RunEstimatePart {
+  min_minutes: number | null
+  max_minutes: number | null
+  basis: string
+}
+
+export interface RunEstimateItem {
+  email: string
+  gmail: RunEstimatePart | null
+  drive: RunEstimatePart | null
+}
+
+export interface RunEstimateOut {
+  task_id: string
+  scope: string
+  mode: string
+  items: RunEstimateItem[]
+  sum_minutes_min: number | null
+  sum_minutes_max: number | null
+  disclaimer: string
+}
+
 export interface BackupLog {
   id: string
   task_id: string

@@ -137,7 +137,10 @@ async def run_gyb(
                 break
 
     try:
-        await asyncio.wait_for(_drain(), timeout=timeout)
+        if timeout is None:
+            await _drain()
+        else:
+            await asyncio.wait_for(_drain(), timeout=timeout)
     except asyncio.TimeoutError:
         process.kill()
         raise

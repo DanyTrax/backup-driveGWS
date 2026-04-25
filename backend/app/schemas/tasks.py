@@ -63,6 +63,28 @@ class RunResultOut(BaseModel):
     batch_id: str
 
 
+class RunEstimatePart(BaseModel):
+    min_minutes: int | None
+    max_minutes: int | None
+    basis: str
+
+
+class RunEstimateItem(BaseModel):
+    email: str
+    gmail: RunEstimatePart | None = None
+    drive: RunEstimatePart | None = None
+
+
+class RunEstimateOut(BaseModel):
+    task_id: str
+    scope: str
+    mode: str
+    items: list[RunEstimateItem]
+    sum_minutes_min: int | None
+    sum_minutes_max: int | None
+    disclaimer: str
+
+
 class BackupLogOut(BaseModel):
     id: str
     task_id: str

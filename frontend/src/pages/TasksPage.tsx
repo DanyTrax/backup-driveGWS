@@ -13,7 +13,7 @@ import {
   useUpdateTask,
   type TaskPayload,
 } from '../api/hooks'
-import type { BackupTask, WorkspaceAccount } from '../api/types'
+import type { BackupTask, RunEstimateOut, WorkspaceAccount } from '../api/types'
 
 function formatApiDetail(d: unknown): string | null {
   if (d == null) return null
@@ -245,8 +245,18 @@ export default function TasksPage() {
       setModalOpen(false)
       if (runAfterSave) {
         try {
+          let estHint = ''
+          try {
+            const est: RunEstimateOut = (await api.get<RunEstimateOut>(`/tasks/${taskId}/run-estimate`))
+              .data
+            if (est.sum_minutes_min != null && est.sum_minutes_max != null) {
+              estHint = ` · ~${est.sum_minutes_min}–${est.sum_minutes_max} min trabajo aprox.`
+            }
+          } catch {
+            /* no estimado */
+          }
           const r = await run.mutateAsync(taskId)
-          toast.success(`${r.queued} jobs · lote ${r.batch_id.slice(0, 8)}…`)
+          toast.success(`${r.queued} jobs · lote ${r.batch_id.slice(0, 8)}…${estHint}`)
         } catch {
           toast.error('Tarea guardada pero no se pudo ejecutar ahora')
         }
@@ -265,7 +275,9 @@ export default function TasksPage() {
           <h1 className="text-2xl font-semibold">Tareas de backup</h1>
           <p className="text-slate-500">
             Definí Gmail y Drive por separado; asigná solo cuentas con backup activo. La programación
-            automática por minuto aplica hoy a tareas <strong>diarias</strong> (beat interno).
+            automática por minuto aplica hoy a tareas <strong>diarias</strong> (beat interno). Al
+            pulsar <strong>Ejecutar</strong> se muestra un rango de minutos aproximado (heurística)
+            antes de encolar.
           </p>
         </div>
         <Button onClick={openCreate}>
@@ -326,16 +338,26 @@ export default function TasksPage() {
                       </Button>
                       <Button
                         size="xs"
-                        onClick={() =>
-                          run.mutate(t.id, {
-                            onSuccess: (data) =>
-                              toast.success(
-                                `${data.queued} jobs en cola · lote ${data.batch_id.slice(0, 8)}…`,
-                              ),
-                            onError: () =>
-                              toast.error('No se pudo encolar (¿sin cuentas con backup activo?)'),
-                          })
-                        }
+                        onClick={async () => {
+                          let estHint = ''
+                          try {
+                            const est: RunEstimateOut = (await api.get<RunEstimateOut>(`/tasks/${t.id}/run-estimate`))
+                              .data
+                            if (est.sum_minutes_min != null && est.sum_minutes_max != null) {
+                              estHint = ` · ~${est.sum_minutes_min}–${est.sum_minutes_max} min de trabajo aprox. (heurística, no fijo).`
+                            }
+                          } catch {
+                            /* sin estimado */
+                          }
+                          try {
+                            const data = await run.mutateAsync(t.id)
+                            toast.success(
+                              `${data.queued} jobs en cola · lote ${data.batch_id.slice(0, 8)}…${estHint}`,
+                            )
+                          } catch {
+                            toast.error('No se pudo encolar (¿sin cuentas con backup activo?)')
+                          }
+                        }}
                       >
                         <HiPlay className="h-4 w-4 mr-1" /> Ejecutar
                       </Button>
