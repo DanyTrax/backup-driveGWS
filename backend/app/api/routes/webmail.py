@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import RedirectResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -115,7 +115,6 @@ async def _load_account(db: AsyncSession, account_id: uuid.UUID) -> GwAccount:
 @router.post(
     "/accounts/{account_id}/password",
     status_code=status.HTTP_204_NO_CONTENT,
-    response_class=Response,
     response_model=None,
 )
 async def set_password(
@@ -279,7 +278,11 @@ async def password_setup_status(
     return PasswordSetupStatusOut(email=row.email, expires_at=row.expires_at)
 
 
-@router.post("/password-setup/complete", status_code=status.HTTP_204_NO_CONTENT, response_class=Response)
+@router.post(
+    "/password-setup/complete",
+    status_code=status.HTTP_204_NO_CONTENT,
+    response_model=None,
+)
 async def password_setup_complete(
     request: Request,
     payload: PasswordSetupCompleteIn,
