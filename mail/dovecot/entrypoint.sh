@@ -17,7 +17,15 @@ for tpl in /etc/dovecot/templates/*.tpl; do
     continue
   fi
   out="/etc/dovecot/conf.d/${bname}"
-  envsubst < "${tpl}" > "${out}"
+  # 10-auth: sin $ → cat (evita envsubst al estilo "total" y diferencias de gettext con el entorno).
+  # auth-sql: solo ${POSTGRES_*}; si no, $argon2id$ / $2b$ en comentarios o en hashes se comen a "".
+  if [ "$bname" = "10-auth.conf" ]; then
+    cat "${tpl}" > "${out}"
+  elif [ "$bname" = "auth-sql.conf" ]; then
+    envsubst '$POSTGRES_HOST $POSTGRES_PORT $POSTGRES_DB $POSTGRES_USER $POSTGRES_PASSWORD' < "${tpl}" > "${out}"
+  else
+    envsubst < "${tpl}" > "${out}"
+  fi
   chmod 600 "${out}"
 done
 
