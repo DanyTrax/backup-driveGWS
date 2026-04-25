@@ -9,10 +9,11 @@ default_pass_scheme = SHA512-CRYPT
 
 # imap_password_hash: {SHA512-CRYPT}$6$... (glibc) o $6$ sin prefijo; legado: bcrypt/argon2.
 # Filas con imap_enabled = true y sin bloqueo.
-# email con lower(): evita fallo si la BD trae mezcla de mayúsculas (API Google) y el usuario
-# escribe en minúsculas en Roundcube (Postgres: = '%u' es sensible a mayúsculas).
+# WHERE con lower() ya une la fila; el campo "user" devuelto debe coincidir con el login que
+# envía IMAP (suele ser todo en minúsculas). Si devolvieras `email` tal cual (Google/Admin SDK
+# a veces mezcla mayúsculas), passdb verifica el hash pero Dovecot descarta el login: auth failed.
 password_query = \
-  SELECT email AS user, TRIM(BOTH FROM imap_password_hash) AS password \
+  SELECT lower(email) AS user, TRIM(BOTH FROM imap_password_hash) AS password \
   FROM gw_accounts \
   WHERE lower(email) = lower('%u') \
     AND imap_enabled = TRUE \
@@ -30,4 +31,4 @@ user_query = \
   FROM gw_accounts \
   WHERE lower(email) = lower('%u')
 
-iterate_query = SELECT email AS user FROM gw_accounts WHERE imap_enabled = TRUE
+iterate_query = SELECT lower(email) AS user FROM gw_accounts WHERE imap_enabled = TRUE
