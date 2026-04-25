@@ -9,25 +9,14 @@ if [ ! -f /etc/dovecot/templates/10-auth.conf.tpl ] || [ ! -f /etc/dovecot/templ
   echo "[dovecot-entrypoint] faltan plantillas en /etc/dovecot/templates (reconstruir imagen: COPY templates/ vacío?)" >&2
   exit 1
 fi
-for tpl in /etc/dovecot/templates/*.tpl; do
-  [ -f "$tpl" ] || continue
-  # master-users NUNCA con envsubst: las contraseñas con $ (y otros) se corrompen.
-  bname=$(basename "${tpl}" .tpl)
-  if [ "$bname" = "master-users" ]; then
-    continue
-  fi
-  out="/etc/dovecot/conf.d/${bname}"
-  # 10-auth: sin $ → cat (evita envsubst al estilo "total" y diferencias de gettext con el entorno).
-  # auth-sql: solo ${POSTGRES_*}; si no, $argon2id$ / $2b$ en comentarios o en hashes se comen a "".
-  if [ "$bname" = "10-auth.conf" ]; then
-    cat "${tpl}" > "${out}"
-  elif [ "$bname" = "auth-sql.conf" ]; then
-    envsubst '$POSTGRES_HOST $POSTGRES_PORT $POSTGRES_DB $POSTGRES_USER $POSTGRES_PASSWORD' < "${tpl}" > "${out}"
-  else
-    envsubst < "${tpl}" > "${out}"
-  fi
-  chmod 600 "${out}"
-done
+# Ruta fija: no depender de basename(1) con sufijo (p. ex. otra variante pudo escribir
+# conf.d/10-auth.conf.tpl mientras se comprueba 10-auth.conf → fallo aun con plantilla buena).
+cat /etc/dovecot/templates/10-auth.conf.tpl > /etc/dovecot/conf.d/10-auth.conf
+chmod 600 /etc/dovecot/conf.d/10-auth.conf
+# Solo ${POSTGRES_*}; con envsubst "total", los $ de comentarios/argon2/bcrypt se comen a "".
+envsubst '$POSTGRES_HOST $POSTGRES_PORT $POSTGRES_DB $POSTGRES_USER $POSTGRES_PASSWORD' \
+  < /etc/dovecot/templates/auth-sql.conf.tpl > /etc/dovecot/conf.d/auth-sql.conf
+chmod 600 /etc/dovecot/conf.d/auth-sql.conf
 
 if ! grep -q 'auth_master_user_separator' /etc/dovecot/conf.d/10-auth.conf 2>/dev/null; then
   echo "[dovecot-entrypoint] 10-auth.conf no es el esperado (falta auth_master_user_separator). Revisa plantilla o imagen." >&2
