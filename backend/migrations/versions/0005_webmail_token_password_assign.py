@@ -1,6 +1,7 @@
 """Añade valor password_assign a webmail_token_purpose (landing de asignación de clave IMAP).
 
-Revision ID: 0005_webmail_token_password_assign
+ID ≤32 chars: columna alembic_version.version_num (varchar(32)).
+Revision ID: 0005_password_assign
 Revises: 0004_backup_log_run_batch
 """
 from __future__ import annotations
@@ -11,7 +12,7 @@ from alembic import op
 from sqlalchemy import create_engine, text
 from sqlalchemy.pool import NullPool
 
-revision: str = "0005_webmail_token_password_assign"
+revision: str = "0005_password_assign"
 down_revision: Union[str, None] = "0004_backup_log_run_batch"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
