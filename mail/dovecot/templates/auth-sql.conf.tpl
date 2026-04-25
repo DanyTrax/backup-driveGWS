@@ -12,25 +12,12 @@ default_pass_scheme = CRYPT
 # Filas con imap_enabled = true y sin bloqueo.
 # En PostgreSQL, user/password son palabras clave: sin comillas el alias puede no ser el nombre
 # de columna que libpq expone, y el passdb no ve el hash → auth falla aun con bcrypt en BD.
-# Usar AS "user" / AS "password" (Dovecot busca esos nombres de campo en el result set).
-password_query = \
-  SELECT lower(email) AS "user", TRIM(BOTH FROM imap_password_hash) AS "password" \
-  FROM gw_accounts \
-  WHERE lower(email) = lower('%u') \
-    AND imap_enabled = TRUE \
-    AND imap_password_hash IS NOT NULL \
-    AND length(TRIM(BOTH FROM imap_password_hash)) > 10 \
-    AND (imap_locked_until IS NULL OR imap_locked_until < now())
+# Un solo renglón: password_query\ multilínea a veces se parsea mal y el passdb no ve el hash.
+# Diagnóstico: docker exec -it msa-backup-postgres psql -U <usuario> -d <bd> y ahí un SELECT
+# a gw_accounts (no escribas SQL en bash sin psql; los paréntesis rompen el shell).
+password_query = SELECT lower(email) AS "user", TRIM(BOTH FROM imap_password_hash) AS "password" FROM gw_accounts WHERE lower(email) = lower('%u') AND imap_enabled = TRUE AND imap_password_hash IS NOT NULL AND length(TRIM(BOTH FROM imap_password_hash)) > 10 AND (imap_locked_until IS NULL OR imap_locked_until < now())
 
-# Incluir "user" explícitamente; sin él el userdb SQL puede dejar el login inconsistente.
-user_query = \
-  SELECT \
-    lower(email) AS "user", \
-    5000 AS uid, \
-    5000 AS gid, \
-    COALESCE(maildir_path, '/var/mail/vhosts/' || split_part(email, '@', 2) || '/' || split_part(email, '@', 1)) AS home, \
-    'maildir:' || COALESCE(maildir_path, '/var/mail/vhosts/' || split_part(email, '@', 2) || '/' || split_part(email, '@', 1)) || '/Maildir' AS mail \
-  FROM gw_accounts \
-  WHERE lower(email) = lower('%u')
+# Incluir "user" explícitamente (una sola línea).
+user_query = SELECT lower(email) AS "user", 5000 AS uid, 5000 AS gid, COALESCE(maildir_path, '/var/mail/vhosts/' || split_part(email, '@', 2) || '/' || split_part(email, '@', 1)) AS home, 'maildir:' || COALESCE(maildir_path, '/var/mail/vhosts/' || split_part(email, '@', 2) || '/' || split_part(email, '@', 1)) || '/Maildir' AS mail FROM gw_accounts WHERE lower(email) = lower('%u')
 
 iterate_query = SELECT lower(email) AS "user" FROM gw_accounts WHERE imap_enabled = TRUE
