@@ -10,6 +10,15 @@
 $config['default_host']       = getenv('ROUNDCUBEMAIL_DEFAULT_HOST') ?: 'dovecot';
 $config['default_port']       = (int)(getenv('ROUNDCUBEMAIL_DEFAULT_PORT') ?: 143);
 $config['imap_timeout']       = 60;
+// Si Dovecot ofrece STARTTLS o hay handshake TLS, PHP puede fallar con cert autofirmado
+// ("certificate verify failed" / "Unable to negotiate TLS"). Uso en red interna Docker.
+$config['imap_conn_options']  = [
+    'ssl' => [
+        'verify_peer'      => false,
+        'verify_peer_name' => false,
+        'allow_self_signed' => true,
+    ],
+];
 $config['imap_cache']         = 'db';
 $config['messages_cache']     = 'db';
 $config['session_lifetime']   = 60;          // minutes

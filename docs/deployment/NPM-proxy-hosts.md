@@ -81,6 +81,7 @@ Si no obtenés **HTTP/1.1 101 Switching Protocols**, NPM (u otro proxy) no está
   - Websockets Support: off (Roundcube no lo necesita)
 - **SSL**
   - Request new SSL cert, Force SSL, HTTP/2, HSTS on
+- **IMAP hacia Dovecot (si el webmail no entra: TLS):** en logs de `msa-backup-roundcube` puede verse `certificate verify failed` o `Unable to negotiate TLS` al conectar a `dovecot:143`. El `config.inc.php` del repo añade `imap_conn_options` con `verify_peer` desactivado para la red interna. Tras `git pull`, recreá el contenedor roundcube o asegurá de montar `mail/roundcube/config` para que tome el cambio.
 - **Advanced** — subimos el límite para adjuntos al descargar carpetas:
 
 ```nginx
