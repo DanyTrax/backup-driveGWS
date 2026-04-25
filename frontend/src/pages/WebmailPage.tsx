@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import type { AxiosError } from 'axios'
 import { Badge, Button, Card, Label, Modal, Select, TextInput } from 'flowbite-react'
 import toast from 'react-hot-toast'
 import api from '../api/client'
@@ -41,6 +42,65 @@ function toastProvisionError(err: unknown) {
     return
   }
   toast.error('No se pudo crear la bandeja. Reintentá o revisá los logs del servidor.')
+}
+
+/** Cuerpo `detail` de FastAPI: string, lista de validación, u objeto. */
+function formatApiDetail(detail: unknown): string | null {
+  if (detail == null) return null
+  if (typeof detail === 'string') return detail
+  if (Array.isArray(detail)) {
+    const parts = detail.map((item) => {
+      if (typeof item === 'object' && item !== null && 'msg' in item) {
+        return String((item as { msg: string }).msg)
+      }
+      return String(item)
+    })
+    return parts.length ? parts.join('; ') : null
+  }
+  if (typeof detail === 'object') {
+    const o = detail as { message?: unknown; error?: unknown }
+    if (o.message != null) return String(o.message)
+    if (o.error != null) return String(o.error)
+  }
+  return null
+}
+
+/**
+ * Muestra el error real de la API (403/422/5xx) para acortar diagnóstico (SSO, permisos, Redis).
+ */
+function toastWebmailApiError(err: unknown, fallback: string) {
+  const ax = err as AxiosError<{ detail?: unknown }>
+  const st = ax.response?.status
+  const raw = ax.response?.data?.detail
+  const msg = formatApiDetail(raw)
+  if (st === 403) {
+    const d = (typeof raw === 'string' ? raw : '').toLowerCase()
+    if (d === 'forbidden' || !msg) {
+      toast.error(
+        'No tenés permiso para esta acción. «Entrar como admin» requiere webmail.sso_admin; magic link, enlace de asignación y fijar contraseña requieren webmail.issue_magic_link (p. ej. operador o super admin, no el rol solo-auditor).',
+      )
+      return
+    }
+    toast.error(msg.length > 500 ? msg.slice(0, 497) + '…' : msg)
+    return
+  }
+  if (st === 422 && msg) {
+    toast.error(msg.length > 500 ? msg.slice(0, 497) + '…' : msg)
+    return
+  }
+  if (msg) {
+    toast.error(msg.length > 500 ? msg.slice(0, 497) + '…' : msg)
+    return
+  }
+  if (st && st >= 500) {
+    toast.error('Error del servidor (p. ej. Redis o base de datos). Revisá los logs del contenedor app.')
+    return
+  }
+  if (!ax.response) {
+    toast.error('Sin respuesta del servidor (red o timeout).')
+    return
+  }
+  toast.error(fallback)
 }
 
 function bandejaLabel(a: {
@@ -96,8 +156,8 @@ export default function WebmailPage() {
       await api.post(`/webmail/accounts/${localPwdId}/password`, { new_password: localPwd })
       toast.success('Contraseña IMAP / webmail guardada para esta cuenta')
       setLocalPwdId(null)
-    } catch {
-      toast.error('No se pudo guardar la contraseña (permiso webmail o error del servidor).')
+    } catch (err) {
+      toastWebmailApiError(err, 'No se pudo guardar la contraseña.')
     } finally {
       setSavingPwd(false)
     }
@@ -118,8 +178,8 @@ export default function WebmailPage() {
       setIssuedExp(resp.data.expires_at)
       await navigator.clipboard.writeText(resp.data.url)
       toast.success('Enlace copiado al portapapeles')
-    } catch {
-      toast.error('No se pudo generar el enlace de asignación')
+    } catch (err) {
+      toastWebmailApiError(err, 'No se pudo generar el enlace de asignación.')
     } finally {
       setIssuingLink(false)
     }
@@ -129,8 +189,8 @@ export default function WebmailPage() {
     try {
       const resp = await api.post(`/webmail/accounts/${id}/sso-admin`)
       window.open(resp.data.url, '_blank', 'noopener')
-    } catch {
-      toast.error('No se pudo emitir SSO')
+    } catch (err) {
+      toastWebmailApiError(err, 'No se pudo emitir SSO (revisá permisos o logs del servidor).')
     }
   }
 
@@ -147,8 +207,8 @@ export default function WebmailPage() {
     try {
       await clearMb.mutateAsync(id)
       toast.success('Correo local borrado; se repoblará en la próxima tarea Gmail')
-    } catch {
-      toast.error('No se pudo vaciar la bandeja (requiere backup o IMAP activo)')
+    } catch (err) {
+      toastWebmailApiError(err, 'No se pudo vaciar la bandeja (requiere backup o IMAP activo).')
     }
   }
 
@@ -159,8 +219,8 @@ export default function WebmailPage() {
       })
       await navigator.clipboard.writeText(resp.data.url)
       toast.success('Magic link copiado al portapapeles')
-    } catch {
-      toast.error('No se pudo emitir magic link')
+    } catch (err) {
+      toastWebmailApiError(err, 'No se pudo emitir el magic link.')
     }
   }
 
