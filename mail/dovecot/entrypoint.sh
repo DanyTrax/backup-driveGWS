@@ -35,6 +35,17 @@ if ! LC_ALL=C grep -qF 'auth_master_user_separator' /etc/dovecot/conf.d/10-auth.
   exit 1
 fi
 
+# Depurar passdb: export IMAP_DOVECOT_AUTH_DEBUG=1 y recrea el contenedor. No dejar en producción.
+rm -f /etc/dovecot/conf.d/99-imap-auth-debug.conf
+if [ "${IMAP_DOVECOT_AUTH_DEBUG:-0}" = "1" ]; then
+  {
+    echo "# generado en entrypoint (IMAP_DOVECOT_AUTH_DEBUG=1)"
+    echo "auth_debug = yes"
+  } > /etc/dovecot/conf.d/99-imap-auth-debug.conf
+  chmod 600 /etc/dovecot/conf.d/99-imap-auth-debug.conf
+  echo "[dovecot-entrypoint] auth_debug activado (IMAP_DOVECOT_AUTH_DEBUG=1) — apagar al terminar" >&2
+fi
+
 musers="/etc/dovecot/conf.d/master-users"
 : "${DOVECOT_MASTER_USER:=backup_admin_master}"
 if [ -z "${DOVECOT_MASTER_PASSWORD:-}" ]; then

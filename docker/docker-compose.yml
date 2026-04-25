@@ -169,6 +169,8 @@ services:
       POSTGRES_DB: ${POSTGRES_DB}
       DOVECOT_MASTER_USER: ${DOVECOT_MASTER_USER}
       DOVECOT_MASTER_PASSWORD: ${DOVECOT_MASTER_PASSWORD}
+      # 1 = genera 99-imap-auth-debug.conf (auth_debug). Apagar al terminar el diagnóstico.
+      IMAP_DOVECOT_AUTH_DEBUG: ${IMAP_DOVECOT_AUTH_DEBUG:-0}
     volumes:
       # Solo Maildir. NO montar /etc/dovecot ni /srv/mail: tapa templates/ de la imagen y deja auth roto.
       - maildirs:/var/mail/vhosts

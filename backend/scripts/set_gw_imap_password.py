@@ -101,6 +101,30 @@ async def _verify_from_db(email: str, password: str) -> None:
     print(f"[set_gw_imap_password] verify_imap_password (misma lógica que la API) = {ok}")
 
 
+async def _doveadm_hint_from_db(email: str) -> None:
+    """Imprime un comando con el hash real (doveadm pw -t; no uses el literal 'HASH')."""
+    email_norm = email.lower().strip()
+    async with AsyncSessionLocal() as session:
+        r = await session.execute(
+            select(GwAccount.imap_password_hash).where(func.lower(GwAccount.email) == email_norm)
+        )
+        h = r.scalar_one_or_none()
+    if h is None or str(h).strip() == "":
+        print(f"[set_gw_imap_password] no hay imap_password_hash en BD para: {email_norm}", file=sys.stderr)
+        sys.exit(1)
+    h = str(h).strip()
+    print(
+        "[set_gw_imap_password] Probar el mismo string que lee el passdb SQL (doveadm pw -t acepta $6$ crudo).\n"
+        "Ojo: 'HASH' o texto inventado no sirve: hubo 'Missing {scheme} prefix' por probar con la palabra HASH.\n"
+    )
+    # repr(h) → comillas de Python, seguro en bash si el hash no trae ' (no debería)
+    print("docker exec msa-backup-dovecot doveadm pw -t \\")
+    print(f"  {repr(h)} -p 'TUCLAVE'")
+    print("\nO en dos líneas, sustituyendo el hash (variable evita $ en el shell):")
+    print("  H=" + repr(h))
+    print("  docker exec msa-backup-dovecot doveadm pw -t \"$H\" -p 'TUCLAVE'")
+
+
 def main() -> None:
     p = argparse.ArgumentParser(
         description="Fijar contraseña IMAP / webmail (gw_accounts, mismo hash que la API)."
@@ -123,6 +147,11 @@ def main() -> None:
         metavar="PLAINTEXT",
         help="Solo: lee hash de gw_accounts y prueba verify_imap_password (no escribe nada en BD)",
     )
+    p.add_argument(
+        "--doveadm-hint",
+        action="store_true",
+        help="Solo: imprime doveadm pw -t con el hash real de la BD (no poner literal 'HASH')",
+    )
     args = p.parse_args()
 
     if args.connection_only:
@@ -143,6 +172,10 @@ def main() -> None:
 
     if not EMAIL_RE.match(args.email):
         sys.exit("Email inválido.")
+
+    if args.doveadm_hint:
+        asyncio.run(_doveadm_hint_from_db(args.email))
+        return
 
     if args.verify_password is not None:
         pw = _normalize_password(args.verify_password)

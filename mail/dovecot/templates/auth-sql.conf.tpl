@@ -4,9 +4,9 @@
 driver = pgsql
 connect = host=${POSTGRES_HOST} port=${POSTGRES_PORT} dbname=${POSTGRES_DB} user=${POSTGRES_USER} password=${POSTGRES_PASSWORD}
 
-# Si el hash empieza por $, Dovecot trata el valor como crypt (p. ex. $6$).
-# default_pass_scheme solo aplica a contraseñas en claro o sin heurística; no “re-encapsula” $6$.
-default_pass_scheme = SHA512-CRYPT
+# default_pass_scheme CRYPT: libcrypt con autodetección ($1$/$2a$/$5$/$6$). Más adecuado que
+# SHA512-CRYPT para un $6$ crudo visto por el driver SQL. Legado $2$ sigue con CRYPT.
+default_pass_scheme = CRYPT
 
 # imap_password_hash: preferible $6$ (SHA512, crypt(3)) crudo. Legado: {SHA512-CRYPT}$6$; bcrypt/argon2.
 # Filas con imap_enabled = true y sin bloqueo.
