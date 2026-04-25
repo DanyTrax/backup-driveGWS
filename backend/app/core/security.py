@@ -25,9 +25,11 @@ pwd_context = CryptContext(
     argon2__parallelism=4,
 )
 
-# IMAP (Dovecot passdb en Postgres). Argon2 (passlib) no encaja con el esquema por defecto de Dovecot;
-# bcrypt con prefijo {BLF-CRYPT}. passlib 1.7.4 y bcrypt 4.2+ rompen la detección vía `__about__`, así que
-# usamos el paquete `bcrypt` directo para IMAP.
+# IMAP (Dovecot passdb en Postgres). Argon2 (passlib) no se usa para IMAP: bcrypt vía el paquete `bcrypt`.
+# Guardar SOLO el tronco crypt `$2a$..` / `$2b$..` (sin `{BLF-CRYPT}...`): con `default_pass_scheme=BLF-CRYPT` en
+# auth-sql, algunas instalaciones de Dovecot+libc se confundían con `{BLF-CRYPT}$2b$` (doble intención de esquema)
+# y passdb no verificaba aunque la fila existiera. Las filas legadas con prefijo {BLF-CRYPT} se siguen aceptando.
+# Prefijo 2a para máxima compat con crypt(3) / Dovecot 2.3.
 IMAP_BCRYPT_ROUNDS = 12
 DOVECOT_BCRYPT_PREFIX = "{BLF-CRYPT}"
 
@@ -48,9 +50,8 @@ def hash_imap_password(plain: str) -> str:
     """Solo `gw_accounts.imap_password_hash` (Dovecot). No usar para `sys_users`."""
     if len(plain) < 10:
         raise ValueError("password_too_short")
-    salt = bcrypt_lib.gensalt(rounds=IMAP_BCRYPT_ROUNDS)
-    raw = bcrypt_lib.hashpw(plain.encode("utf-8"), salt).decode("ascii")
-    return f"{DOVECOT_BCRYPT_PREFIX}{raw}"
+    salt = bcrypt_lib.gensalt(rounds=IMAP_BCRYPT_ROUNDS, prefix=b"2a")
+    return bcrypt_lib.hashpw(plain.encode("utf-8"), salt).decode("ascii")
 
 
 def verify_imap_password(plain: str, stored: str) -> bool:

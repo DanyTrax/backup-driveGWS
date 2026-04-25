@@ -7,7 +7,7 @@ connect = host=${POSTGRES_HOST} port=${POSTGRES_PORT} dbname=${POSTGRES_DB} user
 # Valor por defecto solo aplica si el hash en BD no trae esquema explícito; $argon2id$ / $2b$ / {BLF-CRYPT} se autodetectan.
 default_pass_scheme = BLF-CRYPT
 
-# `imap_password_hash`: preferible `{BLF-CRYPT}$2b$...` (bcrypt); legado `$2b$...` o `$argon2id$...`.
+# `imap_password_hash`: bcrypt como `$2a$` / `$2b$` (recomendado) o con prefijo {BLF-CRYPT} legado; argon2 legado.
 # Filas con imap_enabled = true y sin bloqueo.
 # email con lower(): evita fallo si la BD trae mezcla de mayúsculas (API Google) y el usuario
 # escribe en minúsculas en Roundcube (Postgres: = '%u' es sensible a mayúsculas).

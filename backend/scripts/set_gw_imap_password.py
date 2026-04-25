@@ -1,6 +1,6 @@
 """Fijar o rectificar la contraseña IMAP (gw_accounts) desde SSH, con el MISMO hash que la API / Dovecot.
 
-Misma lógica que "Fijar contraseña" en la plataforma (bcrypt + prefijo {BLF-CRYPT}). No uses UPDATE manual
+Misma lógica que "Fijar contraseña" en la plataforma (bcrypt $2a$ en columna, sin {BLF-CRYPT} extra). No uses UPDATE manual
 en psql con la salida de doveadm en bash: el carácter $ en el hash se rompe con las comillas del shell.
 
 Uso (contenedor de la app, el que tiene /app y Python):
@@ -38,7 +38,7 @@ from sqlalchemy import func
 
 from app.core.config import get_settings
 from app.core.database import AsyncSessionLocal
-from app.core.security import hash_imap_password
+from app.core.security import hash_imap_password, verify_imap_password
 from app.models.accounts import GwAccount
 
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
@@ -74,7 +74,23 @@ async def _run(email: str, password: str) -> None:
         acc.imap_failed_attempts = 0
         acc.imap_locked_until = None
         await session.commit()
-        print(f"[set_gw_imap_password] IMAP listo (hash bcrypt+Dovecot) para: {acc.email}")
+        print(f"[set_gw_imap_password] IMAP listo (bcrypt $2a$ en BD, compatible Dovecot) para: {acc.email}")
+
+
+async def _verify_from_db(email: str, password: str) -> None:
+    email_norm = email.lower().strip()
+    async with AsyncSessionLocal() as session:
+        r = await session.execute(
+            select(GwAccount.imap_password_hash).where(func.lower(GwAccount.email) == email_norm)
+        )
+        h = r.scalar_one_or_none()
+    if h is None or h == "":
+        print(f"[set_gw_imap_password] no hay imap_password_hash en BD para: {email_norm}", file=sys.stderr)
+        sys.exit(1)
+    h = str(h).strip()
+    print(f"[set_gw_imap_password] len(hash)={len(h)} prefix={h[:7]}…")
+    ok = verify_imap_password(password, h)
+    print(f"[set_gw_imap_password] verify_imap_password (misma lógica que la API) = {ok}")
 
 
 def main() -> None:
@@ -91,6 +107,11 @@ def main() -> None:
         action="store_true",
         help="Solo mostrar a qué Postgres conecta la app (debe ser el misma pila que Dovecot)",
     )
+    p.add_argument(
+        "--verify-password",
+        metavar="PLAINTEXT",
+        help="Solo: lee hash de gw_accounts y prueba verify_imap_password (no escribe nada en BD)",
+    )
     args = p.parse_args()
 
     if not EMAIL_RE.match(args.email):
@@ -102,6 +123,13 @@ def main() -> None:
             f"[set_gw_imap_password] app → postgres host={s.postgres_host!r} port={s.postgres_port} "
             f"db={s.postgres_db!r} user={s.postgres_user!r}"
         )
+        return
+
+    if args.verify_password is not None:
+        pw = _normalize_password(args.verify_password)
+        if len(pw) < 1:
+            sys.exit("Contraseña vacía.")
+        asyncio.run(_verify_from_db(args.email, pw))
         return
 
     if args.password:
