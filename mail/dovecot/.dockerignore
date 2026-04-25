@@ -1,0 +1,5 @@
+# Contexto: solo `mail/dovecot/`. Asegurar que `templates/` y `conf.d/` entren al build.
+# No usar patrones amplios (*, **) que excluyan toda el árbol; si el build en el VPS
+# muestra "transferring context" ridículamente pequeño, revisa que no haya aquí
+# otra regla añadida a mano que tape templates/.
+.git
