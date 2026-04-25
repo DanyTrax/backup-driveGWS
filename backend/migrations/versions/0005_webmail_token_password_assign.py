@@ -8,7 +8,8 @@ from __future__ import annotations
 from typing import Sequence, Union
 
 from alembic import op
-from sqlalchemy import text
+from sqlalchemy import create_engine, text
+from sqlalchemy.pool import NullPool
 
 revision: str = "0005_webmail_token_password_assign"
 down_revision: Union[str, None] = "0004_backup_log_run_batch"
@@ -17,18 +18,26 @@ depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
-    # ADD VALUE a veces no puede ejecutarse en la transacción implícita de Alembic
-    # (p. ej. en PostgreSQL, según el driver) y hace que falle el entrypoint antes
-    # de levantar Uvicorn → 502 vía Nginx/Cloudflare. Usar conexión en AUTOCOMMIT.
-    conn = op.get_bind()
-    if conn.dialect.name != "postgresql":
+    # no usar op.get_bind(): ya está en la transacción de env.py (begin_transaction) y
+    # SQLAlchemy no deja fijar AUTOCOMMIT en esa conexión. Tampoco alterar conexión
+    # "compartida" con Alembic async. Motor síncrono aparte, una sola sentencia.
+    op_bind = op.get_bind()
+    if op_bind.dialect.name != "postgresql":
         return
-    ac = conn.execution_options(isolation_level="AUTOCOMMIT")
-    ac.execute(
-        text(
-            "ALTER TYPE webmail_token_purpose ADD VALUE IF NOT EXISTS 'password_assign'"
-        )
-    )
+    from app.core.config import get_settings
+
+    url = get_settings().database_url
+    engine = create_engine(url, poolclass=NullPool)
+    try:
+        with engine.connect() as c:
+            c = c.execution_options(isolation_level="AUTOCOMMIT")
+            c.execute(
+                text(
+                    "ALTER TYPE webmail_token_purpose ADD VALUE IF NOT EXISTS 'password_assign'"
+                )
+            )
+    finally:
+        engine.dispose()
 
 
 def downgrade() -> None:
