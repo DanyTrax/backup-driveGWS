@@ -19,11 +19,12 @@ def test_password_roundtrip() -> None:
 
 
 def test_imap_password_bcrypt_dovecot_compat() -> None:
-    from app.core.security import hash_imap_password, verify_imap_password, verify_password
+    from app.core.security import DOVECOT_BCRYPT_PREFIX, hash_imap_password, verify_imap_password, verify_password
 
     plain = "IMAP-Min10chars!"
     h = hash_imap_password(plain)
-    assert h.startswith(("$2a$", "$2b$", "$2y$"))
+    assert h.startswith(DOVECOT_BCRYPT_PREFIX)
+    assert "$2" in h
     assert verify_imap_password(plain, h)
     assert not verify_imap_password("wrong", h)
     # no confundir con hash de plataforma (Argon2)

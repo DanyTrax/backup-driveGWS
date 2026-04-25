@@ -26,8 +26,9 @@ pwd_context = CryptContext(
 )
 
 # IMAP (Dovecot passdb en Postgres). Passlib+Argon2id PHC a veces no verifica con Dovecot 2.3;
-# bcrypt/BLF-CRYPT es el camino compatible y estable (hash ~60 chars).
+# bcrypt con prefijo explícito {BLF-CRYPT} evita que default_pass_scheme=ARGON2ID confunda el algoritmo.
 IMAP_BCRYPT_ROUNDS = 12
+DOVECOT_BCRYPT_PREFIX = "{BLF-CRYPT}"
 
 
 # ---------------------------- passwords --------------------------------------
@@ -46,16 +47,20 @@ def hash_imap_password(plain: str) -> str:
     """Solo `gw_accounts.imap_password_hash` (Dovecot). No usar para `sys_users`."""
     if len(plain) < 10:
         raise ValueError("password_too_short")
-    return _bcrypt_hasher.using(rounds=IMAP_BCRYPT_ROUNDS).hash(plain)
+    raw = _bcrypt_hasher.using(rounds=IMAP_BCRYPT_ROUNDS).hash(plain)
+    return f"{DOVECOT_BCRYPT_PREFIX}{raw}"
 
 
 def verify_imap_password(plain: str, stored: str) -> bool:
     """Verifica IMAP: bcrypt (actual) o Argon2 passlib (legado, antes de migrar a bcrypt)."""
     if not stored:
         return False
-    if stored.startswith(("$2a$", "$2b$", "$2y$")):
+    s = stored
+    if s.startswith(DOVECOT_BCRYPT_PREFIX):
+        s = s[len(DOVECOT_BCRYPT_PREFIX) :]
+    if s.startswith(("$2a$", "$2b$", "$2y$")):
         try:
-            return _bcrypt_hasher.verify(plain, stored)
+            return _bcrypt_hasher.verify(plain, s)
         except Exception:
             return False
     try:
