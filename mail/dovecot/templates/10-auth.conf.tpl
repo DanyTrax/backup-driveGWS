@@ -1,15 +1,14 @@
 ##
 ## Auth backend: SQL (Postgres) + master user (admin SSO)
 ##
+# Orden: TODOS los passdb (SQL y luego master) ANTES de cualquier userdb. Si `userdb` queda
+# entre medias, el passdb `master` no se aplica bien y "usuario*..." falla aunque master-users esté ok.
+#
 disable_plaintext_auth = no
 auth_mechanisms = plain login
+auth_master_user_separator = *
 
 passdb {
-  driver = sql
-  args = /etc/dovecot/conf.d/auth-sql.conf
-}
-
-userdb {
   driver = sql
   args = /etc/dovecot/conf.d/auth-sql.conf
 }
@@ -19,5 +18,9 @@ passdb {
   driver = passwd-file
   master = yes
   args = /etc/dovecot/conf.d/master-users
-  # Result format lines look like:   user:{SCHEME}hash
+}
+
+userdb {
+  driver = sql
+  args = /etc/dovecot/conf.d/auth-sql.conf
 }
