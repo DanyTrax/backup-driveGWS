@@ -171,6 +171,7 @@ services:
       DOVECOT_MASTER_USER: ${DOVECOT_MASTER_USER}
       DOVECOT_MASTER_PASSWORD: ${DOVECOT_MASTER_PASSWORD}
     volumes:
+      # Solo Maildir. NO montar /etc/dovecot ni /srv/mail: tapa templates/ de la imagen y deja auth roto.
       - maildirs:/var/mail/vhosts
     depends_on:
       postgres:

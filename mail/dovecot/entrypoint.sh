@@ -11,7 +11,7 @@ if [ ! -f /etc/dovecot/templates/10-auth.conf.tpl ] || [ ! -f /etc/dovecot/templ
 fi
 # Si la .tpl en el contenedor no trae el separador: suele ser bind-mount viejo en /etc/dovecot/templates.
 if ! grep -qF 'auth_master_user_separator' /etc/dovecot/templates/10-auth.conf.tpl 2>/dev/null; then
-  echo "[dovecot-entrypoint] 10-auth.conf.tpl en el contenedor no trae auth_master_user_separator. ¿Volumen encima de la imagen? (docker inspect -> Mounts) .tpl:" >&2
+  echo "[dovecot-entrypoint] 10-auth.conf.tpl no trae auth_master_user_separator. Causa típica: volumen o bind en /etc/dovecot (docker inspect msa-backup-dovecot -> Mounts). Quita ese mount en Dockge/compose y recrea; el repo solo monta maildirs en /var/mail/vhosts. .tpl:" >&2
   head -25 /etc/dovecot/templates/10-auth.conf.tpl 2>&1 | sed 's/^/[tpl] /' >&2
   exit 1
 fi
