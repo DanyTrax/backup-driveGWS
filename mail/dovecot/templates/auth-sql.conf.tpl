@@ -10,7 +10,7 @@ default_pass_scheme = BLF-CRYPT
 # `imap_password_hash`: preferible `{BLF-CRYPT}$2b$...` (bcrypt); legado `$2b$...` o `$argon2id$...`.
 # Filas con imap_enabled = true y sin bloqueo.
 password_query = \
-  SELECT email AS user, imap_password_hash AS password \
+  SELECT email AS user, TRIM(BOTH FROM imap_password_hash) AS password \
   FROM gw_accounts \
   WHERE email = '%u' \
     AND imap_enabled = TRUE \
