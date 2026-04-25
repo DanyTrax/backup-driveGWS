@@ -9,8 +9,12 @@ if [ ! -f /etc/dovecot/templates/10-auth.conf.tpl ] || [ ! -f /etc/dovecot/templ
   echo "[dovecot-entrypoint] faltan plantillas en /etc/dovecot/templates (reconstruir imagen: COPY templates/ vacío?)" >&2
   exit 1
 fi
-# Ruta fija: no depender de basename(1) con sufijo (p. ex. otra variante pudo escribir
-# conf.d/10-auth.conf.tpl mientras se comprueba 10-auth.conf → fallo aun con plantilla buena).
+# Si la .tpl en el contenedor no trae el separador: suele ser bind-mount viejo en /etc/dovecot/templates.
+if ! grep -qF 'auth_master_user_separator' /etc/dovecot/templates/10-auth.conf.tpl 2>/dev/null; then
+  echo "[dovecot-entrypoint] 10-auth.conf.tpl en el contenedor no trae auth_master_user_separator. ¿Volumen encima de la imagen? (docker inspect -> Mounts) .tpl:" >&2
+  head -25 /etc/dovecot/templates/10-auth.conf.tpl 2>&1 | sed 's/^/[tpl] /' >&2
+  exit 1
+fi
 cat /etc/dovecot/templates/10-auth.conf.tpl > /etc/dovecot/conf.d/10-auth.conf
 chmod 600 /etc/dovecot/conf.d/10-auth.conf
 # Solo ${POSTGRES_*}; con envsubst "total", los $ de comentarios/argon2/bcrypt se comen a "".
@@ -18,8 +22,10 @@ envsubst '$POSTGRES_HOST $POSTGRES_PORT $POSTGRES_DB $POSTGRES_USER $POSTGRES_PA
   < /etc/dovecot/templates/auth-sql.conf.tpl > /etc/dovecot/conf.d/auth-sql.conf
 chmod 600 /etc/dovecot/conf.d/auth-sql.conf
 
-if ! grep -q 'auth_master_user_separator' /etc/dovecot/conf.d/10-auth.conf 2>/dev/null; then
-  echo "[dovecot-entrypoint] 10-auth.conf no es el esperado (falta auth_master_user_separator). Revisa plantilla o imagen." >&2
+if ! LC_ALL=C grep -qF 'auth_master_user_separator' /etc/dovecot/conf.d/10-auth.conf 2>/dev/null; then
+  echo "[dovecot-entrypoint] 10-auth.conf generado no contiene auth_master_user_separator. debug:" >&2
+  echo "[dovecot-entrypoint] bytes tpl=$(wc -c < /etc/dovecot/templates/10-auth.conf.tpl) out=$(wc -c < /etc/dovecot/conf.d/10-auth.conf)" >&2
+  head -25 /etc/dovecot/conf.d/10-auth.conf 2>&1 | sed 's/^/[out] /' >&2
   exit 1
 fi
 
