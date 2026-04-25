@@ -72,7 +72,15 @@ class msa_sso extends rcube_plugin
     public function action_redeem()
     {
         if (self::$redeem_ran) {
-            return;
+            // Mismo request: a veces `startup` y `register_action` llaman a este método.
+            // `return` sin `exit` dejaba un 200 con el HTML del login; forzar cierre.
+            $rc = rcmail::get_instance();
+            if ($rc->get_user_id()) {
+                header('Location: ./?_task=mail');
+            } else {
+                header('Location: ./index.php?_task=login');
+            }
+            exit;
         }
         self::$redeem_ran = true;
         $token = $this->resolve_token_from_request();
