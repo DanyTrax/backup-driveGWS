@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from functools import lru_cache
 from typing import Literal
+from urllib.parse import quote
 
 from pydantic import Field, computed_field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -129,7 +130,12 @@ class Settings(BaseSettings):
     @computed_field  # type: ignore[misc]
     @property
     def redis_url(self) -> str:
-        auth = f":{self.redis_password}@" if self.redis_password else ""
+        # Caracteres especiales en la contraseña rompen el URI si no se escapan (@, :, /, #, etc.).
+        auth = (
+            f":{quote(self.redis_password, safe='')}@"
+            if self.redis_password
+            else ""
+        )
         return f"redis://{auth}{self.redis_host}:{self.redis_port}"
 
     @property

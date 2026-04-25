@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import hashlib
+import logging
 import secrets
 import uuid
 from dataclasses import dataclass
@@ -10,6 +11,7 @@ from typing import Any
 from urllib.parse import quote
 
 from jose import jwt
+from redis.exceptions import RedisError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -22,6 +24,19 @@ from app.models.webmail import WebmailAccessToken
 
 
 settings = get_settings()
+logger = logging.getLogger(__name__)
+
+
+class SSORedisUnavailableError(RuntimeError):
+    """Redis inaccesible o error al volcar el JWT/ rid consumido por el plugin msa_sso."""
+
+
+# Mensaje fijo; el 503 y el cuerpo detail sustituyen al 500 opaco.
+_SSO_REDIS_USER_HINT = (
+    "Comprobar en el host: el contenedor app debe resolver REDIS_HOST y REDIS_PASSWORD "
+    "(misma pila que docker-compose) y el servicio redis en marcha. "
+    "Si el panel carga y Celery no, a menudo faltó redis_url correcto o contraseña con caracteres especiales sin escapar."
+)
 
 
 def _webmail_base_url() -> str:
@@ -247,7 +262,7 @@ async def issue_sso_jwt(
     jti = secrets.token_urlsafe(16)
     now = datetime.now(timezone.utc)
     exp = now + timedelta(seconds=ttl_seconds)
-    token = jwt.encode(
+    raw = jwt.encode(
         {
             "sub": email,
             "jti": jti,
@@ -259,12 +274,20 @@ async def issue_sso_jwt(
         settings.secret_key,
         algorithm="HS256",
     )
-    redis = get_redis()
-    await redis.setex(f"sso:jti:{jti}", ttl_seconds + 10, "pending")
-    # URL corta vía `rid` en Redis: evita WAF/«Block Common Exploits» (URLs largas con JWT) y
-    # límites de query; el plugin acepta también `token=` (compatibilidad).
-    rid = secrets.token_urlsafe(32)
-    await redis.setex(f"sso:rid:{rid}", ttl_seconds + 30, token)
+    # python-jose devuelve str; si algún entorno diera bytes, Redis y el plugin PHP exigen str.
+    token = raw.decode("ascii") if isinstance(raw, (bytes, bytearray)) else str(raw)
+    try:
+        redis = get_redis()
+        # URL corta vía `rid` en Redis: evita WAF/«Block Common Exploits» (URLs largas con JWT) y
+        # límites de query; el plugin acepta también `token=` (compatibilidad).
+        await redis.setex(f"sso:jti:{jti}", ttl_seconds + 10, "pending")
+        rid = secrets.token_urlsafe(32)
+        await redis.setex(f"sso:rid:{rid}", ttl_seconds + 30, token)
+    except RedisError as exc:
+        logger.exception("issue_sso_jwt: fallo al escribir en Redis (jti=%s, rid=…)", jti)
+        raise SSORedisUnavailableError(
+            f"Redis no respondió al emitir SSO. {_SSO_REDIS_USER_HINT} Detalle: {exc!s}"
+        ) from exc
     # index.php asegura que el front controller ejecute el plugin aun con rewrite/proxy.
     base = _webmail_base_url().rstrip("/")
     rid_q = quote(rid, safe="")

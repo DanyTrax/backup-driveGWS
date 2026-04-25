@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app import __version__
 from app.core.config import get_settings
 from app.core.database import get_db
+from app.core.redis_client import get_redis
 
 router = APIRouter()
 
@@ -26,10 +27,23 @@ async def health():
     }
 
 
-@router.get("/health/ready", summary="Readiness probe (DB check)")
+@router.get("/health/ready", summary="Readiness probe (DB + Redis; SSO requiere Redis ok)")
 async def ready(db: AsyncSession = Depends(get_db)):
     try:
         await db.execute(text("SELECT 1"))
-        return {"status": "ready", "db": "ok"}
+        db_s = "ok"
     except Exception as exc:  # pragma: no cover
-        return {"status": "degraded", "db": str(exc)}
+        return {"status": "degraded", "db": str(exc), "redis": "skipped"}
+
+    try:
+        r = get_redis()
+        await r.ping()
+        redis_s: str = "ok"
+    except Exception as exc:  # pragma: no cover
+        redis_s = f"error: {exc!s}"[:500]
+
+    return {
+        "status": "ready" if redis_s == "ok" else "degraded",
+        "db": db_s,
+        "redis": redis_s,
+    }

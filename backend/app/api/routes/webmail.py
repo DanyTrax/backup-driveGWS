@@ -34,6 +34,7 @@ from app.services.webmail_service import (
     PASSWORD_ASSIGN_TTL_MAX_MINUTES,
     SSO_JWT_TYPE_ADMIN,
     SSO_JWT_TYPE_CLIENT,
+    SSORedisUnavailableError,
     complete_password_setup,
     issue_magic_link,
     issue_password_assign_link,
@@ -99,7 +100,13 @@ async def magic_link_redeem(
         kind = SSO_JWT_TYPE_CLIENT
     else:
         kind = SSO_JWT_TYPE_ADMIN
-    data = await issue_sso_jwt(email=acc.email, kind=kind)
+    try:
+        data = await issue_sso_jwt(email=acc.email, kind=kind)
+    except SSORedisUnavailableError as exc:
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            str(exc),
+        ) from exc
     return RedirectResponse(url=data["url"], status_code=302)
 
 
@@ -182,7 +189,13 @@ async def sso_admin(
     current: SysUser = Depends(require_permission("webmail.sso_admin")),
 ) -> AdminSsoOut:
     acc = await _load_account(db, account_id)
-    data = await issue_sso_jwt(email=acc.email, kind=SSO_JWT_TYPE_ADMIN)
+    try:
+        data = await issue_sso_jwt(email=acc.email, kind=SSO_JWT_TYPE_ADMIN)
+    except SSORedisUnavailableError as exc:
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            str(exc),
+        ) from exc
     await record_audit(
         db,
         action=AuditAction.WEBMAIL_ACCESSED,
@@ -208,7 +221,13 @@ async def sso_client(
     acc = await _load_account(db, account_id)
     if not acc.imap_enabled:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "webmail_not_provisioned")
-    data = await issue_sso_jwt(email=acc.email, kind=SSO_JWT_TYPE_CLIENT)
+    try:
+        data = await issue_sso_jwt(email=acc.email, kind=SSO_JWT_TYPE_CLIENT)
+    except SSORedisUnavailableError as exc:
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            str(exc),
+        ) from exc
     await record_audit(
         db,
         action=AuditAction.WEBMAIL_ACCESSED,
