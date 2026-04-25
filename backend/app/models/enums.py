@@ -103,6 +103,8 @@ class NotificationSeverity(str, enum.Enum):
 class WebmailTokenPurpose(str, enum.Enum):
     FIRST_SETUP = "first_setup"
     PASSWORD_RESET = "password_reset"
+    # Asignar contraseña: landing en la plataforma (no redirige a Roundcube).
+    PASSWORD_ASSIGN = "password_assign"
     ADMIN_SSO = "admin_sso"
     CLIENT_SSO = "client_sso"
 

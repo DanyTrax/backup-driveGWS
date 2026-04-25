@@ -1,4 +1,5 @@
-import { Badge, Button, Card } from 'flowbite-react'
+import { useState } from 'react'
+import { Badge, Button, Card, Label, Modal, Select, TextInput } from 'flowbite-react'
 import toast from 'react-hot-toast'
 import api from '../api/client'
 import { useAccounts, useClearMailbox, useProvisionMailbox } from '../api/hooks'
@@ -56,6 +57,74 @@ export default function WebmailPage() {
   const provision = useProvisionMailbox()
   const clearMb = useClearMailbox()
 
+  const [localPwdId, setLocalPwdId] = useState<string | null>(null)
+  const [localPwd, setLocalPwd] = useState('')
+  const [localPwd2, setLocalPwd2] = useState('')
+  const [savingPwd, setSavingPwd] = useState(false)
+
+  const [assignLinkId, setAssignLinkId] = useState<string | null>(null)
+  const [ttlHours, setTtlHours] = useState(24)
+  const [issuedUrl, setIssuedUrl] = useState<string | null>(null)
+  const [issuedExp, setIssuedExp] = useState<string | null>(null)
+  const [issuingLink, setIssuingLink] = useState(false)
+
+  function openLocalPwd(id: string) {
+    setLocalPwdId(id)
+    setLocalPwd('')
+    setLocalPwd2('')
+  }
+
+  function openAssignLink(id: string) {
+    setAssignLinkId(id)
+    setTtlHours(24)
+    setIssuedUrl(null)
+    setIssuedExp(null)
+  }
+
+  async function submitLocalPwd() {
+    if (!localPwdId) return
+    if (localPwd.length < 10) {
+      toast.error('La contraseña debe tener al menos 10 caracteres.')
+      return
+    }
+    if (localPwd !== localPwd2) {
+      toast.error('Las contraseñas no coinciden.')
+      return
+    }
+    setSavingPwd(true)
+    try {
+      await api.post(`/webmail/accounts/${localPwdId}/password`, { new_password: localPwd })
+      toast.success('Contraseña IMAP / webmail guardada para esta cuenta')
+      setLocalPwdId(null)
+    } catch {
+      toast.error('No se pudo guardar la contraseña (permiso webmail o error del servidor).')
+    } finally {
+      setSavingPwd(false)
+    }
+  }
+
+  async function submitAssignLink() {
+    if (!assignLinkId) return
+    setIssuingLink(true)
+    setIssuedUrl(null)
+    setIssuedExp(null)
+    try {
+      const resp = await api.post<{
+        url: string
+        expires_at: string
+        ttl_minutes: number
+      }>(`/webmail/accounts/${assignLinkId}/password-assign-link`, { ttl_hours: ttlHours })
+      setIssuedUrl(resp.data.url)
+      setIssuedExp(resp.data.expires_at)
+      await navigator.clipboard.writeText(resp.data.url)
+      toast.success('Enlace copiado al portapapeles')
+    } catch {
+      toast.error('No se pudo generar el enlace de asignación')
+    } finally {
+      setIssuingLink(false)
+    }
+  }
+
   async function ssoAdmin(id: string) {
     try {
       const resp = await api.post(`/webmail/accounts/${id}/sso-admin`)
@@ -100,14 +169,11 @@ export default function WebmailPage() {
       <div>
         <h1 className="text-2xl font-semibold">Webmail</h1>
         <p className="text-slate-500 text-sm mt-2 max-w-3xl">
-          Accedé a cualquier buzón o enviá un enlace al cliente. El correo local sale del backup{' '}
-          <strong>Gmail</strong> (Maildir en el VPS, no la carpeta «Gmail» de Drive).{' '}
-          <strong>Entrar como admin</strong> usa IMAP en claro hacia Dovecot interno: en{' '}
-          <code className="text-xs">.env</code> debe ser <code className="text-xs">ROUNDCUBE_DEFAULT_HOST=dovecot</code>{' '}
-          (sin <code className="text-xs">tls://</code>). Tras NPM con HTTPS, hace falta imagen Roundcube con{' '}
-          <code className="text-xs">use_https=true</code> en config (cookies de sesión). El SSO se abre con un{' '}
-          <code className="text-xs">rid</code> en Redis (URL corta); en NPM, desactivá{' '}
-          <strong>Block Common Exploits</strong> en el host webmail si aun así el SSO cae en login vacío.
+          <strong>Fijar contraseña (local)</strong> guarda la clave IMAP en el panel; <strong>Enlace asignar clave</strong>{' '}
+          envía al usuario una URL pública (vigencia máx. 24 h) para que elija su propia contraseña. Tras eso puede
+          entrar a Roundcube con correo + clave. El correo local sale del backup <strong>Gmail</strong> (Maildir en el
+          VPS). <strong>Entrar como admin</strong> sigue disponible (SSO vía Dovecot master-user, requiere env y Redis
+          correctos).
         </p>
       </div>
       <Card>
@@ -159,7 +225,13 @@ export default function WebmailPage() {
                       Vaciar correo local
                     </Button>
                     <Button size="xs" color="light" onClick={() => issueMagicLink(a.id)}>
-                      Generar magic link
+                      Magic link (Roundcube)
+                    </Button>
+                    <Button size="xs" color="light" onClick={() => openLocalPwd(a.id)}>
+                      Fijar contraseña (local)
+                    </Button>
+                    <Button size="xs" color="light" onClick={() => openAssignLink(a.id)}>
+                      Enlace asignar clave
                     </Button>
                     <Button size="xs" onClick={() => ssoAdmin(a.id)}>
                       Entrar como admin
@@ -171,6 +243,81 @@ export default function WebmailPage() {
           </table>
         </div>
       </Card>
+
+      <Modal show={localPwdId !== null} onClose={() => setLocalPwdId(null)} size="md">
+        <Modal.Header>Contraseña IMAP / webmail</Modal.Header>
+        <Modal.Body className="space-y-3">
+          <p className="text-sm text-slate-600 dark:text-slate-300">
+            Se guarda en el servidor (Dovecot). Mínimo 10 caracteres.
+          </p>
+          <div>
+            <Label value="Nueva contraseña" />
+            <TextInput
+              type="password"
+              value={localPwd}
+              onChange={(e) => setLocalPwd(e.target.value)}
+              minLength={10}
+              autoComplete="new-password"
+            />
+          </div>
+          <div>
+            <Label value="Repetir" />
+            <TextInput
+              type="password"
+              value={localPwd2}
+              onChange={(e) => setLocalPwd2(e.target.value)}
+              minLength={10}
+            />
+          </div>
+        </Modal.Body>
+        <Modal.Footer>
+          <Button color="gray" onClick={() => setLocalPwdId(null)}>
+            Cancelar
+          </Button>
+          <Button onClick={() => void submitLocalPwd()} disabled={savingPwd}>
+            {savingPwd ? 'Guardando…' : 'Guardar'}
+          </Button>
+        </Modal.Footer>
+      </Modal>
+
+      <Modal show={assignLinkId !== null} onClose={() => setAssignLinkId(null)} size="lg">
+        <Modal.Header>Enlace para que el usuario asigne su contraseña</Modal.Header>
+        <Modal.Body className="space-y-3">
+          <p className="text-sm text-slate-600 dark:text-slate-300">
+            El enlace abre una pantalla en esta plataforma (sin login). Vigencia máxima 24 horas; al vencer queda
+            inválido.
+          </p>
+          <div className="max-w-xs">
+            <Label value="Validez del enlace (horas)" />
+            <Select
+              value={String(ttlHours)}
+              onChange={(e) => setTtlHours(Number(e.target.value))}
+            >
+              {[1, 2, 4, 8, 12, 18, 24].map((h) => (
+                <option key={h} value={h}>
+                  {h} h
+                </option>
+              ))}
+            </Select>
+          </div>
+          {issuedUrl && (
+            <div className="text-xs break-all p-2 rounded bg-slate-100 dark:bg-slate-800">
+              <strong>URL:</strong> {issuedUrl}
+              {issuedExp && (
+                <p className="mt-1 text-slate-500">Caduca: {new Date(issuedExp).toLocaleString()}</p>
+              )}
+            </div>
+          )}
+        </Modal.Body>
+        <Modal.Footer>
+          <Button color="gray" onClick={() => setAssignLinkId(null)}>
+            Cerrar
+          </Button>
+          <Button onClick={() => void submitAssignLink()} disabled={issuingLink}>
+            {issuingLink ? 'Generando…' : issuedUrl ? 'Generar otro' : 'Generar y copiar'}
+          </Button>
+        </Modal.Footer>
+      </Modal>
     </div>
   )
 }

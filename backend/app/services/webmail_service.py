@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import hashlib
 import secrets
+import uuid
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any
 from urllib.parse import quote
@@ -46,6 +48,9 @@ def _magic_redeem_public_url(*, token: str, purpose: str) -> str:
 # ---------------------------------------------------------------------------
 # Magic links (first_setup / password_reset / client_sso)
 # ---------------------------------------------------------------------------
+PASSWORD_ASSIGN_TTL_MAX_MINUTES = 24 * 60
+
+
 async def issue_magic_link(
     db: AsyncSession,
     *,
@@ -55,7 +60,6 @@ async def issue_magic_link(
     issued_by_user_id: str | None = None,
 ) -> dict[str, Any]:
     plain, digest = generate_magic_token()
-    import uuid
 
     token_row = WebmailAccessToken(
         account_id=account.id,
@@ -73,6 +77,88 @@ async def issue_magic_link(
         "url": url,
         "expires_at": token_row.expires_at.isoformat(),
     }
+
+
+async def issue_password_assign_link(
+    db: AsyncSession,
+    *,
+    account: GwAccount,
+    site_root: str,
+    ttl_minutes: int,
+    issued_by_user_id: str | None = None,
+) -> dict[str, Any]:
+    """Enlace a la landing de la plataforma para que el usuario defina la clave IMAP (Roundcube)."""
+    ttl = max(5, min(int(ttl_minutes), PASSWORD_ASSIGN_TTL_MAX_MINUTES))
+    plain, digest = generate_magic_token()
+    now = datetime.now(timezone.utc)
+    token_row = WebmailAccessToken(
+        account_id=account.id,
+        purpose=WebmailTokenPurpose.PASSWORD_ASSIGN.value,
+        token_hash=digest,
+        expires_at=now + timedelta(minutes=ttl),
+        issued_by_user_id=uuid.UUID(issued_by_user_id) if issued_by_user_id else None,
+    )
+    db.add(token_row)
+    await db.flush()
+    q = quote(plain, safe="")
+    base = site_root.rstrip("/")
+    url = f"{base}/webmail/assign-password?token={q}"
+    return {
+        "token": plain,
+        "url": url,
+        "expires_at": token_row.expires_at,
+        "ttl_minutes": ttl,
+    }
+
+
+@dataclass
+class PasswordSetupStatus:
+    email: str
+    expires_at: datetime
+
+
+async def peek_password_setup_token(
+    db: AsyncSession, *, token: str
+) -> PasswordSetupStatus | None:
+    """Valida el token (sin consumir) para `GET /password-setup/status`."""
+    digest = hashlib.sha256(token.encode("utf-8")).hexdigest()
+    row = (await db.execute(select(WebmailAccessToken).where(WebmailAccessToken.token_hash == digest))).scalar_one_or_none()
+    if row is None or row.purpose != WebmailTokenPurpose.PASSWORD_ASSIGN.value:
+        return None
+    now = datetime.now(timezone.utc)
+    if row.consumed_at is not None or row.revoked_at is not None or row.expires_at < now:
+        return None
+    acc = (await db.execute(select(GwAccount).where(GwAccount.id == row.account_id))).scalar_one_or_none()
+    if acc is None:
+        return None
+    return PasswordSetupStatus(email=acc.email, expires_at=row.expires_at)
+
+
+async def complete_password_setup(
+    db: AsyncSession,
+    *,
+    token: str,
+    plaintext: str,
+    consumer_ip: str | None,
+    consumer_user_agent: str | None,
+) -> uuid.UUID:
+    digest = hashlib.sha256(token.encode("utf-8")).hexdigest()
+    row = (await db.execute(select(WebmailAccessToken).where(WebmailAccessToken.token_hash == digest))).scalar_one_or_none()
+    now = datetime.now(timezone.utc)
+    if row is None or row.purpose != WebmailTokenPurpose.PASSWORD_ASSIGN.value:
+        raise ValueError("invalid_token")
+    if row.consumed_at is not None or row.revoked_at is not None:
+        raise ValueError("token_already_used")
+    if row.expires_at < now:
+        raise ValueError("token_expired")
+
+    acc = (await db.execute(select(GwAccount).where(GwAccount.id == row.account_id))).scalar_one()
+    await set_webmail_password(db, account=acc, plaintext=plaintext)
+    row.consumed_at = now
+    row.consumer_ip = consumer_ip
+    row.consumer_user_agent = (consumer_user_agent or "")[:400] or None
+    await db.flush()
+    return acc.id
 
 
 async def redeem_magic_link(

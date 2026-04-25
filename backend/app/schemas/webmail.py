@@ -23,3 +23,24 @@ class SetWebmailPasswordIn(BaseModel):
 class AdminSsoOut(BaseModel):
     url: str
     expires_at: datetime
+
+
+class PasswordAssignLinkIn(BaseModel):
+    """Vigencia del enlace de asignación; máximo 24 h."""
+    ttl_hours: int = Field(default=24, ge=1, le=24)
+
+
+class PasswordAssignLinkOut(BaseModel):
+    url: str
+    expires_at: datetime
+    ttl_minutes: int
+
+
+class PasswordSetupStatusOut(BaseModel):
+    email: str
+    expires_at: datetime
+
+
+class PasswordSetupCompleteIn(BaseModel):
+    token: str = Field(min_length=8, max_length=2000)
+    new_password: str = Field(min_length=10, max_length=128)

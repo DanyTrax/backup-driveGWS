@@ -12,11 +12,13 @@ import UsersPage from './pages/UsersPage'
 import SettingsPage from './pages/SettingsPage'
 import ProfilePage from './pages/ProfilePage'
 import WebmailPage from './pages/WebmailPage'
+import WebmailAssignPasswordPage from './pages/WebmailAssignPasswordPage'
 
 export default function App() {
   return (
     <Routes>
       <Route path="/login" element={<LoginPage />} />
+      <Route path="/webmail/assign-password" element={<WebmailAssignPasswordPage />} />
       <Route
         element={
           <ProtectedRoute>
