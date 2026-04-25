@@ -105,8 +105,9 @@ export default function WebmailPage() {
           <strong>Entrar como admin</strong> usa IMAP en claro hacia Dovecot interno: en{' '}
           <code className="text-xs">.env</code> debe ser <code className="text-xs">ROUNDCUBE_DEFAULT_HOST=dovecot</code>{' '}
           (sin <code className="text-xs">tls://</code>). Tras NPM con HTTPS, hace falta imagen Roundcube con{' '}
-          <code className="text-xs">use_https=true</code> en config (cookies de sesión). En NPM, desactivá{' '}
-          <strong>Block Common Exploits</strong> en el host webmail si el SSO cae en login vacío.
+          <code className="text-xs">use_https=true</code> en config (cookies de sesión). El SSO se abre con un{' '}
+          <code className="text-xs">rid</code> en Redis (URL corta); en NPM, desactivá{' '}
+          <strong>Block Common Exploits</strong> en el host webmail si aun así el SSO cae en login vacío.
         </p>
       </div>
       <Card>

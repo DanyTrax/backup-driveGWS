@@ -26,6 +26,10 @@ from app.models.accounts import GwAccount
 from app.models.enums import BackupScope, BackupStatus
 from app.models.tasks import BackupLog, BackupTask
 from app.services import drive_retention, gyb_service, maildir_service, rclone_service
+from app.services.gmail_backup_progress import (
+    start_gmail_progress_ticker,
+    stop_gmail_progress_ticker,
+)
 from app.services.backup_batch_registry import is_batch_cancelled, set_log_cancelled
 from app.services.maildir_paths import maildir_home_from_email, maildir_root_for_account
 from app.services.progress_bus import publish
@@ -254,33 +258,47 @@ async def run_gmail_backup(
     manifest_path = work_root / "manifest.sha256"
 
     try:
-        async with gyb_service.prepare_gyb_workspace(
-            db, account_email=account.email, local_folder=str(work_root)
-        ) as workspace:
-            argv = gyb_service.build_gyb_argv(workspace, email=account.email, action="backup")
-            rc, output = await gyb_service.run_gyb(argv, cancel_log_id=log_id)
-            await db.refresh(log)
-            if log.status == BackupStatus.CANCELLED.value:
-                await publish(log_id, {"stage": "cancelled"})
-                await db.commit()
-                return log
-            if rc != 0:
-                await _finalise_log(
-                    db,
-                    log,
-                    status=BackupStatus.FAILED,
-                    error_summary=f"gyb_rc={rc}\n{output[-4000:]}",
+        gyb_fin, gyb_tick = start_gmail_progress_ticker(
+            log.id, log_id, work_root, mode="gyb"
+        )
+        try:
+            async with gyb_service.prepare_gyb_workspace(
+                db, account_email=account.email, local_folder=str(work_root)
+            ) as workspace:
+                argv = gyb_service.build_gyb_argv(
+                    workspace, email=account.email, action="backup"
                 )
-                await publish(log_id, {"stage": "failed", "returncode": rc})
-                await db.commit()
-                return log
+                rc, output = await gyb_service.run_gyb(argv, cancel_log_id=log_id)
+                await db.refresh(log)
+                if log.status == BackupStatus.CANCELLED.value:
+                    await publish(log_id, {"stage": "cancelled"})
+                    await db.commit()
+                    return log
+                if rc != 0:
+                    await _finalise_log(
+                        db,
+                        log,
+                        status=BackupStatus.FAILED,
+                        error_summary=f"gyb_rc={rc}\n{output[-4000:]}",
+                    )
+                    await publish(log_id, {"stage": "failed", "returncode": rc})
+                    await db.commit()
+                    return log
+        finally:
+            await stop_gmail_progress_ticker(gyb_fin, gyb_tick)
 
         if not task.dry_run:
-            stats = await asyncio.to_thread(
-                maildir_service.import_mbox_tree_to_maildir,
-                mbox_root=work_root,
-                maildir_root=maildir_target,
+            im_fin, im_tick = start_gmail_progress_ticker(
+                log.id, log_id, maildir_target, mode="import_maildir"
             )
+            try:
+                stats = await asyncio.to_thread(
+                    maildir_service.import_mbox_tree_to_maildir,
+                    mbox_root=work_root,
+                    maildir_root=maildir_target,
+                )
+            finally:
+                await stop_gmail_progress_ticker(im_fin, im_tick)
         else:
             stats = maildir_service.MaildirImportStats()
 

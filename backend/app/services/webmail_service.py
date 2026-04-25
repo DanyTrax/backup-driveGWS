@@ -147,6 +147,11 @@ async def issue_sso_jwt(
     )
     redis = get_redis()
     await redis.setex(f"sso:jti:{jti}", ttl_seconds + 10, "pending")
-    tok_q = quote(token, safe="")
-    url = f"{_webmail_base_url()}/?_action=plugin.msa_sso&token={tok_q}"
-    return {"token": token, "url": url, "expires_at": exp.isoformat(), "jti": jti}
+    # URL corta vía `rid` en Redis: evita WAF/«Block Common Exploits» (URLs largas con JWT) y
+    # límites de query; el plugin acepta también `token=` (compatibilidad).
+    rid = secrets.token_urlsafe(32)
+    await redis.setex(f"sso:rid:{rid}", ttl_seconds + 30, token)
+    base = _webmail_base_url().rstrip("/")
+    rid_q = quote(rid, safe="")
+    url = f"{base}/?_task=login&_action=plugin.msa_sso&rid={rid_q}"
+    return {"token": token, "url": url, "expires_at": exp.isoformat(), "jti": jti, "rid": rid}

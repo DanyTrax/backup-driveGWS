@@ -5,7 +5,8 @@
  * Accepts a short-lived single-use JWT issued by the MSA Backup Commander
  * backend via the URL:
  *
- *      https://webmail.example.com/?_action=plugin.msa_sso&token=<jwt>
+ *      https://webmail.example.com/?_task=login&_action=plugin.msa_sso&rid=<id>
+ *   (o el legacy largo) …&token=<jwt>
  *
  * The token is signed with the platform SECRET_KEY (HS256) and encodes:
  *   - sub:  user@domain.com
@@ -45,12 +46,9 @@ class msa_sso extends rcube_plugin
      */
     public function action_redeem()
     {
-        $token = rcube_utils::get_input_value('token', rcube_utils::INPUT_GET);
+        $token = $this->resolve_token_from_request();
         if (!$token) {
-            $token = rcube_utils::get_input_value('token', rcube_utils::INPUT_POST);
-        }
-        if (!$token) {
-            header('Location: ./');
+            header('Location: ./?_task=login');
             exit;
         }
 
@@ -90,6 +88,62 @@ class msa_sso extends rcube_plugin
 
         header('Location: ./?_task=mail');
         exit;
+    }
+
+    /**
+     * Prioridad: `rid` (JWT guardado en Redis, URL corta) → `token` en query/post (legacy).
+     */
+    private function resolve_token_from_request(): string
+    {
+        $rid = rcube_utils::get_input_value('rid', rcube_utils::INPUT_GET);
+        if (!$rid) {
+            $rid = rcube_utils::get_input_value('rid', rcube_utils::INPUT_POST);
+        }
+        if ($rid !== null && $rid !== '') {
+            $t = $this->fetch_jwt_by_rid((string) $rid);
+            if ($t !== null && $t !== '') {
+                return $t;
+            }
+        }
+        $token = rcube_utils::get_input_value('token', rcube_utils::INPUT_GET);
+        if (!$token) {
+            $token = rcube_utils::get_input_value('token', rcube_utils::INPUT_POST);
+        }
+        return $token ? (string) $token : '';
+    }
+
+    /**
+     * Saca el JWT almacenado con `issue_sso_jwt` bajo sso:rid:* y lo consume.
+     */
+    private function fetch_jwt_by_rid(string $rid): ?string
+    {
+        if (strlen($rid) > 256) {
+            return null;
+        }
+        $host = getenv('REDIS_HOST') ?: 'redis';
+        $port = (int) (getenv('REDIS_PORT') ?: 6379);
+        $pwd  = getenv('REDIS_PASSWORD') ?: null;
+
+        $redis = new \Redis();
+        try {
+            if (!$redis->connect($host, $port, 2.0)) {
+                return null;
+            }
+            if ($pwd) {
+                $redis->auth($pwd);
+            }
+            $key = 'sso:rid:' . $rid;
+            $jwt = $redis->get($key);
+            if ($jwt === false || $jwt === null || $jwt === '') {
+                return null;
+            }
+            $redis->del($key);
+            return (string) $jwt;
+        } catch (\Throwable $e) {
+            return null;
+        } finally {
+            try { $redis->close(); } catch (\Throwable $e) {}
+        }
     }
 
     private function decode_and_verify(string $token): ?array

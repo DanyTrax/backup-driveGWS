@@ -1,6 +1,7 @@
 """Celery task: Gmail backup + Maildir conversion for one account."""
 from __future__ import annotations
 
+import logging
 import uuid
 from typing import Any
 
@@ -10,6 +11,8 @@ from app.services.backup_engine import run_gmail_backup
 from app.services.backup_job_context import load_task_account_for_backup
 from app.workers.celery_app import celery_app
 from app.workers.session import run_async, with_session
+
+logger = logging.getLogger(__name__)
 
 
 async def _execute(
@@ -30,12 +33,23 @@ async def _execute(
                 batch_uuid = uuid.UUID(run_batch_id)
             except ValueError:
                 return {"ok": False, "error": "invalid_batch_id"}
+        logger.info(
+            "backup_gmail start task_id=%s account_id=%s email=%s",
+            task_id,
+            account_id,
+            account.email,
+        )
         log = await run_gmail_backup(
             db,
             task=task,
             account=account,
             celery_task_id=celery_task_id,
             run_batch_id=batch_uuid,
+        )
+        logger.info(
+            "backup_gmail done log_id=%s status=%s",
+            log.id,
+            log.status,
         )
         return {"ok": True, "log_id": str(log.id), "status": log.status}
 

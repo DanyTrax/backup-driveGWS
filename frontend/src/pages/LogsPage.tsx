@@ -246,7 +246,9 @@ export default function LogsPage() {
                     <strong>Gmail:</strong> GYB guarda <code>.eml</code> en el servidor y la plataforma los
                     importa a <strong>Maildir</strong> (ruta destino); Roundcube lee eso, no la carpeta
                     «Gmail» de Drive. Si antes veías 0 mensajes con éxito, actualizá el worker: la importación
-                    antigua solo buscaba <code>.mbox</code>.
+                    antigua solo buscaba <code>.mbox</code>. Con el job <strong>en ejecución</strong>, los
+                    contadores se actualizan cada pocos segundos: fase <em>export</em> (archivos GYB) y luego{' '}
+                    <em>import</em> (Maildir); al final se fijan los totales definitivos.
                   </div>
                 ) : null}
                 <div>

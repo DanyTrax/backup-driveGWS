@@ -76,7 +76,7 @@ Si no obtenés **HTTP/1.1 101 Switching Protocols**, NPM (u otro proxy) no está
   - Forward Hostname / IP: `msa-backup-roundcube`
   - Forward Port: `80`
   - Cache Assets: on
-  - **Block Common Exploits: off** (recomendado). Con *on*, NPM puede bloquear o alterar la URL del SSO (`?_action=plugin.msa_sso&token=<jwt>`) y Roundcube termina en el login sin token.
+  - **Block Common Exploits: off** (sigue recomendable). Un fallo raro era WAF/URL demasiado larga con el JWT: el backend ahora emite un handoff **corto** (`…?_task=login&_action=plugin.msa_sso&rid=…` con el JWT en Redis). Si aun así el SSO abre el login vacío, desactivá *Block Common Exploits* y comprobá que el host de webmail en `.env` (`DOMAIN_WEBMAIL`) coincide con el FQDN del proxy.
   - Websockets Support: off (Roundcube no lo necesita)
 - **SSL**
   - Request new SSL cert, Force SSL, HTTP/2, HSTS on

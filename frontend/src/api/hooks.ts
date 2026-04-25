@@ -203,6 +203,7 @@ export function useBackupLogDetail(logId: string | null) {
     queryKey: ['backup-log-detail', logId],
     queryFn: async () => (await api.get<BackupLog>(`/backup/logs/${logId}`)).data,
     enabled: Boolean(logId),
+    refetchInterval: (q) => (q.state.data?.status === 'running' ? 3000 : false),
   })
 }
 
