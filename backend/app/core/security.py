@@ -12,9 +12,14 @@ import bcrypt as bcrypt_lib
 import pyotp
 from jose import JWTError, jwt
 from passlib.context import CryptContext
-from passlib.hash import sha512_crypt as imap_sha512
+from passlib.hash import sha512_crypt as imap_sha512_passlib
 
 from app.core.config import get_settings
+
+try:
+    import crypt as libc_crypt  # Unix: mismo crypt(3) que Dovecot en Debian
+except ImportError:  # pragma: no cover
+    libc_crypt = None  # type: ignore[misc, assignment]
 
 settings = get_settings()
 
@@ -26,10 +31,9 @@ pwd_context = CryptContext(
     argon2__parallelism=4,
 )
 
-# IMAP (Dovecot passdb en Postgres): SHA512-CRYPT ($6$...) vía passlib — es el **mismo** algoritmo que
-# crypt(3) / glibc; Dovecot lo verifica igual que Python, sin el desfase Python-bcrypt vs libc-bcrypt
-# (verify_imap True + doveadm auth failed) que vimos con $2a$.
-# Bcrypt/Argon2 en filas antiguas siguen en verify_imap_password.
+# IMAP (Dovecot): SHA512-CRYPT ($6$) con `libc crypt` en Linux (stdlib `crypt`), no passlib: passlib y
+# glibc pueden generar variantes de $6$ que Dovecot+crypt(3) no aceptan (passdb falla con user= en extra).
+# Bcrypt/Argon2 legado en verify_imap_password.
 IMAP_SHA512_ROUNDS = 5000
 DOVECOT_BCRYPT_PREFIX = "{BLF-CRYPT}"
 DOVECOT_SHA512_PREFIX = "{SHA512-CRYPT}"
@@ -51,11 +55,18 @@ def hash_imap_password(plain: str) -> str:
     """Solo `gw_accounts.imap_password_hash` (Dovecot). No usar para `sys_users`."""
     if len(plain) < 10:
         raise ValueError("password_too_short")
-    return imap_sha512.using(rounds=IMAP_SHA512_ROUNDS).hash(plain)
+    if (
+        libc_crypt is not None
+        and hasattr(libc_crypt, "METHOD_SHA512")
+        and hasattr(libc_crypt, "mksalt")
+    ):
+        salt = libc_crypt.mksalt(libc_crypt.METHOD_SHA512, rounds=IMAP_SHA512_ROUNDS)
+        return libc_crypt.crypt(plain, salt)
+    return imap_sha512_passlib.using(rounds=IMAP_SHA512_ROUNDS).hash(plain)
 
 
 def verify_imap_password(plain: str, stored: str) -> bool:
-    """Verifica IMAP: SHA512-CRYPT (actual, mismo crypt que Dovecot), bcrypt y Argon2 legado."""
+    """Verifica IMAP: SHA512-CRYPT ($6$ libc o passlib), bcrypt y Argon2 legado."""
     if not stored:
         return False
     s = stored.strip()
@@ -63,7 +74,9 @@ def verify_imap_password(plain: str, stored: str) -> bool:
         s = s[len(DOVECOT_SHA512_PREFIX) :]
     if s.startswith("$6$"):
         try:
-            return imap_sha512.verify(plain, s)
+            if libc_crypt is not None and hasattr(libc_crypt, "METHOD_SHA512"):
+                return libc_crypt.crypt(plain, s) == s
+            return imap_sha512_passlib.verify(plain, s)
         except Exception:
             return False
     if s.startswith(DOVECOT_BCRYPT_PREFIX):

@@ -16,6 +16,8 @@ password_query = \
   FROM gw_accounts \
   WHERE lower(email) = lower('%u') \
     AND imap_enabled = TRUE \
+    AND imap_password_hash IS NOT NULL \
+    AND length(TRIM(BOTH FROM imap_password_hash)) > 10 \
     AND (imap_locked_until IS NULL OR imap_locked_until < now())
 
 # User is resolved into a Maildir path built from the account record.
