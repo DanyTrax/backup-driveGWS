@@ -31,9 +31,9 @@ pwd_context = CryptContext(
     argon2__parallelism=4,
 )
 
-# IMAP (Dovecot): SHA512-CRYPT ($6$) con `libc crypt` en Linux (stdlib `crypt`), no passlib: passlib y
-# glibc pueden generar variantes de $6$ que Dovecot+crypt(3) no aceptan (passdb falla con user= en extra).
-# Bcrypt/Argon2 legado en verify_imap_password.
+# IMAP: nuevas contraseñas = BLF-CRYPT ({BLF-CRYPT}$2b$…) — Dovecot 2.3+ lo verifica en nativo;
+# con passdb SQL, $6$ a veces fallaba aunque psql y verify_imap_password fueran correctos. Legado: $6$.
+IMAP_BCRYPT_ROUNDS = 10
 IMAP_SHA512_ROUNDS = 5000
 DOVECOT_BCRYPT_PREFIX = "{BLF-CRYPT}"
 DOVECOT_SHA512_PREFIX = "{SHA512-CRYPT}"
@@ -54,36 +54,22 @@ def verify_password(plain: str, hashed: str) -> bool:
 def hash_imap_password(plain: str) -> str:
     """Solo `gw_accounts.imap_password_hash` (Dovecot). No usar para `sys_users`.
 
-    Devolvemos el hash crudo de SHA512-CRYPT: ``$6$rounds=...$...`` (glibc `crypt(3)`).
-    **Sin** prefijo ``{SHA512-CRYPT}``: en el passdb SQL, Dovecot compara vía la ruta
-    "crypt" genérica; el esquema con nombre explícito a veces no coincide con nuestro
-    ``$6$`` (comportamientos distintos a ``crypt(3)`` en la app). Los valores con ``$6$…``
-    se autodetectan. Legado: filas con ``{SHA512-CRYPT}$6$…`` — se siguen aceptando en
-    :func:`verify_imap_password`.
+    Nuevas: ``{BLF-CRYPT}`` + hash bcrypt (lib Python = mismo algoritmo que Dovecot 2.3+).
+    Legado: filas con ``$6$`` siguen en :func:`verify_imap_password` y en Dovecot vía ``CRYPT``.
     """
     if len(plain) < 10:
         raise ValueError("password_too_short")
-    body: str
-    if (
-        libc_crypt is not None
-        and hasattr(libc_crypt, "METHOD_SHA512")
-        and hasattr(libc_crypt, "mksalt")
-    ):
-        salt = libc_crypt.mksalt(libc_crypt.METHOD_SHA512, rounds=IMAP_SHA512_ROUNDS)
-        body = libc_crypt.crypt(plain, salt)
-    else:  # pragma: no cover
-        body = imap_sha512_passlib.using(rounds=IMAP_SHA512_ROUNDS).hash(plain)
-    if not body.startswith("$6$") or len(body) < 64:
-        # crypt(3) en macOS/bsd a veces no es SHA-512: evitar filas inválidas en BD
-        if libc_crypt is not None and hasattr(libc_crypt, "METHOD_SHA512"):
-            body = imap_sha512_passlib.using(rounds=IMAP_SHA512_ROUNDS).hash(plain)
-    if not body.startswith("$6$"):
-        raise ValueError("imap_hash_unexpected")
-    return body
+    raw = bcrypt_lib.hashpw(
+        plain.encode("utf-8"),
+        bcrypt_lib.gensalt(rounds=IMAP_BCRYPT_ROUNDS),
+    ).decode("ascii")
+    if not raw.startswith(("$2a$", "$2b$", "$2y$")):
+        raise ValueError("imap_bcrypt_unexpected")
+    return f"{DOVECOT_BCRYPT_PREFIX}{raw}"
 
 
 def verify_imap_password(plain: str, stored: str) -> bool:
-    """Verifica IMAP: SHA512-CRYPT ($6$ libc o passlib), bcrypt y Argon2 legado."""
+    """Verifica IMAP: BLF-CRYPT ($2*), SHA512-CRYPT ($6$), Argon2 legado."""
     if not stored:
         return False
     s = stored.strip()

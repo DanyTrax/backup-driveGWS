@@ -79,7 +79,7 @@ async def _run(email: str, password: str) -> None:
         acc.imap_locked_until = None
         await session.commit()
         print(
-            "[set_gw_imap_password] IMAP listo (SHA512-CRYPT, hash $6$ crudo en BD; comprobar con "
+            "[set_gw_imap_password] IMAP listo (BLF-CRYPT {BLF-CRYPT}$2…; comprobar con "
             "doveadm auth test) para: "
             f"{acc.email}"
         )

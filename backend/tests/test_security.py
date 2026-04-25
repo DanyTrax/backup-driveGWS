@@ -18,7 +18,7 @@ def test_password_roundtrip() -> None:
     assert not verify_password("wrong", hashed)
 
 
-def test_imap_password_sha512_dovecot_compat() -> None:
+def test_imap_password_blf_crypt_dovecot_compat() -> None:
     from app.core.security import (
         DOVECOT_BCRYPT_PREFIX,
         DOVECOT_SHA512_PREFIX,
@@ -30,13 +30,23 @@ def test_imap_password_sha512_dovecot_compat() -> None:
 
     plain = "IMAP-Min10chars!"
     h = hash_imap_password(plain)
-    assert h.startswith("$6$")
+    assert h.startswith(f"{DOVECOT_BCRYPT_PREFIX}$2")
     assert verify_imap_password(plain, h)
-    # legado: prefijo {SHA512-CRYPT} (passdb; verify sigue aceptando)
-    assert verify_imap_password(plain, f"{DOVECOT_SHA512_PREFIX}{h}")
     assert not verify_imap_password("wrong", h)
     assert not verify_password(plain, h)
-    # legado: bcrypt + prefijo {BLF-CRYPT} (filas anteriores a SHA512-CRYPT)
+    # legado: una fila con $6$ (solo si libc; mismo origen que verify en Linux)
+    try:
+        import crypt as c
+
+        if hasattr(c, "METHOD_SHA512") and hasattr(c, "mksalt"):
+            from app.core.security import IMAP_SHA512_ROUNDS
+
+            s512 = c.crypt(plain, c.mksalt(c.METHOD_SHA512, rounds=IMAP_SHA512_ROUNDS))
+            assert verify_imap_password(plain, s512)
+            assert verify_imap_password(plain, f"{DOVECOT_SHA512_PREFIX}{s512}")
+    except (ImportError, OSError, ValueError, AttributeError):
+        pass
+    # legado: bcrypt 2a
     raw = bcrypt.hashpw(plain.encode("utf-8"), bcrypt.gensalt(rounds=4, prefix=b"2a")).decode("ascii")
     assert verify_imap_password(plain, f"{DOVECOT_BCRYPT_PREFIX}{raw}")
 

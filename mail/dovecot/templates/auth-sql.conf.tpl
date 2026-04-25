@@ -8,7 +8,7 @@ connect = host=${POSTGRES_HOST} port=${POSTGRES_PORT} dbname=${POSTGRES_DB} user
 # SHA512-CRYPT para un $6$ crudo visto por el driver SQL. Legado $2$ sigue con CRYPT.
 default_pass_scheme = CRYPT
 
-# imap_password_hash: preferible $6$ (SHA512, crypt(3)) crudo. Legado: {SHA512-CRYPT}$6$; bcrypt/argon2.
+# imap_password_hash: nuevas = {BLF-CRYPT}$2b$… (bcrypt). Legado: $6$ SHA512, {SHA512-CRYPT}$6$, argon2.
 # Filas con imap_enabled = true y sin bloqueo.
 # WHERE con lower() ya une la fila; el campo "user" devuelto debe coincidir con el login que
 # envía IMAP (suele ser todo en minúsculas). Si devolvieras `email` tal cual (Google/Admin SDK
