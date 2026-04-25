@@ -151,7 +151,8 @@ async def issue_sso_jwt(
     # límites de query; el plugin acepta también `token=` (compatibilidad).
     rid = secrets.token_urlsafe(32)
     await redis.setex(f"sso:rid:{rid}", ttl_seconds + 30, token)
+    # index.php asegura que el front controller ejecute el plugin aun con rewrite/proxy.
     base = _webmail_base_url().rstrip("/")
     rid_q = quote(rid, safe="")
-    url = f"{base}/?_task=login&_action=plugin.msa_sso&rid={rid_q}"
+    url = f"{base}/index.php?_task=login&_action=plugin.msa_sso&rid={rid_q}"
     return {"token": token, "url": url, "expires_at": exp.isoformat(), "jti": jti, "rid": rid}

@@ -76,7 +76,8 @@ Si no obtenés **HTTP/1.1 101 Switching Protocols**, NPM (u otro proxy) no está
   - Forward Hostname / IP: `msa-backup-roundcube`
   - Forward Port: `80`
   - Cache Assets: on
-  - **Block Common Exploits: off** (sigue recomendable). Un fallo raro era WAF/URL demasiado larga con el JWT: el backend ahora emite un handoff **corto** (`…?_task=login&_action=plugin.msa_sso&rid=…` con el JWT en Redis). Si aun así el SSO abre el login vacío, desactivá *Block Common Exploits* y comprobá que el host de webmail en `.env` (`DOMAIN_WEBMAIL`) coincide con el FQDN del proxy.
+  - **Block Common Exploits: off** (sigue recomendable). Un fallo raro era WAF/URL demasiado larga con el JWT: el backend ahora emite un handoff **corto** (`…/index.php?_task=login&_action=plugin.msa_sso&rid=…` con el JWT en Redis). Si aun así el SSO abre el login vacío, desactivá *Block Common Exploits* y comprobá que el host de webmail en `.env` (`DOMAIN_WEBMAIL`) coincide con el FQDN del proxy.
+  - **Redis compartido:** el contenedor **Roundcube** debe resolver el **mismo** Redis que la app (mismas `REDIS_*` / clave `sso:rid:*`). Si la API y el webmail están en hosts distintos sin Redis común, el `rid` nunca existirá en el servidor PHP. Comprobar: en el servicio `roundcube`, `MSA_SSO_SECRET` = `SECRET_KEY` de la plataforma; opcional `MSA_SSO_DEBUG=1` y `docker logs` del contenedor webmail al probar SSO.
   - Websockets Support: off (Roundcube no lo necesita)
 - **SSL**
   - Request new SSL cert, Force SSL, HTTP/2, HSTS on

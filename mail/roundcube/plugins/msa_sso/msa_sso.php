@@ -34,9 +34,34 @@ class msa_sso extends rcube_plugin
 {
     public $task = 'login|mail|settings';
 
+    /** Evita doble ejecución si startup y register_action se disparan en el mismo request. */
+    private static $redeem_ran = false;
+
     public function init()
     {
+        // En algunas instalaciones 1.6.x el login se pinta antes de enrutar `plugin.msa_sso`.
+        $this->add_hook('startup', [$this, 'hook_startup_redeem']);
         $this->register_action('plugin.msa_sso', [$this, 'action_redeem']);
+    }
+
+    public function hook_startup_redeem(): void
+    {
+        if (self::$redeem_ran) {
+            return;
+        }
+        $act = (string) ($_GET['_action'] ?? $_POST['_action'] ?? '');
+        if ($act !== 'plugin.msa_sso') {
+            return;
+        }
+        $task = (string) ($_GET['_task'] ?? $_POST['_task'] ?? 'login');
+        if ($task !== 'login') {
+            return;
+        }
+        $rc = rcmail::get_instance();
+        if ($rc->get_user_id()) {
+            return;
+        }
+        $this->action_redeem();
     }
 
     /**
@@ -46,9 +71,21 @@ class msa_sso extends rcube_plugin
      */
     public function action_redeem()
     {
+        if (self::$redeem_ran) {
+            return;
+        }
+        self::$redeem_ran = true;
         $token = $this->resolve_token_from_request();
         if (!$token) {
-            header('Location: ./?_task=login');
+            if (getenv('MSA_SSO_DEBUG') === '1') {
+                $ridq = (string) ($_GET['rid'] ?? '');
+                error_log(
+                    'msa_sso: no JWT (rid missing in Redis, wrong secret, or rid stripped by filters). ' .
+                    'rid_present=' . ($ridq !== '' ? 'yes len=' . strlen($ridq) : 'no') .
+                    ' redis_host=' . (getenv('REDIS_HOST') ?: 'default')
+                );
+            }
+            header('Location: ./index.php?_task=login');
             exit;
         }
 
@@ -95,12 +132,16 @@ class msa_sso extends rcube_plugin
      */
     private function resolve_token_from_request(): string
     {
-        $rid = rcube_utils::get_input_value('rid', rcube_utils::INPUT_GET);
-        if (!$rid) {
-            $rid = rcube_utils::get_input_value('rid', rcube_utils::INPUT_POST);
+        // Leer `rid` en crudo: rcube_utils a veces filtra caracteres o falla con query raras en proxies.
+        $rid = (string) ($_GET['rid'] ?? $_POST['rid'] ?? '');
+        if ($rid === '') {
+            $rid = (string) (rcube_utils::get_input_value('rid', rcube_utils::INPUT_GET) ?? '');
         }
-        if ($rid !== null && $rid !== '') {
-            $t = $this->fetch_jwt_by_rid((string) $rid);
+        if ($rid === '') {
+            $rid = (string) (rcube_utils::get_input_value('rid', rcube_utils::INPUT_POST) ?? '');
+        }
+        if ($rid !== '') {
+            $t = $this->fetch_jwt_by_rid($rid);
             if ($t !== null && $t !== '') {
                 return $t;
             }
@@ -108,6 +149,9 @@ class msa_sso extends rcube_plugin
         $token = rcube_utils::get_input_value('token', rcube_utils::INPUT_GET);
         if (!$token) {
             $token = rcube_utils::get_input_value('token', rcube_utils::INPUT_POST);
+        }
+        if (!$token && !empty($_GET['token'])) {
+            $token = (string) $_GET['token'];
         }
         return $token ? (string) $token : '';
     }
@@ -127,6 +171,9 @@ class msa_sso extends rcube_plugin
         $redis = new \Redis();
         try {
             if (!$redis->connect($host, $port, 2.0)) {
+                if (getenv('MSA_SSO_DEBUG') === '1') {
+                    error_log("msa_sso: redis connect failed host={$host} port={$port}");
+                }
                 return null;
             }
             if ($pwd) {
@@ -135,11 +182,17 @@ class msa_sso extends rcube_plugin
             $key = 'sso:rid:' . $rid;
             $jwt = $redis->get($key);
             if ($jwt === false || $jwt === null || $jwt === '') {
+                if (getenv('MSA_SSO_DEBUG') === '1') {
+                    error_log("msa_sso: redis key missing or empty: {$key} (API and webmail must share the same Redis)");
+                }
                 return null;
             }
             $redis->del($key);
             return (string) $jwt;
         } catch (\Throwable $e) {
+            if (getenv('MSA_SSO_DEBUG') === '1') {
+                error_log('msa_sso: fetch_jwt_by_rid: ' . $e->getMessage());
+            }
             return null;
         } finally {
             try { $redis->close(); } catch (\Throwable $e) {}
