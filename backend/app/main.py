@@ -36,9 +36,10 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
     )
 
+    _origin = settings.platform_public_origin
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=[f"https://{settings.domain_platform}"] if settings.domain_platform else ["*"],
+        allow_origins=[_origin] if _origin else ["*"],
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],

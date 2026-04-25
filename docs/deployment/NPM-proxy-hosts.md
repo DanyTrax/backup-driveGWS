@@ -2,6 +2,11 @@
 
 Esta guía detalla, paso a paso, cómo dar de alta los dos Proxy Hosts que necesita la plataforma.
 
+**Variables de entorno (dos orígenes distintos).**
+
+- `DOMAIN_PLATFORM` — host del panel, API (`/api/...`) y la SPA, incl. `/webmail/assign-password` (asignar clave IMAP en el navegador). Debe apuntar al contenedor `msa-backup-app` en NPM.
+- `DOMAIN_WEBMAIL` — **solo** Roundcube (login, plugin `msa_sso` con `rid=`, IMAP hacia Dovecot). Otro Proxy Host, normalmente a `msa-backup-roundcube:80`. No uses este host para abrir el panel: los enlaces con token que deban pegar a la plataforma deben bajo `DOMAIN_PLATFORM`.
+
 Prerrequisitos:
 
 - NPM ya corriendo en la pila `npm-stack`.

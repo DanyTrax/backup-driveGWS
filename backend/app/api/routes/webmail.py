@@ -47,13 +47,11 @@ router = APIRouter(prefix="/webmail", tags=["webmail"])
 
 
 def _public_site_base(request: Request) -> str:
-    """Origen de la SPA (mismo sitio que el panel), para links enviados a finales de usuario."""
+    """Origen de la SPA: DOMAIN_PLATFORM (no DOMAIN_WEBMAIL). Asignar clave: .../webmail/assign-password."""
     settings = get_settings()
-    d = (settings.domain_platform or "").strip()
-    if d:
-        if not (d.startswith("http://") or d.startswith("https://")):
-            d = f"https://{d.split('/')[0].strip()}"
-        return d.rstrip("/")
+    p = settings.platform_public_origin
+    if p:
+        return p
     scheme = (request.headers.get("x-forwarded-proto") or "https").split(",")[0].strip() or "https"
     host = (request.headers.get("x-forwarded-host") or request.headers.get("host") or request.url.netloc or "").split(",")[
         0

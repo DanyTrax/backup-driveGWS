@@ -25,24 +25,25 @@ settings = get_settings()
 
 
 def _webmail_base_url() -> str:
-    if settings.domain_webmail:
-        return f"https://{settings.domain_webmail}"
+    """Solo DOMAIN_WEBMAIL (Roundcube, SSO msa_sso). No confundir con platform_public_origin."""
+    w = settings.webmail_public_origin
+    if w:
+        return w
     return "https://webmail.example.com"
 
 
 def _magic_redeem_public_url(*, token: str, purpose: str) -> str:
-    """URL pública que abre el usuario: debe resolver al API (FastAPI), no a Roundcube."""
+    """URL pública: debe ser la API bajo DOMAIN_PLATFORM (`/api/...`), no el host de Roundcube."""
     from urllib.parse import quote
 
     q_tok = quote(token, safe="")
     q_pur = quote(purpose, safe="")
-    dom = (settings.domain_platform or "").strip()
-    if dom:
-        host = dom.split("/")[0].strip()
-        return f"https://{host}/api/webmail/magic-redeem?token={q_tok}&purpose={q_pur}"
-    # Último recurso: mismo origen que webmail (solo si NPM enruta /api al backend).
-    base = _webmail_base_url().rstrip("/")
-    return f"{base}/api/webmail/magic-redeem?token={q_tok}&purpose={q_pur}"
+    base = settings.platform_public_origin
+    if base:
+        return f"{base}/api/webmail/magic-redeem?token={q_tok}&purpose={q_pur}"
+    # Último recurso: mismo origen que webmail (solo si NPM enruta /api al backend bajo el host de webmail).
+    base_wm = _webmail_base_url().rstrip("/")
+    return f"{base_wm}/api/webmail/magic-redeem?token={q_tok}&purpose={q_pur}"
 
 
 # ---------------------------------------------------------------------------
@@ -98,7 +99,7 @@ async def issue_password_assign_link(
     ttl_minutes: int,
     issued_by_user_id: str | None = None,
 ) -> dict[str, Any]:
-    """Enlace a la landing de la plataforma para que el usuario defina la clave IMAP (Roundcube)."""
+    """Enlace a la landing bajo DOMAIN_PLATFORM (`/webmail/assign-password`); luego usan la clave en Roundcube (DOMAIN_WEBMAIL)."""
     ttl = max(5, min(int(ttl_minutes), PASSWORD_ASSIGN_TTL_MAX_MINUTES))
     plain, digest = generate_magic_token()
     now = datetime.now(timezone.utc)

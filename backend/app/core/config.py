@@ -20,8 +20,20 @@ class Settings(BaseSettings):
     app_env: Literal["development", "production"] = "production"
     tz: str = "America/Bogota"
 
-    domain_platform: str = ""
-    domain_webmail: str = ""
+    domain_platform: str = Field(
+        default="",
+        description=(
+            "Host público del panel, API y SPA (sin https://; ej. sistembk.ejemplo.com). "
+            "Incluye /webmail/assign-password. No es el host de Roundcube."
+        ),
+    )
+    domain_webmail: str = Field(
+        default="",
+        description=(
+            "Solo el host de Roundcube (ej. webmailbk.ejemplo.com). SSO/ rid apuntan aquí; no sirve "
+            "para abrir el panel ni /api (eso va en domain_platform o la misma ruta con NPM)."
+        ),
+    )
 
     secret_key: str = Field(min_length=32)
     fernet_key: str = Field(min_length=32)
@@ -119,6 +131,26 @@ class Settings(BaseSettings):
     def redis_url(self) -> str:
         auth = f":{self.redis_password}@" if self.redis_password else ""
         return f"redis://{auth}{self.redis_host}:{self.redis_port}"
+
+    @property
+    def platform_public_origin(self) -> str:
+        """Origen `https://...` de DOMAIN_PLATFORM: panel, `/api` y `/webmail/assign-password` (misma app)."""
+        d = (self.domain_platform or "").strip()
+        if not d:
+            return ""
+        if d.startswith("http://") or d.startswith("https://"):
+            return d.rstrip("/")
+        return f"https://{d.split('/')[0].strip()}"
+
+    @property
+    def webmail_public_origin(self) -> str:
+        """Origen `https://...` de DOMAIN_WEBMAIL: solo Roundcube; URLs del plugin msa_sso (`rid=`, index.php)."""
+        d = (self.domain_webmail or "").strip()
+        if not d:
+            return ""
+        if d.startswith("http://") or d.startswith("https://"):
+            return d.rstrip("/")
+        return f"https://{d.split('/')[0].strip()}"
 
 
 @lru_cache
