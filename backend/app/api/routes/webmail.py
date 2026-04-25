@@ -26,7 +26,7 @@ from app.schemas.webmail import (
     PasswordAssignLinkIn,
     PasswordAssignLinkOut,
     PasswordSetupCompleteIn,
-    PasswordSetupStatusOut,
+    PasswordSetupPeekOut,
     SetWebmailPasswordIn,
 )
 from app.services.audit_service import record_audit
@@ -38,7 +38,7 @@ from app.services.webmail_service import (
     issue_magic_link,
     issue_password_assign_link,
     issue_sso_jwt,
-    peek_password_setup_token,
+    peek_password_setup,
     redeem_magic_link,
     set_webmail_password,
 )
@@ -264,18 +264,21 @@ async def create_password_assign_link(
     )
 
 
-@router.get("/password-setup/status", response_model=PasswordSetupStatusOut)
+@router.get("/password-setup/status", response_model=PasswordSetupPeekOut)
 async def password_setup_status(
     token: str,
     db: AsyncSession = Depends(get_db),
     _rl: None = Depends(
         rate_limit("webmail_pwd_status", limit=60, window_seconds=3600),
     ),
-) -> PasswordSetupStatusOut:
-    row = await peek_password_setup_token(db, token=token)
-    if row is None:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "invalid_or_expired_token")
-    return PasswordSetupStatusOut(email=row.email, expires_at=row.expires_at)
+) -> PasswordSetupPeekOut:
+    r = await peek_password_setup(db, token=token)
+    return PasswordSetupPeekOut(
+        ok=r.ok,
+        email=r.email,
+        expires_at=r.expires_at,
+        reason=r.reason,
+    )
 
 
 @router.post(

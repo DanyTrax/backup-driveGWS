@@ -3,14 +3,20 @@ import { useNavigate, useSearchParams } from 'react-router-dom'
 import { HiEye, HiEyeOff } from 'react-icons/hi'
 import { Alert, Button, Card, Label, Spinner, TextInput } from 'flowbite-react'
 import toast from 'react-hot-toast'
-import api from '../api/client'
+import publicClient from '../api/publicClient'
+import type { AxiosError } from 'axios'
+
 type Status = 'loading' | 'ready' | 'invalid' | 'done'
+
+type PeekReason = string | null
 
 export default function WebmailAssignPasswordPage() {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
-  const token = searchParams.get('token') ?? ''
+  const token = (searchParams.get('token') ?? '').trim()
   const [status, setStatus] = useState<Status>('loading')
+  const [invalidReason, setInvalidReason] = useState<PeekReason>(null)
+  const [loadError, setLoadError] = useState<string | null>(null)
   const [email, setEmail] = useState<string | null>(null)
   const [expiresAt, setExpiresAt] = useState<string | null>(null)
   const [pw, setPw] = useState('')
@@ -22,19 +28,36 @@ export default function WebmailAssignPasswordPage() {
   const load = useCallback(async () => {
     if (!token) {
       setStatus('invalid')
+      setInvalidReason('not_found')
       return
     }
     setStatus('loading')
+    setLoadError(null)
     try {
-      const resp = await api.get<{
-        email: string
-        expires_at: string
+      const resp = await publicClient.get<{
+        ok: boolean
+        email: string | null
+        expires_at: string | null
+        reason: string | null
       }>('/webmail/password-setup/status', { params: { token } })
-      setEmail(resp.data.email)
-      setExpiresAt(resp.data.expires_at)
-      setStatus('ready')
-    } catch {
+      if (resp.data.ok && resp.data.email && resp.data.expires_at) {
+        setEmail(resp.data.email)
+        setExpiresAt(resp.data.expires_at)
+        setStatus('ready')
+        return
+      }
       setStatus('invalid')
+      setInvalidReason(resp.data.reason ?? 'not_found')
+      if (resp.data.email) setEmail(resp.data.email)
+    } catch (e) {
+      const ax = e as AxiosError
+      if (ax.response?.status === 429) {
+        setStatus('invalid')
+        setLoadError('Demasiados intentos. Reintentá en una hora o probá otra red.')
+        return
+      }
+      setStatus('invalid')
+      setLoadError('No se pudo comprobar el enlace. Revisá conexión o que este sitio sea el de la plataforma (mismo origen que /api).')
     }
   }, [token])
 
@@ -55,32 +78,51 @@ export default function WebmailAssignPasswordPage() {
     }
     setSubmitting(true)
     try {
-      await api.post('/webmail/password-setup/complete', { token, new_password: pw })
+      await publicClient.post('/webmail/password-setup/complete', { token, new_password: pw })
       setStatus('done')
       toast.success('Contraseña de webmail / IMAP guardada')
     } catch (err) {
-      const ax = err as { response?: { data?: { detail?: unknown } } }
+      const ax = err as { response?: { status?: number; data?: { detail?: unknown } } }
       const d = ax.response?.data?.detail
-      const code = typeof d === 'string' ? d : (d as { error?: string } | undefined)?.error
+      if (ax.response?.status === 429) {
+        setFormError('Demasiados intentos. Reintentá en un rato.')
+        return
+      }
       if (d === 'token_expired' || d === 'invalid_or_expired_token' || d === 'invalid_token') {
         setFormError('El enlace expiró o ya no es válido. Pedí uno nuevo a tu administrador.')
         return
       }
       if (d === 'token_already_used') {
-        setFormError('Este enlace ya se usó. Si ya fijaste la clave, entrá a webmail con correo y contraseña.')
+        setFormError('Este enlace ya se usó. Entrá a webmail con correo y la contraseña que definiste.')
         return
       }
-      if (d === 'password_too_short' || code === 'password_too_short') {
+      if (d === 'password_too_short') {
         setFormError('La contraseña es demasiado corta (mínimo 10 caracteres).')
-        return
-      }
-      if (d === 'rate_limited' || (typeof d === 'object' && d && 'error' in d && (d as { error: string }).error === 'rate_limited')) {
-        setFormError('Demasiados intentos. Reintentá en un rato.')
         return
       }
       setFormError('No se pudo guardar la contraseña. Reintentá o pedí un enlace nuevo.')
     } finally {
       setSubmitting(false)
+    }
+  }
+
+  function invalidMessage(): string {
+    if (loadError) return loadError
+    switch (invalidReason) {
+      case 'consumed':
+        return 'Este enlace ya se usó (si ya fijaste la clave, entrá a webmail con tu correo y contraseña). Pedí un enlace nuevo solo si hace falta volver a cambiarla.'
+      case 'expired':
+        return 'El enlace venció. Pedí a tu administrador un enlace nuevo (hasta 24 h de validez).'
+      case 'not_found':
+        return 'No encontramos el token (copiá el enlace completo o abrí el mail original).'
+      case 'revoked':
+        return 'El enlace fue revocado. Generá otro desde el panel.'
+      case 'wrong_purpose':
+        return 'Token inválido para esta página.'
+      case 'no_account':
+        return 'La cuenta asociada ya no existe en el sistema.'
+      default:
+        return 'El enlace venció, ya se usó o no existe. Contactá a tu administrador para generar un enlace de asignación (hasta 24 h).'
     }
   }
 
@@ -96,11 +138,11 @@ export default function WebmailAssignPasswordPage() {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-800 to-slate-900 p-4">
         <Card className="w-full max-w-md">
-          <h1 className="text-xl font-semibold text-slate-900 dark:text-white">Enlace no válido</h1>
-          <p className="text-sm text-slate-600 dark:text-slate-300 mt-2">
-            El enlace venció, ya se usó o no existe. Contactá a tu administrador para generar un enlace
-            de asignación de contraseña (hasta 24 h).
-          </p>
+          <h1 className="text-xl font-semibold text-slate-900 dark:text-white">No se puede usar este enlace</h1>
+          <p className="text-sm text-slate-600 dark:text-slate-300 mt-2">{invalidMessage()}</p>
+          {email && (invalidReason === 'consumed' || invalidReason === 'expired') && (
+            <p className="text-xs text-slate-500 mt-2 break-all">Cuenta: {email}</p>
+          )}
           <Button className="mt-4" color="light" onClick={() => navigate('/login')}>
             Ir al inicio de sesión
           </Button>
@@ -116,9 +158,10 @@ export default function WebmailAssignPasswordPage() {
           <h1 className="text-xl font-semibold text-slate-900 dark:text-white">Listo</h1>
           <p className="text-sm text-slate-600 dark:text-slate-300 mt-2">
             Ya podés entrar a webmail (Roundcube) con <strong className="break-all">{email}</strong> y
-            la contraseña que acabás de elegir, o desde el panel con esas credenciales.
+            la contraseña que acabás de elegir. Escribí el correo <strong>exactamente</strong> como figura
+            arriba (mismo dominio: .com, .co, etc.).
           </p>
-          <p className="text-xs text-slate-500 mt-3">Cerrá esta pestaña o abrí webmail en el enlace del administrador.</p>
+          <p className="text-xs text-slate-500 mt-3">Cerrá esta pestaña o abrí webmail con el enlace de tu org.</p>
         </Card>
       </div>
     )

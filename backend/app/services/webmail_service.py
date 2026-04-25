@@ -112,26 +112,42 @@ async def issue_password_assign_link(
 
 
 @dataclass
-class PasswordSetupStatus:
-    email: str
-    expires_at: datetime
+class PasswordSetupPeek:
+    """Resultado de `peek_password_setup` (sin consumir el token)."""
+    ok: bool
+    email: str | None = None
+    expires_at: datetime | None = None
+    reason: str | None = None  # not_found, wrong_purpose, consumed, expired, revoked, no_account
 
 
-async def peek_password_setup_token(
+async def peek_password_setup(
     db: AsyncSession, *, token: str
-) -> PasswordSetupStatus | None:
+) -> PasswordSetupPeek:
     """Valida el token (sin consumir) para `GET /password-setup/status`."""
+    if not (token and token.strip()):
+        return PasswordSetupPeek(ok=False, reason="not_found")
     digest = hashlib.sha256(token.encode("utf-8")).hexdigest()
     row = (await db.execute(select(WebmailAccessToken).where(WebmailAccessToken.token_hash == digest))).scalar_one_or_none()
-    if row is None or row.purpose != WebmailTokenPurpose.PASSWORD_ASSIGN.value:
-        return None
-    now = datetime.now(timezone.utc)
-    if row.consumed_at is not None or row.revoked_at is not None or row.expires_at < now:
-        return None
+    if row is None:
+        return PasswordSetupPeek(ok=False, reason="not_found")
+    pur = str(row.purpose)
+    if pur != WebmailTokenPurpose.PASSWORD_ASSIGN.value:
+        return PasswordSetupPeek(ok=False, reason="wrong_purpose")
     acc = (await db.execute(select(GwAccount).where(GwAccount.id == row.account_id))).scalar_one_or_none()
     if acc is None:
-        return None
-    return PasswordSetupStatus(email=acc.email, expires_at=row.expires_at)
+        return PasswordSetupPeek(ok=False, reason="no_account")
+    now = datetime.now(timezone.utc)
+    if row.revoked_at is not None:
+        return PasswordSetupPeek(ok=False, reason="revoked", email=acc.email)
+    if row.consumed_at is not None:
+        return PasswordSetupPeek(
+            ok=False, reason="consumed", email=acc.email, expires_at=row.expires_at
+        )
+    if row.expires_at < now:
+        return PasswordSetupPeek(ok=False, reason="expired", email=acc.email, expires_at=row.expires_at)
+    return PasswordSetupPeek(
+        ok=True, email=acc.email, expires_at=row.expires_at, reason=None
+    )
 
 
 async def complete_password_setup(

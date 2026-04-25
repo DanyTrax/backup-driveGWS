@@ -36,9 +36,12 @@ class PasswordAssignLinkOut(BaseModel):
     ttl_minutes: int
 
 
-class PasswordSetupStatusOut(BaseModel):
-    email: str
-    expires_at: datetime
+class PasswordSetupPeekOut(BaseModel):
+    """Estado del token (un solo 200: evita confundir con fallos de red / axios)."""
+    ok: bool
+    email: str | None = None
+    expires_at: datetime | None = None
+    reason: str | None = None  # not_found | consumed | expired | revoked
 
 
 class PasswordSetupCompleteIn(BaseModel):

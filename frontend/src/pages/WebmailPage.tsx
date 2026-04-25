@@ -248,7 +248,8 @@ export default function WebmailPage() {
         <Modal.Header>Contraseña IMAP / webmail</Modal.Header>
         <Modal.Body className="space-y-3">
           <p className="text-sm text-slate-600 dark:text-slate-300">
-            Se guarda en el servidor (Dovecot). Mínimo 10 caracteres.
+            Se guarda en el servidor (Dovecot). Mínimo 10 caracteres. En Roundcube el usuario tiene que ser{' '}
+            <strong>exactamente</strong> el correo de la tabla (mismo dominio: .com, .co, etc.).
           </p>
           <div>
             <Label value="Nueva contraseña" />
