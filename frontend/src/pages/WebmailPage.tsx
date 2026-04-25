@@ -169,11 +169,12 @@ export default function WebmailPage() {
       <div>
         <h1 className="text-2xl font-semibold">Webmail</h1>
         <p className="text-slate-500 text-sm mt-2 max-w-3xl">
-          <strong>Fijar contraseña (local)</strong> guarda la clave IMAP en el panel; <strong>Enlace asignar clave</strong>{' '}
-          envía al usuario una URL pública (vigencia máx. 24 h) para que elija su propia contraseña. Tras eso puede
-          entrar a Roundcube con correo + clave. El correo local sale del backup <strong>Gmail</strong> (Maildir en el
-          VPS). <strong>Entrar como admin</strong> sigue disponible (SSO vía Dovecot master-user, requiere env y Redis
-          correctos).
+          <strong>Fijar contraseña (local)</strong> escribe un hash en PostgreSQL (Dovecot lo lee); no usa <code className="text-xs">SECRET_KEY</code> ni
+          un «token de .env» para el login en webmail, solo el correo y la clave que guardes. <strong>Enlace asignar clave</strong>{' '}
+          y el token de <strong>Magic link (Roundcube)</strong> (first setup / reset) también sirven en la misma
+          pantalla pública de asignación si al usuario solo le pasan el <code className="text-xs">?token=</code>. Tras
+          fijar la clave, en Roundcube el usuario es el correo de la tabla (mismo dominio). <strong>Entrar como admin</strong>{' '}
+          (SSO) sí usa <code className="text-xs">DOVECOT_MASTER_*</code> y Redis.
         </p>
       </div>
       <Card>
@@ -248,8 +249,10 @@ export default function WebmailPage() {
         <Modal.Header>Contraseña IMAP / webmail</Modal.Header>
         <Modal.Body className="space-y-3">
           <p className="text-sm text-slate-600 dark:text-slate-300">
-            Se guarda en el servidor (Dovecot). Mínimo 10 caracteres. En Roundcube el usuario tiene que ser{' '}
-            <strong>exactamente</strong> el correo de la tabla (mismo dominio: .com, .co, etc.).
+            Se guarda el hash de la clave en la base (tabla de cuentas), no en variables <code className="text-xs">SECRET_KEY</code> /{' '}
+            <code className="text-xs">FERNET</code> del <code className="text-xs">.env</code> (esas son para la API y cifrado
+            de secretos, no para la contraseña IMAP). Mínimo 10 caracteres. En Roundcube usá el correo{' '}
+            <strong>exactamente</strong> como en la tabla.
           </p>
           <div>
             <Label value="Nueva contraseña" />
@@ -285,8 +288,8 @@ export default function WebmailPage() {
         <Modal.Header>Enlace para que el usuario asigne su contraseña</Modal.Header>
         <Modal.Body className="space-y-3">
           <p className="text-sm text-slate-600 dark:text-slate-300">
-            El enlace abre una pantalla en esta plataforma (sin login). Vigencia máxima 24 horas; al vencer queda
-            inválido.
+            El enlace abre la misma pantalla pública que si copiás solo el <code className="text-xs">token</code> del magic
+            link a Roundcube (first setup / reset). Vigencia máxima 24 h para este botón; al vencer queda inválido.
           </p>
           <div className="max-w-xs">
             <Label value="Validez del enlace (horas)" />

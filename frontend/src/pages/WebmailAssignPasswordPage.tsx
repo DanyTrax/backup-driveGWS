@@ -118,7 +118,7 @@ export default function WebmailAssignPasswordPage() {
       case 'revoked':
         return 'El enlace fue revocado. Generá otro desde el panel.'
       case 'wrong_purpose':
-        return 'Token inválido para esta página.'
+        return 'Este token no corresponde a asignar clave (p. ej. es de acceso «cliente SSO» u otro flujo). Generá en el panel un enlace con «Enlace asignar clave» o fijá la clave con «Fijar contraseña (local)».'
       case 'no_account':
         return 'La cuenta asociada ya no existe en el sistema.'
       default:

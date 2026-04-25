@@ -50,6 +50,17 @@ def _magic_redeem_public_url(*, token: str, purpose: str) -> str:
 # ---------------------------------------------------------------------------
 PASSWORD_ASSIGN_TTL_MAX_MINUTES = 24 * 60
 
+# Propósitos cuyo token sirve en la landing /webmail/assign-password (fijar clave IMAP en la plataforma).
+# Incluye `first_setup` / `password_reset` del «magic link» aunque la URL de redeem sea otra, por si
+# solo copian el parámetro token a la página de asignación.
+_PURPOSES_SET_IMAP_VIA_LANDING: frozenset[str] = frozenset(
+    {
+        WebmailTokenPurpose.PASSWORD_ASSIGN.value,
+        WebmailTokenPurpose.FIRST_SETUP.value,
+        WebmailTokenPurpose.PASSWORD_RESET.value,
+    }
+)
+
 
 async def issue_magic_link(
     db: AsyncSession,
@@ -131,7 +142,7 @@ async def peek_password_setup(
     if row is None:
         return PasswordSetupPeek(ok=False, reason="not_found")
     pur = str(row.purpose)
-    if pur != WebmailTokenPurpose.PASSWORD_ASSIGN.value:
+    if pur not in _PURPOSES_SET_IMAP_VIA_LANDING:
         return PasswordSetupPeek(ok=False, reason="wrong_purpose")
     acc = (await db.execute(select(GwAccount).where(GwAccount.id == row.account_id))).scalar_one_or_none()
     if acc is None:
@@ -161,7 +172,7 @@ async def complete_password_setup(
     digest = hashlib.sha256(token.encode("utf-8")).hexdigest()
     row = (await db.execute(select(WebmailAccessToken).where(WebmailAccessToken.token_hash == digest))).scalar_one_or_none()
     now = datetime.now(timezone.utc)
-    if row is None or row.purpose != WebmailTokenPurpose.PASSWORD_ASSIGN.value:
+    if row is None or str(row.purpose) not in _PURPOSES_SET_IMAP_VIA_LANDING:
         raise ValueError("invalid_token")
     if row.consumed_at is not None or row.revoked_at is not None:
         raise ValueError("token_already_used")
