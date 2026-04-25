@@ -8,10 +8,10 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
+import bcrypt as bcrypt_lib
 import pyotp
 from jose import JWTError, jwt
 from passlib.context import CryptContext
-from passlib.hash import bcrypt as _bcrypt_hasher
 
 from app.core.config import get_settings
 
@@ -25,8 +25,9 @@ pwd_context = CryptContext(
     argon2__parallelism=4,
 )
 
-# IMAP (Dovecot passdb en Postgres). Passlib+Argon2id PHC a veces no verifica con Dovecot 2.3;
-# bcrypt con prefijo explícito {BLF-CRYPT} evita que default_pass_scheme=ARGON2ID confunda el algoritmo.
+# IMAP (Dovecot passdb en Postgres). Argon2 (passlib) no encaja con el esquema por defecto de Dovecot;
+# bcrypt con prefijo {BLF-CRYPT}. passlib 1.7.4 y bcrypt 4.2+ rompen la detección vía `__about__`, así que
+# usamos el paquete `bcrypt` directo para IMAP.
 IMAP_BCRYPT_ROUNDS = 12
 DOVECOT_BCRYPT_PREFIX = "{BLF-CRYPT}"
 
@@ -47,7 +48,8 @@ def hash_imap_password(plain: str) -> str:
     """Solo `gw_accounts.imap_password_hash` (Dovecot). No usar para `sys_users`."""
     if len(plain) < 10:
         raise ValueError("password_too_short")
-    raw = _bcrypt_hasher.using(rounds=IMAP_BCRYPT_ROUNDS).hash(plain)
+    salt = bcrypt_lib.gensalt(rounds=IMAP_BCRYPT_ROUNDS)
+    raw = bcrypt_lib.hashpw(plain.encode("utf-8"), salt).decode("ascii")
     return f"{DOVECOT_BCRYPT_PREFIX}{raw}"
 
 
@@ -60,7 +62,7 @@ def verify_imap_password(plain: str, stored: str) -> bool:
         s = s[len(DOVECOT_BCRYPT_PREFIX) :]
     if s.startswith(("$2a$", "$2b$", "$2y$")):
         try:
-            return _bcrypt_hasher.verify(plain, s)
+            return bcrypt_lib.checkpw(plain.encode("utf-8"), s.encode("ascii"))
         except Exception:
             return False
     try:
