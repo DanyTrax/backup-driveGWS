@@ -20,6 +20,11 @@ passdb {
   args = /etc/dovecot/conf.d/master-users
 }
 
+# El passdb SQL devuelve userdb_* en el mismo query (password_query). IMAP rellena con prefetch;
+# sin esto, el userdb { sql } corre user_query y un fallo ahí mata el login aunque el hash fuese bueno.
+userdb {
+  driver = prefetch
+}
 userdb {
   driver = sql
   args = /etc/dovecot/conf.d/auth-sql.conf
