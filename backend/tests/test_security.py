@@ -21,6 +21,7 @@ def test_password_roundtrip() -> None:
 def test_imap_password_sha512_dovecot_compat() -> None:
     from app.core.security import (
         DOVECOT_BCRYPT_PREFIX,
+        DOVECOT_SHA512_PREFIX,
         hash_imap_password,
         verify_imap_password,
         verify_password,
@@ -29,7 +30,7 @@ def test_imap_password_sha512_dovecot_compat() -> None:
 
     plain = "IMAP-Min10chars!"
     h = hash_imap_password(plain)
-    assert h.startswith("$6$")
+    assert h.startswith(f"{DOVECOT_SHA512_PREFIX}$6$")
     assert verify_imap_password(plain, h)
     assert not verify_imap_password("wrong", h)
     assert not verify_password(plain, h)

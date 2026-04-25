@@ -7,7 +7,7 @@ connect = host=${POSTGRES_HOST} port=${POSTGRES_PORT} dbname=${POSTGRES_DB} user
 # Valor por defecto si el hash en columna no trae prefijo; $6$ (sha512-crypt) y $2$ se autodetectan.
 default_pass_scheme = SHA512-CRYPT
 
-# imap_password_hash: preferible $6$ (SHA512-CRYPT, mismo crypt que glibc). Legado: bcrypt/argon2.
+# imap_password_hash: {SHA512-CRYPT}$6$... (glibc) o $6$ sin prefijo; legado: bcrypt/argon2.
 # Filas con imap_enabled = true y sin bloqueo.
 # email con lower(): evita fallo si la BD trae mezcla de mayúsculas (API Google) y el usuario
 # escribe en minúsculas en Roundcube (Postgres: = '%u' es sensible a mayúsculas).

@@ -52,17 +52,31 @@ def verify_password(plain: str, hashed: str) -> bool:
 
 
 def hash_imap_password(plain: str) -> str:
-    """Solo `gw_accounts.imap_password_hash` (Dovecot). No usar para `sys_users`."""
+    """Solo `gw_accounts.imap_password_hash` (Dovecot). No usar para `sys_users`.
+
+    Almacenamos `{SHA512-CRYPT}$6$...` (prefijo al estilo Dovecot) para que el passdb SQL
+    no tenga dudas con `default_pass_scheme` / autodetección. El cuerpo es siempre
+    SHA512-CRYPT vía `crypt(3)` en Linux; passlib solo si no hay libc SHA-512 (p. ej. dev).
+    """
     if len(plain) < 10:
         raise ValueError("password_too_short")
+    body: str
     if (
         libc_crypt is not None
         and hasattr(libc_crypt, "METHOD_SHA512")
         and hasattr(libc_crypt, "mksalt")
     ):
         salt = libc_crypt.mksalt(libc_crypt.METHOD_SHA512, rounds=IMAP_SHA512_ROUNDS)
-        return libc_crypt.crypt(plain, salt)
-    return imap_sha512_passlib.using(rounds=IMAP_SHA512_ROUNDS).hash(plain)
+        body = libc_crypt.crypt(plain, salt)
+    else:  # pragma: no cover
+        body = imap_sha512_passlib.using(rounds=IMAP_SHA512_ROUNDS).hash(plain)
+    if not body.startswith("$6$") or len(body) < 64:
+        # crypt(3) en macOS/bsd a veces no es SHA-512: evitar filas inválidas en BD
+        if libc_crypt is not None and hasattr(libc_crypt, "METHOD_SHA512"):
+            body = imap_sha512_passlib.using(rounds=IMAP_SHA512_ROUNDS).hash(plain)
+    if not body.startswith("$6$"):
+        raise ValueError("imap_hash_unexpected")
+    return f"{DOVECOT_SHA512_PREFIX}{body}"
 
 
 def verify_imap_password(plain: str, stored: str) -> bool:

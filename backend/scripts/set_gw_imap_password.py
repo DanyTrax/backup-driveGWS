@@ -38,7 +38,7 @@ from sqlalchemy import func
 
 from app.core.config import get_settings
 from app.core.database import AsyncSessionLocal
-from app.core.security import hash_imap_password, verify_imap_password
+from app.core.security import DOVECOT_SHA512_PREFIX, hash_imap_password, verify_imap_password
 from app.models.accounts import GwAccount
 
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
@@ -74,7 +74,10 @@ async def _run(email: str, password: str) -> None:
         acc.imap_failed_attempts = 0
         acc.imap_locked_until = None
         await session.commit()
-        print(f"[set_gw_imap_password] IMAP listo (SHA512-CRYPT $6$ en BD, verificación alineada con Dovecot) para: {acc.email}")
+        print(
+            f"[set_gw_imap_password] IMAP listo "
+            f"({DOVECOT_SHA512_PREFIX}$6$ en BD, mismo formato que doveadm pw -s SHA512-CRYPT) para: {acc.email}"
+        )
 
 
 async def _verify_from_db(email: str, password: str) -> None:
