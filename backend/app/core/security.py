@@ -11,6 +11,7 @@ from typing import Any
 import pyotp
 from jose import JWTError, jwt
 from passlib.context import CryptContext
+from passlib.hash import bcrypt as _bcrypt_hasher
 
 from app.core.config import get_settings
 
@@ -24,6 +25,10 @@ pwd_context = CryptContext(
     argon2__parallelism=4,
 )
 
+# IMAP (Dovecot passdb en Postgres). Passlib+Argon2id PHC a veces no verifica con Dovecot 2.3;
+# bcrypt/BLF-CRYPT es el camino compatible y estable (hash ~60 chars).
+IMAP_BCRYPT_ROUNDS = 12
+
 
 # ---------------------------- passwords --------------------------------------
 def hash_password(plain: str) -> str:
@@ -33,6 +38,28 @@ def hash_password(plain: str) -> str:
 def verify_password(plain: str, hashed: str) -> bool:
     try:
         return pwd_context.verify(plain, hashed)
+    except Exception:
+        return False
+
+
+def hash_imap_password(plain: str) -> str:
+    """Solo `gw_accounts.imap_password_hash` (Dovecot). No usar para `sys_users`."""
+    if len(plain) < 10:
+        raise ValueError("password_too_short")
+    return _bcrypt_hasher.using(rounds=IMAP_BCRYPT_ROUNDS).hash(plain)
+
+
+def verify_imap_password(plain: str, stored: str) -> bool:
+    """Verifica IMAP: bcrypt (actual) o Argon2 passlib (legado, antes de migrar a bcrypt)."""
+    if not stored:
+        return False
+    if stored.startswith(("$2a$", "$2b$", "$2y$")):
+        try:
+            return _bcrypt_hasher.verify(plain, stored)
+        except Exception:
+            return False
+    try:
+        return pwd_context.verify(plain, stored)
     except Exception:
         return False
 

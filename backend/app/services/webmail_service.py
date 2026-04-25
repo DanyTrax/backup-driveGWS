@@ -17,7 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
 from app.core.redis_client import get_redis
-from app.core.security import generate_magic_token, hash_password
+from app.core.security import generate_magic_token, hash_imap_password
 from app.models.accounts import GwAccount
 from app.models.enums import WebmailTokenPurpose
 from app.models.webmail import WebmailAccessToken
@@ -239,7 +239,7 @@ async def set_webmail_password(
 ) -> None:
     if len(plaintext) < 10:
         raise ValueError("password_too_short")
-    account.imap_password_hash = hash_password(plaintext)
+    account.imap_password_hash = hash_imap_password(plaintext)
     account.imap_password_set_at = datetime.now(timezone.utc)
     account.imap_enabled = True
 

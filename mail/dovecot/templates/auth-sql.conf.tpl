@@ -6,8 +6,8 @@ connect = host=${POSTGRES_HOST} port=${POSTGRES_PORT} dbname=${POSTGRES_DB} user
 
 default_pass_scheme = ARGON2ID
 
-# Reads the argon2 hash from gw_accounts.imap_password_hash; only rows with
-# imap_enabled = true and (imap_locked_until IS NULL OR imap_locked_until < now())
+# Lee `imap_password_hash` (bcrypt $2* o legado passlib-Argon2id $argon2id$). Dovecot detecta
+# el esquema por el prefijo. Filas con imap_enabled = true y sin bloqueo.
 password_query = \
   SELECT email AS user, imap_password_hash AS password \
   FROM gw_accounts \

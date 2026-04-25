@@ -18,6 +18,18 @@ def test_password_roundtrip() -> None:
     assert not verify_password("wrong", hashed)
 
 
+def test_imap_password_bcrypt_dovecot_compat() -> None:
+    from app.core.security import hash_imap_password, verify_imap_password, verify_password
+
+    plain = "IMAP-Min10chars!"
+    h = hash_imap_password(plain)
+    assert h.startswith(("$2a$", "$2b$", "$2y$"))
+    assert verify_imap_password(plain, h)
+    assert not verify_imap_password("wrong", h)
+    # no confundir con hash de plataforma (Argon2)
+    assert not verify_password(plain, h)
+
+
 def test_jwt_roundtrip() -> None:
     from app.core.security import create_access_token, decode_token
 
