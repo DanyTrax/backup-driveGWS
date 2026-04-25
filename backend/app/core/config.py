@@ -74,6 +74,8 @@ class Settings(BaseSettings):
     rclone_rc_port_range_start: int = 5572
     rclone_rc_port_range_end: int = 5599
     rclone_bwlimit: str = ""
+    # GYB --action estimate en «Comprobar acceso»; buzones de decenas de GB pueden tardar >5 min.
+    account_verify_gyb_timeout_seconds: int = 7200
 
     @field_validator("rclone_bwlimit", mode="before")
     @classmethod

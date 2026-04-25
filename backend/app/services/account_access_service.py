@@ -8,6 +8,7 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import get_settings
 from app.models.accounts import GwAccount
 from app.models.enums import AccountStatus
 from app.services import gyb_service, rclone_service
@@ -26,6 +27,20 @@ def _maildir_layout_ok(root: Path) -> bool:
     if not root.is_dir():
         return False
     return all((root / sub).is_dir() for sub in ("cur", "new", "tmp"))
+
+
+def _format_exception(exc: BaseException) -> str:
+    s = str(exc).strip()
+    if s:
+        return s
+    name = type(exc).__name__
+    if name == "TimeoutError":
+        return (
+            f"{name}: GYB --estimate superó el tiempo máximo. "
+            "Aumentá ACCOUNT_VERIFY_GYB_TIMEOUT_SECONDS en .env o probá con un buzón más chico; "
+            "buzones de decenas de GB pueden tardar mucho en estimar."
+        )
+    return f"{name} (sin mensaje de detalle)"
 
 
 async def _emit(progress_id: str | None, **payload: Any) -> None:
@@ -161,12 +176,12 @@ async def verify_account_access(
                     )
     except Exception as exc:  # pragma: no cover
         result["drive_ok"] = False
-        result["drive_detail"] = f"error_drive: {exc!s}"[:2000]
+        result["drive_detail"] = f"error_drive: {_format_exception(exc)}"[:2000]
         await _emit(
             progress_id,
             phase="drive_error",
             progress_pct=30,
-            message=str(exc)[:500],
+            message=_format_exception(exc)[:500],
             drive_ok=False,
         )
 
@@ -198,9 +213,10 @@ async def verify_account_access(
             db, account_email=email, local_folder=str(work)
         ) as workspace:
             argv = gyb_service.build_gyb_argv(workspace, email=email, action="estimate")
+            gyb_tmo = get_settings().account_verify_gyb_timeout_seconds
             rc, text = await gyb_service.run_gyb(
                 argv,
-                timeout=300,
+                timeout=gyb_tmo,
                 async_on_line=_gyb_activity if progress_id else None,
             )
         if rc != 0:
@@ -223,12 +239,12 @@ async def verify_account_access(
                 gmail_ok=True,
             )
     except Exception as exc:  # pragma: no cover
-        result["gmail_detail"] = f"error_gmail: {exc!s}"[:2000]
+        result["gmail_detail"] = f"error_gmail: {_format_exception(exc)}"[:2000]
         await _emit(
             progress_id,
             phase="gmail_error",
             progress_pct=85,
-            message=str(exc)[:500],
+            message=_format_exception(exc)[:500],
             gmail_ok=False,
         )
     finally:
