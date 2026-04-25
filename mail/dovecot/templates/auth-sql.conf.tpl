@@ -4,7 +4,8 @@
 driver = pgsql
 connect = host=${POSTGRES_HOST} port=${POSTGRES_PORT} dbname=${POSTGRES_DB} user=${POSTGRES_USER} password=${POSTGRES_PASSWORD}
 
-default_pass_scheme = ARGON2ID
+# Valor por defecto solo aplica si el hash en BD no trae esquema explícito; $argon2id$ / $2b$ / {BLF-CRYPT} se autodetectan.
+default_pass_scheme = BLF-CRYPT
 
 # `imap_password_hash`: preferible `{BLF-CRYPT}$2b$...` (bcrypt); legado `$2b$...` o `$argon2id$...`.
 # Filas con imap_enabled = true y sin bloqueo.
