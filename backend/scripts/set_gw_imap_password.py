@@ -15,6 +15,10 @@ O (evitar dejar rastro en historial del host: preferible no pegar clave en líne
     docker exec -it msa-backup-app python /app/scripts/set_gw_imap_password.py \\
         --email administracion@themsagroup.com --password 'ClaveLargaSegura10+'
 
+Comprobar que app y Dovecot apuntan al mismo Postgres (sin email):
+
+    docker exec msa-backup-app python /app/scripts/set_gw_imap_password.py --connection-only
+
 Tras el script, probar IMAP (misma clave que acabas de poner):
 
     docker exec -it msa-backup-dovecot doveadm auth test "correo@dominio" "MismaClave"
@@ -100,7 +104,10 @@ def main() -> None:
     p = argparse.ArgumentParser(
         description="Fijar contraseña IMAP / webmail (gw_accounts, mismo hash que la API)."
     )
-    p.add_argument("--email", required=True, help="Email exacto o equivalente en minúsculas (gw_accounts)")
+    p.add_argument(
+        "--email",
+        help="Email en gw_accounts (obligatorio salvo con --connection-only)",
+    )
     p.add_argument(
         "--password",
         help="Nueva clave (≥10 caracteres). Si no, se pide con getpass.",
@@ -117,9 +124,6 @@ def main() -> None:
     )
     args = p.parse_args()
 
-    if not EMAIL_RE.match(args.email):
-        sys.exit("Email inválido.")
-
     if args.connection_only:
         s = get_settings()
         print(
@@ -132,6 +136,12 @@ def main() -> None:
             "  Si el host o la BD difieren, set_gw_imap_password actualiza otra base y dovecot auth falla."
         )
         return
+
+    if not args.email:
+        p.error("--email es obligatorio (excepto con --connection-only)")
+
+    if not EMAIL_RE.match(args.email):
+        sys.exit("Email inválido.")
 
     if args.verify_password is not None:
         pw = _normalize_password(args.verify_password)
