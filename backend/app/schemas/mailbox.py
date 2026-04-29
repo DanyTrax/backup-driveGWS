@@ -27,6 +27,17 @@ class MailboxMessagesPageOut(BaseModel):
     items: list[MailboxMessageSummaryOut]
 
 
+class MailboxAttachmentOut(BaseModel):
+    """Parte descargable: ``leaf_index`` coincide con ``GET .../mailbox/attachment``."""
+
+    leaf_index: int
+    filename: str | None = None
+    content_type: str
+    size: int = 0
+    disposition: str | None = None
+    content_id: str | None = None
+
+
 class MailboxMessageBodyOut(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
@@ -36,3 +47,4 @@ class MailboxMessageBodyOut(BaseModel):
     date: str | None = None
     text_plain: str | None = None
     text_html: str | None = None
+    attachments: list[MailboxAttachmentOut] = Field(default_factory=list)

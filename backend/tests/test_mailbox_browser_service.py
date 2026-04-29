@@ -1,11 +1,24 @@
 """Tests for Maildir browser (local paths only)."""
 from __future__ import annotations
 
+import io
+from email.generator import BytesGenerator
+from email.message import Message
+from email.mime.application import MIMEApplication
+from email.mime.image import MIMEImage
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
+from email.policy import compat32
 from pathlib import Path
 
 import pytest
 
-from app.services.mailbox_browser_service import list_maildir_folders, list_messages, read_message
+from app.services.mailbox_browser_service import (
+    list_maildir_folders,
+    list_messages,
+    read_message,
+    read_message_leaf_bytes,
+)
 
 
 def _write_msg(cur: Path, name: str, raw: bytes) -> None:
@@ -66,6 +79,76 @@ def test_read_message_plain(tmp_path: Path) -> None:
     m = read_message(root, folder_id="INBOX", message_key=key)
     assert m.subject == "Full"
     assert m.text_plain and "hello world" in m.text_plain
+    assert m.attachments == []
+
+
+def _flatten_mime(msg: Message) -> bytes:
+    buf = io.BytesIO()
+    BytesGenerator(buf, policy=compat32).flatten(msg)
+    return buf.getvalue()
+
+
+def test_read_message_inline_cid_becomes_data_uri(tmp_path: Path) -> None:
+    root = tmp_path / "Maildir"
+    (root / "cur").mkdir(parents=True)
+    (root / "new").mkdir()
+    (root / "tmp").mkdir()
+
+    related = MIMEMultipart("related")
+    related["Subject"] = "Img"
+    related["From"] = "a@b.com"
+    related.attach(
+        MIMEText('<html><body><img src="cid:myimage"></body></html>', "html", "utf-8"),
+    )
+    png_1x1 = bytes.fromhex(
+        "89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c489"
+        "0000000a49444154789c63000100000500010d0a2db40000000049454e44ae426082"
+    )
+    img = MIMEImage(png_1x1, _subtype="png")
+    img.add_header("Content-ID", "<myimage>")
+    related.attach(img)
+
+    key = "m.host:2,S"
+    (root / "cur" / key).write_bytes(_flatten_mime(related))
+
+    m = read_message(root, folder_id="INBOX", message_key=key)
+    assert m.text_html is not None
+    assert "cid:myimage" not in m.text_html
+    assert "data:image/png;base64," in m.text_html
+    assert m.attachments == []
+
+
+def test_pdf_attachment_and_leaf_download(tmp_path: Path) -> None:
+    root = tmp_path / "Maildir"
+    (root / "cur").mkdir(parents=True)
+    (root / "new").mkdir()
+    (root / "tmp").mkdir()
+
+    mixed = MIMEMultipart("mixed")
+    mixed["Subject"] = "Att"
+    mixed["From"] = "x@y.com"
+    mixed.attach(MIMEText("hello", "plain", "utf-8"))
+    pdf_part = MIMEApplication(b"%PDF-1.4 minimal\n", _subtype="pdf")
+    pdf_part.add_header("Content-Disposition", "attachment", filename="doc.pdf")
+    mixed.attach(pdf_part)
+
+    key = "a.host:2,S"
+    (root / "cur" / key).write_bytes(_flatten_mime(mixed))
+
+    m = read_message(root, folder_id="INBOX", message_key=key)
+    assert m.text_plain and "hello" in m.text_plain
+    assert len(m.attachments) == 1
+    att = m.attachments[0]
+    assert att.filename == "doc.pdf"
+    payload, fn, ct = read_message_leaf_bytes(
+        root,
+        folder_id="INBOX",
+        message_key=key,
+        leaf_index=att.leaf_index,
+    )
+    assert ct == "application/pdf"
+    assert payload.startswith(b"%PDF")
+    assert fn == "doc.pdf"
 
 
 def test_rejects_path_traversal(tmp_path: Path) -> None:

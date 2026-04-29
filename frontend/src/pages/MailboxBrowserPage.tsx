@@ -2,9 +2,25 @@ import { useMemo, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { Alert, Badge, Button, Card, Spinner } from 'flowbite-react'
 import toast from 'react-hot-toast'
-import { HiArrowLeft, HiDownload } from 'react-icons/hi'
+import { HiArrowLeft, HiDownload, HiMenu, HiX } from 'react-icons/hi'
 import { downloadMaildirExportZip, maildirExportErrorMessage } from '../api/maildirExport'
+import { downloadMailboxAttachment } from '../api/mailboxAttachment'
 import { useMailboxFolders, useMailboxMessage, useMailboxMessages } from '../api/hooks'
+
+function formatBytes(n: number): string {
+  if (n < 1024) return `${n} B`
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`
+  return `${(n / (1024 * 1024)).toFixed(1)} MB`
+}
+
+function wrapMailHtmlFragment(html: string): string {
+  const safe = html.replace(/<\/script/gi, '<\\/script').replace(/<\/iframe/gi, '<\\/iframe')
+  return `<!DOCTYPE html><html><head><meta charset="utf-8"/><base target="_blank" rel="noopener noreferrer"/><style>
+body{font-family:system-ui,-apple-system,sans-serif;margin:0;padding:12px;word-wrap:break-word;color:rgb(30 41 59);}
+@media (prefers-color-scheme:dark){body{color:rgb(226 232 240);background:#0f172a;}}
+img,video{max-width:100%;height:auto;}pre{white-space:pre-wrap;}table{max-width:100%;}
+</style></head><body>${safe}</body></html>`
+}
 
 export default function MailboxBrowserPage() {
   const { accountId } = useParams<{ accountId: string }>()
@@ -14,6 +30,7 @@ export default function MailboxBrowserPage() {
   const [page, setPage] = useState(0)
   const [selectedKey, setSelectedKey] = useState<string | null>(null)
   const [exporting, setExporting] = useState(false)
+  const [sidebarOpen, setSidebarOpen] = useState(true)
 
   const foldersQ = useMailboxFolders(id)
   const msgsQ = useMailboxMessages(id, folderId, page * 80)
@@ -23,6 +40,11 @@ export default function MailboxBrowserPage() {
   const items = msgsQ.data?.items ?? []
 
   const folderLabel = useMemo(() => folders.find((f) => f.id === folderId)?.name ?? folderId, [folders, folderId])
+
+  const iframeSrcDoc = useMemo(
+    () => (bodyQ.data?.text_html ? wrapMailHtmlFragment(bodyQ.data.text_html) : ''),
+    [bodyQ.data?.text_html],
+  )
 
   if (!id) {
     return <Alert color="failure">Falta id de cuenta</Alert>
@@ -53,6 +75,17 @@ export default function MailboxBrowserPage() {
           <HiDownload className="h-4 w-4 mr-2" />
           Exportar Maildir (.zip)
         </Button>
+        <Button color="light" size="sm" onClick={() => setSidebarOpen((v) => !v)}>
+          {sidebarOpen ? (
+            <>
+              <HiX className="h-4 w-4 mr-2" /> Ocultar carpetas
+            </>
+          ) : (
+            <>
+              <HiMenu className="h-4 w-4 mr-2" /> Mostrar carpetas
+            </>
+          )}
+        </Button>
       </div>
 
       <p className="text-sm text-slate-500 dark:text-slate-400 max-w-3xl">
@@ -70,35 +103,37 @@ export default function MailboxBrowserPage() {
         </Alert>
       )}
 
-      <div className="grid grid-cols-1 lg:grid-cols-4 gap-4">
-        <Card className="lg:col-span-1">
-          <h2 className="text-sm font-medium mb-2">Carpetas</h2>
-          {foldersQ.isLoading ? (
-            <Spinner size="sm" />
-          ) : (
-            <ul className="space-y-1 text-sm">
-              {folders.map((f) => (
-                <li key={f.id}>
-                  <button
-                    type="button"
-                    className={`w-full text-left px-2 py-1 rounded ${
-                      folderId === f.id ? 'bg-blue-100 dark:bg-blue-900 font-medium' : 'hover:bg-slate-100 dark:hover:bg-slate-800'
-                    }`}
-                    onClick={() => {
-                      setFolderId(f.id)
-                      setPage(0)
-                      setSelectedKey(null)
-                    }}
-                  >
-                    {f.name}
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
-        </Card>
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-12">
+        {sidebarOpen ? (
+          <Card className="lg:col-span-3">
+            <h2 className="text-sm font-medium mb-2">Carpetas</h2>
+            {foldersQ.isLoading ? (
+              <Spinner size="sm" />
+            ) : (
+              <ul className="space-y-1 text-sm">
+                {folders.map((f) => (
+                  <li key={f.id}>
+                    <button
+                      type="button"
+                      className={`w-full text-left px-2 py-1 rounded ${
+                        folderId === f.id ? 'bg-blue-100 dark:bg-blue-900 font-medium' : 'hover:bg-slate-100 dark:hover:bg-slate-800'
+                      }`}
+                      onClick={() => {
+                        setFolderId(f.id)
+                        setPage(0)
+                        setSelectedKey(null)
+                      }}
+                    >
+                      {f.name}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </Card>
+        ) : null}
 
-        <Card className="lg:col-span-1">
+        <Card className={sidebarOpen ? 'lg:col-span-3' : 'lg:col-span-4'}>
           <div className="flex items-center justify-between mb-2">
             <h2 className="text-sm font-medium truncate" title={folderLabel}>
               Mensajes · {folderLabel}
@@ -146,7 +181,7 @@ export default function MailboxBrowserPage() {
           </div>
         </Card>
 
-        <Card className="lg:col-span-2">
+        <Card className={sidebarOpen ? 'lg:col-span-6' : 'lg:col-span-8'}>
           <h2 className="text-sm font-medium mb-2">Contenido</h2>
           {!selectedKey ? (
             <p className="text-slate-500 text-sm">Seleccioná un mensaje</p>
@@ -161,21 +196,61 @@ export default function MailboxBrowserPage() {
                 <div className="text-sm text-slate-600 dark:text-slate-300">De: {bodyQ.data.from}</div>
                 <div className="text-xs text-slate-400">{bodyQ.data.date ?? ''}</div>
               </div>
-              {bodyQ.data.text_plain ? (
-                <pre className="whitespace-pre-wrap text-sm bg-slate-50 dark:bg-slate-900 p-3 rounded border border-slate-200 dark:border-slate-700">
-                  {bodyQ.data.text_plain}
-                </pre>
+              {(bodyQ.data.attachments ?? []).length > 0 ? (
+                <div className="rounded-lg border border-slate-200 dark:border-slate-600 p-2 text-sm">
+                  <div className="font-medium text-slate-700 dark:text-slate-200 mb-1">Adjuntos</div>
+                  <ul className="space-y-1">
+                    {(bodyQ.data.attachments ?? []).map((a) => (
+                      <li key={`${a.leaf_index}-${a.filename ?? a.content_type}`} className="flex flex-wrap items-center gap-2">
+                        <span className="text-slate-600 dark:text-slate-300 truncate max-w-[60%]" title={a.filename ?? undefined}>
+                          {a.filename ?? '(sin nombre)'}
+                        </span>
+                        <span className="text-xs text-slate-400">{formatBytes(a.size)}</span>
+                        <Button
+                          size="xs"
+                          color="light"
+                          disabled={!id}
+                          onClick={() => {
+                            if (!id || !selectedKey) return
+                            downloadMailboxAttachment(id, {
+                              folder: folderId,
+                              key: selectedKey,
+                              leafIndex: a.leaf_index,
+                              filename: a.filename,
+                            }).catch(() => toast.error('No se pudo descargar el adjunto'))
+                          }}
+                        >
+                          Descargar
+                        </Button>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
               ) : null}
               {bodyQ.data.text_html ? (
-                <div className="border border-slate-200 dark:border-slate-700 rounded overflow-hidden">
-                  <p className="text-xs text-slate-500 px-2 py-1 bg-slate-100 dark:bg-slate-800">Vista HTML (sandbox)</p>
+                <div className="border border-slate-200 dark:border-slate-700 rounded overflow-hidden bg-white dark:bg-slate-800">
+                  <p className="text-xs text-slate-500 px-2 py-1 bg-slate-100 dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700">
+                    Vista HTML (sin scripts; imágenes incrustadas vía servidor cuando es posible)
+                  </p>
                   <iframe
                     title="html"
-                    className="w-full min-h-[320px] bg-white"
-                    sandbox=""
-                    srcDoc={bodyQ.data.text_html}
+                    className="w-full min-h-[min(70vh,520px)] bg-white dark:bg-slate-900"
+                    sandbox="allow-popups allow-downloads"
+                    srcDoc={iframeSrcDoc}
                   />
                 </div>
+              ) : null}
+              {bodyQ.data.text_plain ? (
+                <details className="rounded-lg border border-slate-200 dark:border-slate-700 overflow-hidden group">
+                  <summary className="cursor-pointer select-none text-sm font-medium px-3 py-2 bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-200 list-none flex items-center justify-between [&::-webkit-details-marker]:hidden">
+                    <span>Texto plano</span>
+                    <span className="text-xs text-slate-400 group-open:hidden">Mostrar</span>
+                    <span className="text-xs text-slate-400 hidden group-open:inline">Ocultar</span>
+                  </summary>
+                  <pre className="whitespace-pre-wrap text-sm bg-slate-50 dark:bg-slate-900 p-3 border-t border-slate-200 dark:border-slate-700 max-h-[40vh] overflow-auto m-0">
+                    {bodyQ.data.text_plain}
+                  </pre>
+                </details>
               ) : null}
               {!bodyQ.data.text_plain && !bodyQ.data.text_html ? (
                 <p className="text-slate-500 text-sm">(Sin cuerpo de texto/HTML legible)</p>

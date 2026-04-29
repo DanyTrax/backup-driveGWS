@@ -83,6 +83,15 @@ export interface MailboxMessagesPage {
   items: MailboxMessageSummary[]
 }
 
+export interface MailboxAttachment {
+  leaf_index: number
+  filename: string | null
+  content_type: string
+  size: number
+  disposition: string | null
+  content_id: string | null
+}
+
 export interface MailboxMessageBody {
   id: string
   subject: string
@@ -90,6 +99,7 @@ export interface MailboxMessageBody {
   date: string | null
   text_plain: string | null
   text_html: string | null
+  attachments: MailboxAttachment[]
 }
 
 export interface AccountAccessCheck {

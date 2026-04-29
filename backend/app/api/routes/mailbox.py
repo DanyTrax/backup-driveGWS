@@ -2,11 +2,12 @@
 from __future__ import annotations
 
 import asyncio
+import re
 import uuid
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.background import BackgroundTask
 
@@ -21,6 +22,7 @@ from app.services.maildir_export_service import (
     safe_maildir_zip_stem,
 )
 from app.schemas.mailbox import (
+    MailboxAttachmentOut,
     MailboxFolderOut,
     MailboxMessageBodyOut,
     MailboxMessagesPageOut,
@@ -30,12 +32,21 @@ from app.services.mailbox_browser_service import (
     list_maildir_folders,
     list_messages,
     read_message,
+    read_message_leaf_bytes,
 )
 from app.services.maildir_paths import maildir_root_for_account
 
 from .accounts import _load, _maildir_ready
 
 router = APIRouter()
+
+_ATTACHMENT_FILENAME_SAFE = re.compile(r"[^\w.\- ()\[\]]+")
+
+
+def _content_disposition_filename(name: str | None) -> str:
+    base = (name or "adjunto").strip() or "adjunto"
+    base = _ATTACHMENT_FILENAME_SAFE.sub("_", base).strip("._")[:180]
+    return base or "adjunto"
 
 
 @router.get(
@@ -126,6 +137,60 @@ async def mailbox_get_message(
         date=body.date_display,
         text_plain=body.text_plain,
         text_html=body.text_html,
+        attachments=[
+            MailboxAttachmentOut(
+                leaf_index=a.leaf_index,
+                filename=a.filename,
+                content_type=a.content_type,
+                size=a.size,
+                disposition=a.disposition,
+                content_id=a.content_id,
+            )
+            for a in body.attachments
+        ],
+    )
+
+
+@router.get(
+    "/{account_id}/mailbox/attachment",
+    summary="Descargar una parte del mensaje (adjunto) por índice de hoja MIME",
+    response_class=Response,
+)
+async def mailbox_get_attachment_part(
+    account_id: uuid.UUID,
+    folder: str = Query("INBOX"),
+    key: str = Query(..., min_length=1, max_length=512),
+    leaf_index: int = Query(..., ge=0, description="Índice de parte hoja devuelto en attachments[].leaf_index"),
+    db: AsyncSession = Depends(get_db),
+    _u: SysUser = Depends(mailbox_reader_for_path_account),
+) -> Response:
+    acc = await _load(db, account_id)
+    root = maildir_root_for_account(acc)
+    if not _maildir_ready(root):
+        raise HTTPException(status.HTTP_409_CONFLICT, "maildir_not_ready")
+    try:
+        data, filename, content_type = read_message_leaf_bytes(
+            root,
+            folder_id=folder,
+            message_key=key,
+            leaf_index=leaf_index,
+        )
+    except ValueError as exc:
+        code = str(exc)
+        if code in ("invalid_message_key", "invalid_leaf_index", "part_decode_error"):
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, code) from exc
+        if code == "leaf_index_out_of_range":
+            raise HTTPException(status.HTTP_404_NOT_FOUND, code) from exc
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+    except FileNotFoundError as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "message_not_found") from exc
+
+    safe = _content_disposition_filename(filename)
+    cd = f'attachment; filename="{safe}"'
+    return Response(
+        content=data,
+        media_type=content_type or "application/octet-stream",
+        headers={"Content-Disposition": cd},
     )
 
 

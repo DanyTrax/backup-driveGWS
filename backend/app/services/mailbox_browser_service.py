@@ -1,6 +1,7 @@
 """Lectura segura de Maildir local (visor en plataforma; mismo árbol que Dovecot)."""
 from __future__ import annotations
 
+import base64
 import email
 import re
 from dataclasses import dataclass
@@ -12,6 +13,11 @@ from pathlib import Path
 from app.services.maildir_service import ensure_maildir_subfolder
 
 _FOLDER_ID = re.compile(r"^(\.?[A-Za-z0-9_.-]+|INBOX)$")
+
+# Tope por imagen inline para inyectar en HTML como data: (evita respuestas enormes).
+_MAX_INLINE_IMAGE_BYTES = 1_572_864  # ~1.5 MiB
+
+_CID_SRC_RE = re.compile(r"\bcid:([^\"\'\s>]+)", re.IGNORECASE)
 
 # Buzones tipo Gmail/gyb: agrupa variantes en disco (.Sent / .SENT) y nombres en español.
 _SYSTEM_FOLDER_GROUP: tuple[tuple[str, frozenset[str], str, str], ...] = (
@@ -199,6 +205,18 @@ def list_messages(
 
 
 @dataclass
+class MessageAttachment:
+    """Índice de parte hoja en ``walk()`` (solo nodos no-multipart), estable entre lecturas."""
+
+    leaf_index: int
+    filename: str | None
+    content_type: str
+    size: int
+    disposition: str | None
+    content_id: str | None
+
+
+@dataclass
 class MessageBody:
     key: str
     subject: str
@@ -206,46 +224,170 @@ class MessageBody:
     date_display: str | None
     text_plain: str | None
     text_html: str | None
+    attachments: list[MessageAttachment]
 
 
-def _extract_body(msg: email.message.Message) -> tuple[str | None, str | None]:
+def _normalize_content_id(raw: str | None) -> str | None:
+    if not raw:
+        return None
+    s = raw.strip()
+    if s.startswith("<") and s.endswith(">"):
+        s = s[1:-1]
+    s = s.strip()
+    return s or None
+
+
+def _disposition_main(part: email.message.Message) -> str:
+    cd = part.get("Content-Disposition")
+    if not cd:
+        return ""
+    try:
+        main = str(cd).split(";", 1)[0].strip().lower()
+        return main
+    except Exception:
+        return ""
+
+
+def _cid_lookup(uri: str, cid_map: dict[str, str]) -> str | None:
+    if uri in cid_map:
+        return cid_map[uri]
+    base = uri.split("@", 1)[0]
+    if base != uri and base in cid_map:
+        return cid_map[base]
+    ulow = uri.lower()
+    for k, v in cid_map.items():
+        if k.lower() == ulow:
+            return v
+        if k.split("@", 1)[0].lower() == ulow.split("@", 1)[0]:
+            return v
+    return None
+
+
+def _rewrite_html_cids(html: str, cid_map: dict[str, str]) -> str:
+    if not html or not cid_map:
+        return html
+
+    def repl(m: re.Match[str]) -> str:
+        ref = m.group(1)
+        u = _cid_lookup(ref, cid_map)
+        return u if u is not None else m.group(0)
+
+    return _CID_SRC_RE.sub(repl, html)
+
+
+def _extract_body_and_attachments(
+    msg: email.message.Message,
+) -> tuple[str | None, str | None, list[MessageAttachment], dict[str, str]]:
     plain_parts: list[str] = []
     html_parts: list[str] = []
+    attachments: list[MessageAttachment] = []
+    cid_map: dict[str, str] = {}
+    leaf_idx = 0
+
     if msg.is_multipart():
         for part in msg.walk():
-            ctype = (part.get_content_type() or "").lower()
-            if ctype == "text/plain" and not part.get_filename():
+            if part.is_multipart():
+                continue
+            ctype = (part.get_content_type() or "application/octet-stream").lower()
+            disp_m = _disposition_main(part)
+            fname = part.get_filename()
+            cid_raw = _normalize_content_id(part.get("Content-ID"))
+            try:
+                raw = part.get_payload(decode=True)
+            except Exception:
+                leaf_idx += 1
+                continue
+            if raw is None:
+                leaf_idx += 1
+                continue
+
+            is_body_plain = ctype == "text/plain" and not fname and disp_m != "attachment"
+            is_body_html = ctype == "text/html" and not fname and disp_m != "attachment"
+
+            if is_body_plain:
                 try:
-                    pl = part.get_payload(decode=True)
-                    if pl:
-                        charset = part.get_content_charset() or "utf-8"
-                        plain_parts.append(pl.decode(charset, errors="replace"))
+                    charset = part.get_content_charset() or "utf-8"
+                    plain_parts.append(raw.decode(charset, errors="replace"))
                 except Exception:
-                    continue
-            elif ctype == "text/html" and not part.get_filename():
+                    pass
+                leaf_idx += 1
+                continue
+            if is_body_html:
                 try:
-                    hl = part.get_payload(decode=True)
-                    if hl:
-                        charset = part.get_content_charset() or "utf-8"
-                        html_parts.append(hl.decode(charset, errors="replace"))
+                    charset = part.get_content_charset() or "utf-8"
+                    html_parts.append(raw.decode(charset, errors="replace"))
                 except Exception:
+                    pass
+                leaf_idx += 1
+                continue
+
+            if cid_raw and ctype.startswith("image/") and disp_m != "attachment":
+                if 0 < len(raw) <= _MAX_INLINE_IMAGE_BYTES:
+                    b64 = base64.b64encode(raw).decode("ascii")
+                    data_uri = f"data:{ctype};base64,{b64}"
+                    cid_map[cid_raw] = data_uri
+                    base = cid_raw.split("@", 1)[0]
+                    if base != cid_raw:
+                        cid_map.setdefault(base, data_uri)
+                    leaf_idx += 1
                     continue
+                # Imagen inline demasiado grande para data: URI: se ofrece como adjunto.
+
+            if disp_m == "attachment" or fname or ctype not in ("text/plain", "text/html"):
+                dec_fn: str | None = fname
+                if dec_fn:
+                    try:
+                        dec_fn = str(make_header(decode_header(dec_fn)))
+                    except Exception:
+                        pass
+                attachments.append(
+                    MessageAttachment(
+                        leaf_index=leaf_idx,
+                        filename=dec_fn,
+                        content_type=ctype,
+                        size=len(raw),
+                        disposition=disp_m or None,
+                        content_id=cid_raw,
+                    )
+                )
+            leaf_idx += 1
     else:
         ctype = (msg.get_content_type() or "").lower()
+        disp_m = _disposition_main(msg)
+        fname = msg.get_filename()
         try:
             raw = msg.get_payload(decode=True)
             if raw:
                 charset = msg.get_content_charset() or "utf-8"
                 text = raw.decode(charset, errors="replace")
-                if ctype == "text/html":
+                if ctype == "text/html" and not fname and disp_m != "attachment":
                     html_parts.append(text)
-                else:
+                elif ctype == "text/plain" and not fname and disp_m != "attachment":
                     plain_parts.append(text)
+                elif disp_m == "attachment" or fname or ctype not in ("text/plain", "text/html"):
+                    dec_fn: str | None = fname
+                    if dec_fn:
+                        try:
+                            dec_fn = str(make_header(decode_header(dec_fn)))
+                        except Exception:
+                            pass
+                    attachments.append(
+                        MessageAttachment(
+                            leaf_index=0,
+                            filename=dec_fn,
+                            content_type=ctype,
+                            size=len(raw),
+                            disposition=disp_m or None,
+                            content_id=_normalize_content_id(msg.get("Content-ID")),
+                        )
+                    )
         except Exception:
             pass
+
     pl = "\n\n".join(plain_parts).strip() or None
-    hl = "\n<hr>\n".join(html_parts).strip() or None
-    return pl, hl
+    hl_raw = "\n<hr>\n".join(html_parts).strip() or None
+    hl = _rewrite_html_cids(hl_raw, cid_map) if hl_raw else None
+    return pl, hl, attachments, cid_map
 
 
 def read_message(maildir_root: Path, *, folder_id: str, message_key: str) -> MessageBody:
@@ -261,7 +403,7 @@ def read_message(maildir_root: Path, *, folder_id: str, message_key: str) -> Mes
             subject = _decode_mime_header(msg.get("Subject")) or "(sin asunto)"
             from_ = _decode_mime_header(msg.get("From")) or "—"
             date = msg.get("Date")
-            tpl, thtml = _extract_body(msg)
+            tpl, thtml, attachments, _ = _extract_body_and_attachments(msg)
             return MessageBody(
                 key=key,
                 subject=subject,
@@ -269,5 +411,48 @@ def read_message(maildir_root: Path, *, folder_id: str, message_key: str) -> Mes
                 date_display=date,
                 text_plain=tpl,
                 text_html=thtml,
+                attachments=attachments,
             )
+    raise FileNotFoundError("message_not_found")
+
+
+def read_message_leaf_bytes(
+    maildir_root: Path,
+    *,
+    folder_id: str,
+    message_key: str,
+    leaf_index: int,
+) -> tuple[bytes, str | None, str]:
+    """Devuelve ``(payload, filename, content_type)`` para la parte hoja ``leaf_index``."""
+    folder = _safe_folder_path(maildir_root, folder_id)
+    key = message_key.strip()
+    if not key or "/" in key or key == "." or ".." in key:
+        raise ValueError("invalid_message_key")
+    if leaf_index < 0:
+        raise ValueError("invalid_leaf_index")
+    for sub in ("cur", "new"):
+        path = folder / sub / key
+        if not path.is_file():
+            continue
+        raw = path.read_bytes()
+        msg = BytesParser(policy=compat32).parsebytes(raw)
+        i = 0
+        for part in msg.walk():
+            if part.is_multipart():
+                continue
+            if i == leaf_index:
+                try:
+                    payload = part.get_payload(decode=True) or b""
+                except Exception as exc:
+                    raise ValueError("part_decode_error") from exc
+                fn = part.get_filename()
+                if fn:
+                    try:
+                        fn = str(make_header(decode_header(fn)))
+                    except Exception:
+                        pass
+                ctype = part.get_content_type() or "application/octet-stream"
+                return payload, fn, ctype
+            i += 1
+        raise ValueError("leaf_index_out_of_range")
     raise FileNotFoundError("message_not_found")
