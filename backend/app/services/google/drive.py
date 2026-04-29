@@ -180,6 +180,47 @@ async def list_child_folders(
     return await asyncio.to_thread(_op)
 
 
+def vault_account_root_metadata_ok(
+    meta: dict[str, Any] | None,
+    *,
+    root_folder_id: str,
+) -> bool:
+    """True si ``meta`` es una carpeta no eliminada y sigue colgando del vault raíz configurado."""
+    if not meta or meta.get("trashed"):
+        return False
+    if meta.get("mimeType") != "application/vnd.google-apps.folder":
+        return False
+    parents = meta.get("parents") or []
+    return root_folder_id in parents
+
+
+async def get_drive_folder_metadata(
+    db: AsyncSession,
+    *,
+    file_id: str,
+) -> dict[str, Any] | None:
+    """Metadatos de carpeta/archivo, o None si no existe (404)."""
+    service = await _build_service(db)
+
+    def _op() -> dict[str, Any] | None:
+        try:
+            return (
+                service.files()
+                .get(
+                    fileId=file_id,
+                    fields="id,name,mimeType,trashed,parents",
+                    supportsAllDrives=True,
+                )
+                .execute()
+            )
+        except HttpError as exc:
+            if exc.resp.status == 404:
+                return None
+            raise
+
+    return await asyncio.to_thread(_op)
+
+
 async def delete_drive_file(db: AsyncSession, *, file_id: str) -> None:
     """Permanently remove a Drive file/folder (vault cleanup)."""
     service = await _build_service(db)
@@ -196,8 +237,12 @@ async def ensure_account_vault(
     email: str,
     root_folder_id: str,
     drive_id: str | None = None,
+    preferred_account_folder_id: str | None = None,
 ) -> dict[str, str]:
     """Crea la jerarquía estándar bajo el vault de la cuenta (al activar backup).
+
+    Si ``preferred_account_folder_id`` sigue siendo una carpeta válida bajo el vault raíz
+    (reactivación tras deshabilitar backup), se reutiliza y no se crea otra carpeta con el mismo email.
 
     Estructura (alineada a ``vault_layout``)::
 
@@ -213,19 +258,29 @@ async def ensure_account_vault(
     """
     from app.services import vault_layout as vl
 
-    top = await ensure_folder(
-        db, name=email, parent_id=root_folder_id, drive_id=drive_id
-    )
-    folders: dict[str, str] = {"root": top["id"]}
+    top_id: str | None = None
+    pref = (preferred_account_folder_id or "").strip()
+    if pref:
+        meta = await get_drive_folder_metadata(db, file_id=pref)
+        if vault_account_root_metadata_ok(meta, root_folder_id=root_folder_id):
+            top_id = str(meta["id"])
+
+    if top_id is None:
+        top = await ensure_folder(
+            db, name=email, parent_id=root_folder_id, drive_id=drive_id
+        )
+        top_id = str(top["id"])
+
+    folders: dict[str, str] = {"root": top_id}
 
     gmail_f = await ensure_folder(
-        db, name=vl.VAULT_DIR_GMAIL, parent_id=top["id"], drive_id=drive_id
+        db, name=vl.VAULT_DIR_GMAIL, parent_id=top_id, drive_id=drive_id
     )
     drive_f = await ensure_folder(
-        db, name=vl.VAULT_DIR_DRIVE, parent_id=top["id"], drive_id=drive_id
+        db, name=vl.VAULT_DIR_DRIVE, parent_id=top_id, drive_id=drive_id
     )
     reports_root = await ensure_folder(
-        db, name=vl.VAULT_DIR_REPORTS, parent_id=top["id"], drive_id=drive_id
+        db, name=vl.VAULT_DIR_REPORTS, parent_id=top_id, drive_id=drive_id
     )
     reports_sub = await ensure_folder(
         db,

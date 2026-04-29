@@ -145,7 +145,11 @@ async def approve_account(
     drive_id = await get_value(db, KEY_VAULT_SHARED_DRIVE_ID)
 
     folders = await ensure_account_vault(
-        db, email=account.email, root_folder_id=root, drive_id=drive_id
+        db,
+        email=account.email,
+        root_folder_id=root,
+        drive_id=drive_id,
+        preferred_account_folder_id=(account.drive_vault_folder_id or "").strip() or None,
     )
     account.drive_vault_folder_id = folders.get("root")
     account.is_backup_enabled = True
@@ -159,7 +163,11 @@ async def approve_account(
 
 
 async def revoke_account(db: AsyncSession, account: GwAccount) -> None:
-    """Desactiva backup e IMAP de gestión; no borra Maildir ni datos en el vault de Drive."""
+    """Desactiva backup e IMAP de gestión; no borra Maildir ni datos en el vault de Drive.
+
+    ``drive_vault_folder_id`` se conserva para que, al reactivar, se reutilice la misma carpeta
+    de cuenta si sigue existiendo bajo el vault raíz (evita duplicar por nombre).
+    """
     account.is_backup_enabled = False
     account.imap_enabled = False
     await db.flush()
