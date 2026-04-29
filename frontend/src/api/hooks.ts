@@ -173,6 +173,55 @@ export function useCancelBackupBatch() {
   })
 }
 
+export function useDeleteBackupLog() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (logId: string) => {
+      await api.delete(`/backup/logs/${logId}`)
+    },
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['backup-logs'] })
+      void qc.invalidateQueries({ queryKey: ['backup-log-detail'] })
+    },
+  })
+}
+
+export interface BackupLogBulkDeleteResult {
+  deleted: number
+  skipped_running: string[]
+  not_found: string[]
+}
+
+export function useDeleteBackupLogsBulk() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (logIds: string[]) =>
+      (await api.post<BackupLogBulkDeleteResult>('/backup/logs/bulk-delete', { log_ids: logIds })).data,
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['backup-logs'] })
+      void qc.invalidateQueries({ queryKey: ['backup-log-detail'] })
+    },
+  })
+}
+
+export async function downloadBackupLogsPdf(params: { status?: string; taskId?: string }) {
+  const query = new URLSearchParams()
+  if (params.status) query.set('status', params.status)
+  if (params.taskId) query.set('task_id', params.taskId)
+  const res = await api.get(`/backup/logs/export.pdf?${query.toString()}`, {
+    responseType: 'blob',
+    timeout: 120_000,
+  })
+  const blob = new Blob([res.data], { type: 'application/pdf' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-')
+  a.download = `backup-logs-${stamp}.pdf`
+  a.click()
+  URL.revokeObjectURL(url)
+}
+
 export function useRetryGmailVault() {
   const qc = useQueryClient()
   return useMutation({

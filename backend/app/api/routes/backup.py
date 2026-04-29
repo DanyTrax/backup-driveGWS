@@ -3,12 +3,13 @@ from __future__ import annotations
 
 import logging
 import uuid
+from pathlib import Path
 from typing import Any
 
-from pathlib import Path
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, WebSocket, status
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import (
@@ -19,12 +20,14 @@ from app.api.deps import (
     require_permission,
 )
 from app.core.database import AsyncSessionLocal
+from app.core.redis_client import get_redis
 from app.models.accounts import GwAccount
-from app.models.enums import AuditAction, BackupScope
+from app.models.enums import AuditAction, BackupScope, BackupStatus
 from app.models.tasks import BackupLog, BackupTask
 from app.models.users import SysUser
-from app.schemas.tasks import BackupLogOut
+from app.schemas.tasks import BackupLogBulkDeleteIn, BackupLogBulkDeleteOut, BackupLogOut
 from app.services.audit_service import record_audit
+from app.services.backup_logs_pdf import render_backup_logs_pdf
 from app.services.backup_batch_registry import cancel_entire_batch
 from app.services.backup_concurrency_service import active_backup_log_id
 from app.services.backup_engine import (
@@ -53,6 +56,46 @@ async def _safe_last_event(log_id: str) -> dict[str, Any] | None:
         return None
 
 
+def _logs_list_stmt(
+    *,
+    task_id: uuid.UUID | None,
+    account_id: uuid.UUID | None,
+    status_filter: str | None,
+    limit: int,
+    offset: int,
+):
+    stmt = (
+        select(BackupLog, BackupTask.name, GwAccount.email)
+        .join(BackupTask, BackupLog.task_id == BackupTask.id)
+        .join(GwAccount, BackupLog.account_id == GwAccount.id)
+        .order_by(BackupLog.started_at.desc().nullslast())
+        .limit(limit)
+        .offset(offset)
+    )
+    if task_id:
+        stmt = stmt.where(BackupLog.task_id == task_id)
+    if account_id:
+        stmt = stmt.where(BackupLog.account_id == account_id)
+    if status_filter:
+        stmt = stmt.where(BackupLog.status == status_filter)
+    return stmt
+
+
+async def _purge_progress_for_logs(log_ids: list[uuid.UUID]) -> None:
+    if not log_ids:
+        return
+    try:
+        r = get_redis()
+        keys = [f"progress:last:{lid}" for lid in log_ids]
+        await r.delete(*keys)
+    except Exception as exc:
+        logger.warning(
+            "No se pudo limpiar claves de progreso Redis al borrar logs: %s",
+            exc,
+            exc_info=True,
+        )
+
+
 def _to_out(
     l: BackupLog,
     *,
@@ -77,6 +120,7 @@ def _to_out(
         sha256_manifest_path=l.sha256_manifest_path,
         destination_path=l.destination_path,
         error_summary=l.error_summary,
+        detail_log_path=l.detail_log_path,
         gmail_maildir_ready_at=l.gmail_maildir_ready_at,
         gmail_vault_completed_at=l.gmail_vault_completed_at,
         task_name=task_name,
@@ -94,22 +138,133 @@ async def list_logs(
     db: AsyncSession = Depends(get_db),
     _u: SysUser = Depends(require_permission("logs.view")),
 ) -> list[BackupLogOut]:
-    stmt = (
-        select(BackupLog, BackupTask.name, GwAccount.email)
-        .join(BackupTask, BackupLog.task_id == BackupTask.id)
-        .join(GwAccount, BackupLog.account_id == GwAccount.id)
-        .order_by(BackupLog.started_at.desc().nullslast())
-        .limit(limit)
-        .offset(offset)
+    stmt = _logs_list_stmt(
+        task_id=task_id,
+        account_id=account_id,
+        status_filter=status_filter,
+        limit=limit,
+        offset=offset,
     )
-    if task_id:
-        stmt = stmt.where(BackupLog.task_id == task_id)
-    if account_id:
-        stmt = stmt.where(BackupLog.account_id == account_id)
-    if status_filter:
-        stmt = stmt.where(BackupLog.status == status_filter)
     rows = (await db.execute(stmt)).all()
     return [_to_out(log, task_name=name, account_email=email) for log, name, email in rows]
+
+
+@router.get("/logs/export.pdf")
+async def export_logs_pdf(
+    task_id: uuid.UUID | None = None,
+    account_id: uuid.UUID | None = None,
+    status_filter: str | None = Query(default=None, alias="status"),
+    limit: int = Query(500, le=500),
+    db: AsyncSession = Depends(get_db),
+    _u: SysUser = Depends(require_permission("logs.export")),
+) -> Response:
+    stmt = _logs_list_stmt(
+        task_id=task_id,
+        account_id=account_id,
+        status_filter=status_filter,
+        limit=limit,
+        offset=0,
+    )
+    rows = (await db.execute(stmt)).all()
+    outs = [_to_out(log, task_name=name, account_email=email) for log, name, email in rows]
+    parts: list[str] = []
+    if status_filter:
+        parts.append(f"estado={status_filter}")
+    if task_id:
+        parts.append(f"task_id={task_id}")
+    if account_id:
+        parts.append(f"account_id={account_id}")
+    filter_note = ", ".join(parts) if parts else None
+    pdf_bytes = render_backup_logs_pdf(
+        outs,
+        filter_note=filter_note,
+        generated_at=datetime.now(timezone.utc),
+    )
+    fname = f"backup-logs-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M')}.pdf"
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{fname}"'},
+    )
+
+
+@router.post("/logs/bulk-delete", response_model=BackupLogBulkDeleteOut)
+async def bulk_delete_logs(
+    payload: BackupLogBulkDeleteIn,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    current: SysUser = Depends(require_permission("logs.delete")),
+) -> BackupLogBulkDeleteOut:
+    if not payload.log_ids:
+        return BackupLogBulkDeleteOut(deleted=0, skipped_running=[], not_found=[])
+
+    wanted = list(dict.fromkeys(payload.log_ids))
+    stmt = select(BackupLog).where(BackupLog.id.in_(wanted))
+    found = (await db.execute(stmt)).scalars().all()
+    by_id = {row.id: row for row in found}
+    not_found = [str(i) for i in wanted if i not in by_id]
+    skipped_running = [str(row.id) for row in found if row.status == BackupStatus.RUNNING.value]
+    to_delete = [row.id for row in found if row.status != BackupStatus.RUNNING.value]
+    if to_delete:
+        await db.execute(delete(BackupLog).where(BackupLog.id.in_(to_delete)))
+        await _purge_progress_for_logs(to_delete)
+    await record_audit(
+        db,
+        action=AuditAction.BACKUP_LOG_DELETED,
+        actor_user_id=current.id,
+        actor_label=current.email,
+        ip_address=get_client_ip(request),
+        user_agent=get_user_agent(request),
+        target_table="backup_logs",
+        target_id=None,
+        message="bulk_delete",
+        metadata={
+            "deleted": len(to_delete),
+            "skipped_running": skipped_running,
+            "not_found": not_found,
+        },
+    )
+    await db.commit()
+    return BackupLogBulkDeleteOut(
+        deleted=len(to_delete),
+        skipped_running=skipped_running,
+        not_found=not_found,
+    )
+
+
+@router.delete(
+    "/logs/{log_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    response_class=Response,
+    response_model=None,
+)
+async def delete_log(
+    log_id: uuid.UUID,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    current: SysUser = Depends(require_permission("logs.delete")),
+) -> None:
+    log = await db.get(BackupLog, log_id)
+    if log is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "log_not_found")
+    if log.status == BackupStatus.RUNNING.value:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            detail={"error": "log_running"},
+        )
+    await db.execute(delete(BackupLog).where(BackupLog.id == log_id))
+    await _purge_progress_for_logs([log_id])
+    await record_audit(
+        db,
+        action=AuditAction.BACKUP_LOG_DELETED,
+        actor_user_id=current.id,
+        actor_label=current.email,
+        ip_address=get_client_ip(request),
+        user_agent=get_user_agent(request),
+        target_table="backup_logs",
+        target_id=str(log_id),
+    )
+    await db.commit()
 
 
 @router.get("/logs/{log_id}", response_model=BackupLogOut)

@@ -23,6 +23,18 @@ VAULT_DIR_REPORTS = "3-REPORTS"
 VAULT_REPORTS_SUBDIR_REPORTS = "reports"
 VAULT_REPORTS_SUBDIR_LOGS = "logs"
 
+
+def vault_reports_logs_base_subpath() -> str:
+    """Directorio relativo bajo la carpeta de cuenta en el vault (p. ej. ``3-REPORTS/logs``)."""
+    return f"{VAULT_DIR_REPORTS.rstrip('/')}/{VAULT_REPORTS_SUBDIR_LOGS.lstrip('/')}"
+
+
+def vault_success_reports_enabled(filters: dict[str, Any] | None) -> bool:
+    """Informe de éxito en ``3-REPORTS/logs`` (salvo ``filters_json.vault_disable_success_reports: true``)."""
+    if not filters:
+        return True
+    return filters.get("vault_disable_success_reports") is not True
+
 # Ruta relativa bajo 1-GMAIL donde vuelca GYB (single bucket incremental en Drive)
 GMAIL_VAULT_GYB_SUBDIR = "gyb_mbox"
 

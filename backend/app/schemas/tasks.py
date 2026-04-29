@@ -1,6 +1,7 @@
 """Schemas for BackupTask CRUD."""
 from __future__ import annotations
 
+import uuid
 from datetime import datetime
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -128,6 +129,7 @@ class BackupLogOut(BaseModel):
     sha256_manifest_path: str | None
     destination_path: str | None
     error_summary: str | None
+    detail_log_path: str | None = None
     gmail_maildir_ready_at: datetime | None = None
     gmail_vault_completed_at: datetime | None = None
     task_name: str | None = None
@@ -142,3 +144,13 @@ class BackupLogOut(BaseModel):
     )
     def _log_times_app_tz(self, v: datetime | None) -> datetime | None:
         return _dt_in_app_tz(v)
+
+
+class BackupLogBulkDeleteIn(BaseModel):
+    log_ids: list[uuid.UUID] = Field(default_factory=list, max_length=500)
+
+
+class BackupLogBulkDeleteOut(BaseModel):
+    deleted: int
+    skipped_running: list[str] = Field(default_factory=list)
+    not_found: list[str] = Field(default_factory=list)

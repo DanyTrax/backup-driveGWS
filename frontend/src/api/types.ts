@@ -193,6 +193,8 @@ export interface BackupLog {
   sha256_manifest_path: string | null
   destination_path: string | null
   error_summary: string | null
+  /** Ruta relativa en vault (p. ej. informe en 3-REPORTS/logs/...) */
+  detail_log_path?: string | null
   /** Tras importar Maildir: correo local listo (IMAP/visor) antes del vault */
   gmail_maildir_ready_at?: string | null
   /** Subida 1-GMAIL/gyb_mbox completada (o omitida según política de tarea) */

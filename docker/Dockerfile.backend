@@ -32,7 +32,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
       curl ca-certificates unzip xz-utils git gcc libpq-dev libmagic1 tini age \
-      postgresql-client \
+      postgresql-client fonts-dejavu-core \
       tzdata supervisor \
  && rm -rf /var/lib/apt/lists/*
 

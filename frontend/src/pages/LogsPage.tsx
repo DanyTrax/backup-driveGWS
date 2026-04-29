@@ -2,12 +2,17 @@ import { Badge, Button, Card, Modal, Select } from 'flowbite-react'
 import { useState } from 'react'
 import type { AxiosError } from 'axios'
 import toast from 'react-hot-toast'
+import { HiDownload, HiTrash, HiX } from 'react-icons/hi'
 import {
   useBackupLogDetail,
   useBackupLogs,
   useCancelBackupBatch,
   useCancelBackupLog,
+  useDeleteBackupLog,
+  useDeleteBackupLogsBulk,
+  useProfile,
   useRetryGmailVault,
+  downloadBackupLogsPdf,
 } from '../api/hooks'
 import type { BackupLog } from '../api/types'
 
@@ -138,14 +143,26 @@ function canRetryGmailVault(log: BackupLog): boolean {
 
 export default function LogsPage() {
   const [status, setStatus] = useState<string>('')
+  const { data: profile } = useProfile()
+  const perms = new Set(profile?.permissions ?? [])
+  const canExportPdf = perms.has('logs.export')
+  const canDeleteLogs = perms.has('logs.delete')
+
   const { data = [], isLoading } = useBackupLogs({ status: status || undefined })
   const cancelLog = useCancelBackupLog()
   const cancelBatch = useCancelBackupBatch()
   const retryGmailVault = useRetryGmailVault()
+  const deleteLog = useDeleteBackupLog()
+  const deleteBulk = useDeleteBackupLogsBulk()
 
   const [confirmLog, setConfirmLog] = useState<BackupLog | null>(null)
   const [detailId, setDetailId] = useState<string | null>(null)
+  const [deleteTarget, setDeleteTarget] = useState<BackupLog | null>(null)
+  const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false)
+  const [pdfBusy, setPdfBusy] = useState(false)
   const detailQuery = useBackupLogDetail(detailId)
+
+  const deletableVisibleCount = data.filter((l) => l.status !== 'running').length
 
   async function doCancelThisOnly(log: BackupLog) {
     try {
@@ -181,17 +198,64 @@ export default function LogsPage() {
     void doCancelThisOnly(log)
   }
 
+  async function doDeleteOne(log: BackupLog) {
+    try {
+      await deleteLog.mutateAsync(log.id)
+      toast.success('Registro eliminado del historial')
+      if (detailId === log.id) setDetailId(null)
+    } catch {
+      toast.error('No se pudo eliminar (¿en ejecución o sin permiso?)')
+    } finally {
+      setDeleteTarget(null)
+    }
+  }
+
+  async function doBulkDeleteVisible() {
+    const ids = data.filter((l) => l.status !== 'running').map((l) => l.id)
+    if (!ids.length) {
+      toast.error('No hay filas eliminables (en ejecución se omiten)')
+      setBulkDeleteOpen(false)
+      return
+    }
+    try {
+      const r = await deleteBulk.mutateAsync(ids)
+      if (r.deleted > 0) toast.success(`Eliminados: ${r.deleted}`)
+      if (r.skipped_running.length)
+        toast(`${r.skipped_running.length} en ejecución omitidos`, { icon: 'ℹ️' })
+      if (r.not_found.length) toast(`Algunos IDs ya no existían (${r.not_found.length})`, { icon: '⚠️' })
+      if (detailId && ids.includes(detailId)) setDetailId(null)
+    } catch {
+      toast.error('No se pudo eliminar el listado')
+    } finally {
+      setBulkDeleteOpen(false)
+    }
+  }
+
+  async function handleExportPdf() {
+    setPdfBusy(true)
+    try {
+      await downloadBackupLogsPdf({ status: status || undefined })
+      toast.success('PDF generado')
+    } catch {
+      toast.error('No se pudo exportar el PDF')
+    } finally {
+      setPdfBusy(false)
+    }
+  }
+
   return (
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-semibold">Historial de ejecuciones</h1>
         <p className="text-slate-500">
           Hacé clic en una fila para ver el detalle completo (IDs, rutas, error del servidor).
-          Podés cancelar una cuenta en curso o todo el lote desde el botón de la fila.
+          Podés cancelar una cuenta en curso o todo el lote desde el botón de la fila; eliminar filas
+          finalizadas con la X; exportar el listado actual a PDF o borrar en bloque las filas visibles
+          (no borra ejecuciones «running»).
         </p>
       </div>
       <Card>
-        <div className="flex gap-3 flex-wrap">
+        <div className="flex gap-3 flex-wrap items-center">
           <Select value={status} onChange={(e) => setStatus(e.target.value)}>
             <option value="">Todos los estados</option>
             <option value="running">En ejecución</option>
@@ -199,6 +263,24 @@ export default function LogsPage() {
             <option value="failed">Fallidos</option>
             <option value="cancelled">Cancelados</option>
           </Select>
+          {canExportPdf ? (
+            <Button color="light" size="sm" disabled={pdfBusy} onClick={() => void handleExportPdf()}>
+              <HiDownload className="h-4 w-4 mr-1 inline" />
+              {pdfBusy ? 'Exportando…' : 'Exportar PDF'}
+            </Button>
+          ) : null}
+          {canDeleteLogs ? (
+            <Button
+              color="failure"
+              outline
+              size="sm"
+              disabled={deleteBulk.isPending || !data.length || deletableVisibleCount === 0}
+              onClick={() => setBulkDeleteOpen(true)}
+            >
+              <HiTrash className="h-4 w-4 mr-1 inline" />
+              Eliminar listado visible
+            </Button>
+          ) : null}
         </div>
       </Card>
       <Card>
@@ -220,7 +302,7 @@ export default function LogsPage() {
                   <th>Mensajes</th>
                   <th>Errores</th>
                   <th>Motivo / detalle</th>
-                  <th></th>
+                  <th className="text-right w-36">Acciones</th>
                 </tr>
               </thead>
               <tbody>
@@ -278,20 +360,37 @@ export default function LogsPage() {
                         ? 'Sin texto (ver logs del worker: msa-backup-worker)'
                         : truncateDetail(l.error_summary)}
                     </td>
-                    <td className="text-right">
-                      {l.status === 'running' ? (
-                        <Button
-                          size="xs"
-                          color="failure"
-                          disabled={cancelLog.isPending || cancelBatch.isPending}
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            onClickCancel(l)
-                          }}
-                        >
-                          Cancelar
-                        </Button>
-                      ) : null}
+                    <td className="text-right align-middle">
+                      <div className="flex justify-end items-center gap-1 flex-wrap">
+                        {l.status === 'running' ? (
+                          <Button
+                            size="xs"
+                            color="failure"
+                            disabled={cancelLog.isPending || cancelBatch.isPending}
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              onClickCancel(l)
+                            }}
+                          >
+                            Cancelar
+                          </Button>
+                        ) : null}
+                        {canDeleteLogs && l.status !== 'running' ? (
+                          <button
+                            type="button"
+                            className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/40 border border-red-200 dark:border-red-900/60"
+                            title="Eliminar este registro del historial"
+                            disabled={deleteLog.isPending}
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              setDeleteTarget(l)
+                            }}
+                          >
+                            <HiX className="h-5 w-5" aria-hidden />
+                            <span className="sr-only">Eliminar log</span>
+                          </button>
+                        ) : null}
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -436,6 +535,12 @@ export default function LogsPage() {
                   </dd>
                 </div>
                 <div className="sm:col-span-2">
+                  <dt className="text-slate-500">Informe en vault (3-REPORTS)</dt>
+                  <dd className="font-mono text-xs break-all">
+                    {detailQuery.data.detail_log_path ?? '—'}
+                  </dd>
+                </div>
+                <div className="sm:col-span-2">
                   <dt className="text-slate-500">Ruta destino</dt>
                   <dd className="font-mono text-xs break-all">
                     {detailQuery.data.destination_path ?? '—'}
@@ -509,6 +614,47 @@ export default function LogsPage() {
             Detener todo el lote
           </Button>
           <Button color="gray" onClick={() => setConfirmLog(null)}>
+            Volver
+          </Button>
+        </Modal.Footer>
+      </Modal>
+      <Modal show={bulkDeleteOpen} onClose={() => setBulkDeleteOpen(false)} size="md">
+        <Modal.Header>Eliminar historial visible</Modal.Header>
+        <Modal.Body>
+          <p className="text-sm text-slate-600 dark:text-slate-400">
+            Se eliminarán{' '}
+            <strong>{deletableVisibleCount}</strong> registro(s) que aparecen
+            en la tabla con el filtro actual. Las ejecuciones en curso («running») no se borran.
+          </p>
+        </Modal.Body>
+        <Modal.Footer>
+          <Button color="failure" disabled={deleteBulk.isPending} onClick={() => void doBulkDeleteVisible()}>
+            Confirmar eliminación
+          </Button>
+          <Button color="gray" onClick={() => setBulkDeleteOpen(false)}>
+            Cancelar
+          </Button>
+        </Modal.Footer>
+      </Modal>
+
+      <Modal show={deleteTarget !== null} onClose={() => setDeleteTarget(null)} size="md">
+        <Modal.Header>Eliminar registro</Modal.Header>
+        <Modal.Body>
+          <p className="text-sm text-slate-600 dark:text-slate-400">
+            ¿Eliminar del historial la ejecución de{' '}
+            <strong>{deleteTarget?.account_email ?? deleteTarget?.account_id?.slice(0, 8)}</strong> del{' '}
+            <strong>{deleteTarget?.started_at ?? '—'}</strong>? Esta acción no revierte backups ya hechos.
+          </p>
+        </Modal.Body>
+        <Modal.Footer>
+          <Button
+            color="failure"
+            disabled={deleteLog.isPending}
+            onClick={() => deleteTarget && void doDeleteOne(deleteTarget)}
+          >
+            Eliminar
+          </Button>
+          <Button color="gray" onClick={() => setDeleteTarget(null)}>
             Volver
           </Button>
         </Modal.Footer>

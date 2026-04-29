@@ -45,7 +45,8 @@ PERMISSIONS: tuple[PermissionSpec, ...] = (
     PermissionSpec("tasks", "run", "Lanzar, pausar, cancelar o reintentar tareas"),
     # --- backup logs ---
     PermissionSpec("logs", "view", "Ver historial de ejecuciones"),
-    PermissionSpec("logs", "export", "Exportar logs en CSV / JSON"),
+    PermissionSpec("logs", "export", "Exportar historial (PDF u otros formatos)"),
+    PermissionSpec("logs", "delete", "Eliminar registros del historial de ejecuciones"),
     # --- restores ---
     PermissionSpec("restore", "view", "Ver trabajos de restauración"),
     PermissionSpec("restore", "create", "Crear trabajos de restauración (Drive o Gmail)"),
@@ -95,7 +96,7 @@ DEFAULT_ROLE_PERMISSIONS: dict[UserRole, frozenset[str]] = {
             "accounts.edit",
             "accounts.purge_mail_local",
             "tasks.view", "tasks.create", "tasks.edit", "tasks.delete", "tasks.run",
-            "logs.view", "logs.export",
+            "logs.view", "logs.export", "logs.delete",
             "restore.view", "restore.create", "restore.cancel",
             "webmail.sso_admin", "webmail.issue_magic_link", "webmail.revoke_access",
             "mailbox.view_all", "mailbox.delegate",

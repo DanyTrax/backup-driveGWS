@@ -37,6 +37,7 @@ from app.services.gmail_backup_progress import (
 )
 from app.services.maildir_paths import maildir_home_from_email, maildir_root_for_account
 from app.services.progress_bus import publish
+from app.services.vault_report_upload import upload_backup_success_report
 
 
 def _purge_gyb_workdir_contents(work_root: Path) -> None:
@@ -358,6 +359,16 @@ async def retry_gmail_vault_push(
         account.total_bytes_cache = total_bytes
         if stats_messages:
             account.total_messages_cache = stats_messages
+        rel_rep = await upload_backup_success_report(
+            db,
+            task=task,
+            account=account,
+            log=log,
+            dry_run=task.dry_run,
+        )
+        if rel_rep:
+            log.detail_log_path = rel_rep
+            await db.flush()
         await publish(
             log_id_str,
             {
@@ -441,6 +452,7 @@ async def run_drive_backup(
     maildir_root = maildir_root_for_account(account)
     await asyncio.to_thread(maildir_service.ensure_maildir_layout, maildir_root)
 
+    dest_subpath: str | None = None
     try:
         async with rclone_service.build_rclone_config(
             db, impersonate_email=account.email, vault_folder_id=vault
@@ -514,6 +526,17 @@ async def run_drive_backup(
     status = BackupStatus.SUCCESS
     await _finalise_log(db, log, status=status)
     account.last_successful_backup_at = datetime.now(UTC)
+    rel_rep = await upload_backup_success_report(
+        db,
+        task=task,
+        account=account,
+        log=log,
+        drive_rclone_dest_subpath=dest_subpath,
+        dry_run=task.dry_run,
+    )
+    if rel_rep:
+        log.detail_log_path = rel_rep
+        await db.flush()
     if not task.dry_run:
         try:
             removed = await drive_retention.prune_after_drive_backup(db, task=task, account=account)
@@ -743,6 +766,16 @@ async def run_gmail_backup(
     if not task.dry_run:
         account.maildir_user_cleared_at = None
         log.gmail_vault_completed_at = datetime.now(UTC)
+    rel_rep = await upload_backup_success_report(
+        db,
+        task=task,
+        account=account,
+        log=log,
+        dry_run=task.dry_run,
+    )
+    if rel_rep:
+        log.detail_log_path = rel_rep
+        await db.flush()
     await publish(log_id, {"stage": "done", "status": "success", "messages": stats.messages})
     await db.commit()
     return log

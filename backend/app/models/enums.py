@@ -123,6 +123,7 @@ class AuditAction(str, enum.Enum):
     ACCOUNT_REVOKED = "account_revoked"
     BACKUP_TRIGGERED = "backup_triggered"
     BACKUP_CANCELLED = "backup_cancelled"
+    BACKUP_LOG_DELETED = "backup_log_deleted"
     RESTORE_TRIGGERED = "restore_triggered"
     SETTING_CHANGED = "setting_changed"
     WEBMAIL_ACCESSED = "webmail_accessed"

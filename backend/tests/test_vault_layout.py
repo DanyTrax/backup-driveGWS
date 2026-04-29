@@ -88,3 +88,13 @@ def test_purge_gyb_workdir_flag() -> None:
         )
         is False
     )
+
+
+def test_vault_reports_logs_base_subpath() -> None:
+    assert vault_layout.vault_reports_logs_base_subpath() == "3-REPORTS/logs"
+
+
+def test_vault_success_reports_enabled_default() -> None:
+    assert vault_layout.vault_success_reports_enabled({}) is True
+    assert vault_layout.vault_success_reports_enabled(None) is True
+    assert vault_layout.vault_success_reports_enabled({"vault_disable_success_reports": True}) is False
