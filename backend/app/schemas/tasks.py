@@ -111,3 +111,5 @@ class BackupLogOut(BaseModel):
     sha256_manifest_path: str | None
     destination_path: str | None
     error_summary: str | None
+    task_name: str | None = None
+    account_email: str | None = None

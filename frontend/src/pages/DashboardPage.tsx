@@ -57,8 +57,12 @@ export default function DashboardPage() {
             <tbody>
               {logs.slice(0, 20).map((l) => (
                 <tr key={l.id} className="border-t border-slate-100 dark:border-slate-800">
-                  <td className="py-2 font-mono text-xs">{l.task_id.slice(0, 8)}</td>
-                  <td className="font-mono text-xs">{l.account_id.slice(0, 8)}</td>
+                  <td className="py-2 max-w-[12rem] truncate text-xs" title={l.task_name ?? l.task_id}>
+                    {l.task_name ?? `${l.task_id.slice(0, 8)}…`}
+                  </td>
+                  <td className="max-w-[14rem] truncate text-xs" title={l.account_email ?? l.account_id}>
+                    {l.account_email ?? `${l.account_id.slice(0, 8)}…`}
+                  </td>
                   <td>{l.scope}</td>
                   <td>
                     <span className={

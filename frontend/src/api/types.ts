@@ -193,6 +193,10 @@ export interface BackupLog {
   sha256_manifest_path: string | null
   destination_path: string | null
   error_summary: string | null
+  /** Nombre de la definición de tarea (backup_tasks.name) */
+  task_name?: string | null
+  /** Correo Workspace de la cuenta ejecutada */
+  account_email?: string | null
 }
 
 export interface SkippedActiveBackup {

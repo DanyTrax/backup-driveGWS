@@ -27,6 +27,20 @@ function humanBytes(n: number) {
   return `${v.toFixed(1)} ${units[i]}`
 }
 
+/** Alcance y modo de ejecución legibles en la UI */
+function taskTypeLabel(scope: string, mode: string): string {
+  const scopePart =
+    scope === 'gmail'
+      ? 'Gmail'
+      : scope === 'drive_root' || scope === 'drive_computadoras'
+        ? 'Drive'
+        : scope === 'full'
+          ? 'Completo (Drive + Gmail)'
+          : scope
+  const modePart = mode === 'incremental' ? 'incremental' : mode === 'full' ? 'completo' : mode
+  return `${scopePart} · ${modePart}`
+}
+
 export default function LogsPage() {
   const [status, setStatus] = useState<string>('')
   const { data = [], isLoading } = useBackupLogs({ status: status || undefined })
@@ -101,9 +115,10 @@ export default function LogsPage() {
                 <tr>
                   <th className="py-2">Inicio</th>
                   <th>Fin</th>
+                  <th>Cuenta</th>
                   <th>Tarea</th>
+                  <th>Tipo</th>
                   <th>Lote</th>
-                  <th>Scope</th>
                   <th>Estado</th>
                   <th>Bytes</th>
                   <th>Mensajes</th>
@@ -129,11 +144,18 @@ export default function LogsPage() {
                   >
                     <td className="py-2">{l.started_at ?? '—'}</td>
                     <td>{l.finished_at ?? '—'}</td>
-                    <td className="text-xs font-mono">{l.task_id.slice(0, 8)}…</td>
+                    <td className="max-w-[14rem] truncate text-xs" title={l.account_email ?? l.account_id}>
+                      {l.account_email ?? `${l.account_id.slice(0, 8)}…`}
+                    </td>
+                    <td className="max-w-[12rem] truncate text-xs" title={l.task_name ?? l.task_id}>
+                      {l.task_name ?? `${l.task_id.slice(0, 8)}…`}
+                    </td>
+                    <td className="text-xs text-slate-600 dark:text-slate-400 whitespace-nowrap">
+                      {taskTypeLabel(l.scope, l.mode)}
+                    </td>
                     <td className="text-xs font-mono">
                       {l.run_batch_id ? `${l.run_batch_id.slice(0, 8)}…` : '—'}
                     </td>
-                    <td>{l.scope}</td>
                     <td>
                       <Badge
                         color={
@@ -192,6 +214,25 @@ export default function LogsPage() {
             <p className="text-red-600">No se pudo cargar el detalle. Reintentá.</p>
           ) : detailQuery.data ? (
             <>
+              <div className="rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50/80 dark:bg-slate-800/40 p-4 space-y-2">
+                <div>
+                  <div className="text-xs font-medium uppercase tracking-wide text-slate-500">Cuenta</div>
+                  <div className="text-base font-semibold text-slate-900 dark:text-white break-all">
+                    {detailQuery.data.account_email ?? '—'}
+                  </div>
+                  <div className="font-mono text-[11px] text-slate-500 break-all">{detailQuery.data.account_id}</div>
+                </div>
+                <div>
+                  <div className="text-xs font-medium uppercase tracking-wide text-slate-500">Tarea en ejecución</div>
+                  <div className="text-base font-semibold text-slate-900 dark:text-white">
+                    {detailQuery.data.task_name ?? '—'}
+                  </div>
+                  <div className="text-sm text-slate-600 dark:text-slate-400">
+                    {taskTypeLabel(detailQuery.data.scope, detailQuery.data.mode)}
+                  </div>
+                  <div className="font-mono text-[11px] text-slate-500 break-all">{detailQuery.data.task_id}</div>
+                </div>
+              </div>
               <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-2 text-sm">
                 <div>
                   <dt className="text-slate-500">ID del log</dt>
@@ -216,14 +257,6 @@ export default function LogsPage() {
                   </dd>
                 </div>
                 <div>
-                  <dt className="text-slate-500">Tarea (task_id)</dt>
-                  <dd className="font-mono text-xs break-all">{detailQuery.data.task_id}</dd>
-                </div>
-                <div>
-                  <dt className="text-slate-500">Cuenta (account_id)</dt>
-                  <dd className="font-mono text-xs break-all">{detailQuery.data.account_id}</dd>
-                </div>
-                <div>
                   <dt className="text-slate-500">Lote (run_batch_id)</dt>
                   <dd className="font-mono text-xs break-all">
                     {detailQuery.data.run_batch_id ?? '—'}
@@ -236,7 +269,7 @@ export default function LogsPage() {
                   </dd>
                 </div>
                 <div>
-                  <dt className="text-slate-500">Scope / modo</dt>
+                  <dt className="text-slate-500">Scope / modo (técnico)</dt>
                   <dd>
                     {detailQuery.data.scope} · {detailQuery.data.mode}
                   </dd>

@@ -15,8 +15,9 @@ from app.api.deps import (
     require_permission,
 )
 from app.core.database import AsyncSessionLocal
+from app.models.accounts import GwAccount
 from app.models.enums import AuditAction
-from app.models.tasks import BackupLog
+from app.models.tasks import BackupLog, BackupTask
 from app.models.users import SysUser
 from app.schemas.tasks import BackupLogOut
 from app.services.audit_service import record_audit
@@ -27,7 +28,12 @@ from app.services.progress_bus import last_event, subscribe
 router = APIRouter(prefix="/backup", tags=["backup"])
 
 
-def _to_out(l: BackupLog) -> BackupLogOut:
+def _to_out(
+    l: BackupLog,
+    *,
+    task_name: str | None = None,
+    account_email: str | None = None,
+) -> BackupLogOut:
     return BackupLogOut(
         id=str(l.id),
         task_id=str(l.task_id),
@@ -46,6 +52,8 @@ def _to_out(l: BackupLog) -> BackupLogOut:
         sha256_manifest_path=l.sha256_manifest_path,
         destination_path=l.destination_path,
         error_summary=l.error_summary,
+        task_name=task_name,
+        account_email=account_email,
     )
 
 
@@ -59,15 +67,22 @@ async def list_logs(
     db: AsyncSession = Depends(get_db),
     _u: SysUser = Depends(require_permission("logs.view")),
 ) -> list[BackupLogOut]:
-    stmt = select(BackupLog).order_by(BackupLog.started_at.desc().nullslast()).limit(limit).offset(offset)
+    stmt = (
+        select(BackupLog, BackupTask.name, GwAccount.email)
+        .join(BackupTask, BackupLog.task_id == BackupTask.id)
+        .join(GwAccount, BackupLog.account_id == GwAccount.id)
+        .order_by(BackupLog.started_at.desc().nullslast())
+        .limit(limit)
+        .offset(offset)
+    )
     if task_id:
         stmt = stmt.where(BackupLog.task_id == task_id)
     if account_id:
         stmt = stmt.where(BackupLog.account_id == account_id)
     if status_filter:
         stmt = stmt.where(BackupLog.status == status_filter)
-    rows = (await db.execute(stmt)).scalars().all()
-    return [_to_out(r) for r in rows]
+    rows = (await db.execute(stmt)).all()
+    return [_to_out(log, task_name=name, account_email=email) for log, name, email in rows]
 
 
 @router.get("/logs/{log_id}", response_model=BackupLogOut)
@@ -76,10 +91,21 @@ async def get_log(
     db: AsyncSession = Depends(get_db),
     _u: SysUser = Depends(require_permission("logs.view")),
 ) -> BackupLogOut:
-    log = (await db.execute(select(BackupLog).where(BackupLog.id == log_id))).scalar_one_or_none()
-    if log is None:
+    row = (
+        (
+            await db.execute(
+                select(BackupLog, BackupTask.name, GwAccount.email)
+                .join(BackupTask, BackupLog.task_id == BackupTask.id)
+                .join(GwAccount, BackupLog.account_id == GwAccount.id)
+                .where(BackupLog.id == log_id)
+            )
+        )
+        .one_or_none()
+    )
+    if row is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "log_not_found")
-    return _to_out(log)
+    log, task_name, account_email = row
+    return _to_out(log, task_name=task_name, account_email=account_email)
 
 
 @router.post(
