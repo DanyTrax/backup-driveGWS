@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
-import { Badge, Button, Card, Checkbox, Label, TextInput } from 'flowbite-react'
+import { Alert, Badge, Button, Card, Checkbox, Label, TextInput } from 'flowbite-react'
 import toast from 'react-hot-toast'
 import { HiArrowLeft, HiDownload, HiRefresh } from 'react-icons/hi'
 import { downloadMaildirExportZip, maildirExportErrorMessage } from '../api/maildirExport'
@@ -258,9 +258,30 @@ export default function AccountMailDataPage() {
               <p className="text-sm text-slate-600 dark:text-slate-400 mb-3">
                 Vacía el Maildir y lo vuelve a importar usando los <code className="text-xs">.eml</code> y{' '}
                 <code className="text-xs">msg-db.sqlite</code> de la carpeta de trabajo GYB. No descarga correo de
-                nuevo. Útil si todo quedó en bandeja de entrada pero la copia GYB sigue en disco. Si tras el backup se
-                vació esa carpeta (política de vault), necesitás volver a ejecutar un backup Gmail.
+                nuevo. Útil si todo quedó en bandeja de entrada pero la copia GYB sigue en disco.
               </p>
+              {!rebuildReady ? (
+                <Alert color="warning" className="mb-3">
+                  <span className="font-medium">El botón está desactivado porque no hay export GYB usable en disco.</span>
+                  <p className="mt-2 text-sm">
+                    La carpeta <strong>Trabajo GYB</strong> está vacía o sin{' '}
+                    <code className="text-xs">msg-db.sqlite</code> / <code className="text-xs">.eml</code>. Sin eso no se
+                    pueden recalcular las carpetas (Enviados, Spam, etc.) sin volver a descargar desde Gmail.
+                  </p>
+                  <ul className="mt-2 list-disc space-y-1 pl-5 text-sm">
+                    <li>
+                      Ejecutá de nuevo un <strong>backup Gmail</strong>. En la tarea (filtros JSON), que{' '}
+                      <strong>no</strong> esté activado el purgado del directorio tras el vault:{' '}
+                      <code className="text-xs break-all">&quot;gmail_purge_gyb_workdir_after_vault_verified&quot;: false</code>{' '}
+                      u omití la clave (por defecto no se borra la carpeta GYB).
+                    </li>
+                    <li>
+                      Si el export ya está en la bóveda (<code className="text-xs">1-GMAIL/</code>), podés copiar ese
+                      contenido a la ruta GYB indicada arriba y recargar esta página.
+                    </li>
+                  </ul>
+                </Alert>
+              ) : null}
               <Button
                 color="blue"
                 disabled={!rebuildReady || rebuild.isPending}
@@ -270,10 +291,10 @@ export default function AccountMailDataPage() {
                 <HiRefresh className="h-4 w-4 mr-2" />
                 Reorganizar carpetas (sin Gmail)
               </Button>
-              {!rebuildReady ? (
+              {rebuildReady ? (
                 <p className="text-xs text-slate-500 mt-2">
-                  Requiere <code className="text-xs">msg-db.sqlite</code> y archivos <code className="text-xs">.eml</code>{' '}
-                  en la ruta de trabajo GYB indicada arriba.
+                  Hay <code className="text-xs">msg-db.sqlite</code> y <code className="text-xs">.eml</code> en la ruta
+                  GYB; podés ejecutar la reorganización.
                 </p>
               ) : null}
             </Card>
