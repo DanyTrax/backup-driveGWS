@@ -312,7 +312,8 @@ def build_rclone_argv(
         source,
         dest,
         "--config", cfg.config_path,
-        "--drive-server-side-across-configs", "false",
+        # Un solo token: si se pasa "false" aparte, rclone 1.6x+ lo interpreta como 3.º arg de copy.
+        "--drive-server-side-across-configs=false",
         "--stats", "5s",
         "--stats-one-line",
         "--stats-log-level", "NOTICE",
