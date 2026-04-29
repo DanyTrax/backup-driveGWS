@@ -251,6 +251,19 @@ SSO_JWT_TYPE_ADMIN = "admin_sso"
 SSO_JWT_TYPE_CLIENT = "client_sso"
 
 
+def _redis_error_extra_hint(exc: BaseException) -> str:
+    """Pista breve cuando Redis falla en SSO (AUTH / instancia equivocada)."""
+    mlow = str(exc).lower()
+    if "without any password configured" in mlow:
+        return (
+            " Suele pasar si en `.env` tenés `REDIS_PASSWORD` (la app manda AUTH) pero el Redis "
+            "al que te conectás **no** tiene `requirepass` (otro contenedor, Redis del host, o "
+            "imagen sin `--requirepass`). Alineá: mismísima contraseña en `redis-server` y en "
+            "`REDIS_PASSWORD` / `CELERY_*`, **o** vaciá la contraseña en todos lados si Redis es sin clave."
+        )
+    return ""
+
+
 async def issue_sso_jwt(
     *,
     email: str,
@@ -285,8 +298,9 @@ async def issue_sso_jwt(
         await redis.setex(f"sso:rid:{rid}", ttl_seconds + 30, token)
     except RedisError as exc:
         logger.exception("issue_sso_jwt: fallo al escribir en Redis (jti=%s, rid=…)", jti)
+        extra = _redis_error_extra_hint(exc)
         raise SSORedisUnavailableError(
-            f"Redis no respondió al emitir SSO. {_SSO_REDIS_USER_HINT} Detalle: {exc!s}"
+            f"Redis no respondió al emitir SSO. {_SSO_REDIS_USER_HINT} Detalle: {exc!s}{extra}"
         ) from exc
     # index.php asegura que el front controller ejecute el plugin aun con rewrite/proxy.
     base = _webmail_base_url().rstrip("/")
