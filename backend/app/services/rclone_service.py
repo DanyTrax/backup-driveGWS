@@ -198,6 +198,26 @@ def build_rclone_local_to_vault_argv(
     return argv
 
 
+def build_rclone_mkdir_dest_argv(
+    cfg: RcloneConfig,
+    *,
+    dest_subpath: str,
+) -> list[str]:
+    """``rclone mkdir dest:<ruta>`` — recrea la jerarquía en el vault si alguien borró ``1-GMAIL/`` etc."""
+    rel = dest_subpath.strip().strip("/")
+    remote = f"{cfg.remote_dest.rstrip(':')}:{rel}" if rel else cfg.remote_dest.rstrip(":").rstrip(":")
+    return [
+        "mkdir",
+        remote,
+        "--config",
+        cfg.config_path,
+        "--retries",
+        "3",
+        "--low-level-retries",
+        "10",
+    ]
+
+
 def build_rclone_check_local_vault_argv(
     local_abs: str,
     cfg: RcloneConfig,

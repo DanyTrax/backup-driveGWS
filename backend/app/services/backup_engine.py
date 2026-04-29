@@ -159,6 +159,26 @@ async def run_gmail_vault_push_phase(
     async with rclone_service.build_rclone_vault_dest_only_config(
         db, vault_folder_id=vault_id
     ) as push_cfg:
+        await publish(
+            log_id_str,
+            {
+                "stage": "vault_ensure_dest",
+                "scope": "gmail",
+                "subpath": subp,
+            },
+        )
+        mk_argv = rclone_service.build_rclone_mkdir_dest_argv(
+            push_cfg, dest_subpath=subp
+        )
+        mk_rc, mk_out = await rclone_service.run_rclone(
+            mk_argv, cancel_log_id=log_id_str
+        )
+        await db.refresh(log)
+        if log.status == BackupStatus.CANCELLED.value:
+            return False, "cancelled"
+        if mk_rc != 0:
+            return False, f"vault_rclone_mkdir_rc={mk_rc}\n{mk_out[-4000:]}"
+
         pargv = rclone_service.build_rclone_local_to_vault_argv(
             str(work_root),
             push_cfg,

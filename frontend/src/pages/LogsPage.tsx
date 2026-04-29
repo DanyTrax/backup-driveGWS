@@ -49,6 +49,10 @@ function describeLiveProgress(p: Record<string, unknown> | null | undefined): st
     const sub = typeof p.subpath === 'string' ? p.subpath : '1-GMAIL/…'
     return `Subiendo el export a la bóveda de Google Drive del usuario (ruta relativa: ${sub}).`
   }
+  if (stage === 'vault_ensure_dest') {
+    const sub = typeof p.subpath === 'string' ? p.subpath : '1-GMAIL/…'
+    return `Comprobando o recreando la carpeta en el vault antes de subir (${sub}).`
+  }
   if (stage === 'gyb_workdir_purge') {
     return 'Vaciando el directorio de trabajo GYB en el servidor tras verificar la subida a Drive.'
   }
