@@ -1,7 +1,9 @@
 """Backup log browsing and WebSocket progress stream."""
 from __future__ import annotations
 
+import logging
 import uuid
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, WebSocket, status
 from sqlalchemy import select
@@ -26,6 +28,22 @@ from app.services.backup_engine import cancel_backup
 from app.services.progress_bus import last_event, subscribe
 
 router = APIRouter(prefix="/backup", tags=["backup"])
+
+logger = logging.getLogger(__name__)
+
+
+async def _safe_last_event(log_id: str) -> dict[str, Any] | None:
+    """No debe tumbar GET /logs/{id} si Redis no responde o falta en el entorno."""
+    try:
+        return await last_event(log_id)
+    except Exception as exc:
+        logger.warning(
+            "Progreso en vivo (Redis) no disponible para log_id=%s: %s",
+            log_id,
+            exc,
+            exc_info=True,
+        )
+        return None
 
 
 def _to_out(
@@ -106,7 +124,7 @@ async def get_log(
         raise HTTPException(status.HTTP_404_NOT_FOUND, "log_not_found")
     log, task_name, account_email = row
     base = _to_out(log, task_name=task_name, account_email=account_email)
-    snap = await last_event(str(log_id))
+    snap = await _safe_last_event(str(log_id))
     return base.model_copy(update={"live_progress": snap})
 
 
@@ -175,7 +193,7 @@ async def ws_progress(websocket: WebSocket, log_id: uuid.UUID, token: str | None
         return
     await websocket.accept()
 
-    snapshot = await last_event(str(log_id))
+    snapshot = await _safe_last_event(str(log_id))
     if snapshot:
         await websocket.send_json(snapshot)
 

@@ -1,5 +1,6 @@
 import { Badge, Button, Card, Modal, Select } from 'flowbite-react'
 import { useState } from 'react'
+import type { AxiosError } from 'axios'
 import toast from 'react-hot-toast'
 import {
   useBackupLogDetail,
@@ -70,6 +71,37 @@ function describeLiveProgress(p: Record<string, unknown> | null | undefined): st
   if (stage === 'failed') return 'El worker reportó un fallo en esta fase (ver detalle abajo si hay traza).'
   if (stage === 'done') return 'El worker marcó paso «done»; el log puede tardar un momento en pasar a exitoso.'
   return `Etapa: ${stage}`
+}
+
+/** Ayuda a diagnosticar fallos del GET /backup/logs/:id */
+function ExecutionDetailError({ err }: { err: unknown }) {
+  const ax = err as AxiosError<{ detail?: unknown }> | undefined
+  const st = ax?.response?.status
+  const d = ax?.response?.data?.detail
+  if (st === 404) return <p className="text-slate-600 dark:text-slate-400">El log no existe o fue eliminado.</p>
+  if (st === 403) return <p className="text-slate-600 dark:text-slate-400">Sin permiso para ver logs (logs.view).</p>
+  if (st === 401) return <p className="text-slate-600 dark:text-slate-400">Sesión expirada; volvé a iniciar sesión.</p>
+  if (st === 502 || st === 503)
+    return <p className="text-slate-600 dark:text-slate-400">API o proxy no disponible (502/503).</p>
+  if (typeof d === 'string')
+    return (
+      <p className="font-mono text-xs break-all text-slate-700 dark:text-slate-300 bg-slate-100 dark:bg-slate-900 p-2 rounded">
+        {d}
+      </p>
+    )
+  if (d && typeof d === 'object' && 'error' in d) {
+    const o = d as { error?: string }
+    if (o.error)
+      return (
+        <p className="font-mono text-xs break-all text-slate-700 dark:text-slate-300 bg-slate-100 dark:bg-slate-900 p-2 rounded">
+          {o.error}
+        </p>
+      )
+  }
+  if (st) return <p className="text-xs text-slate-500">Código HTTP {st}</p>
+  if (ax?.code === 'ECONNABORTED') return <p className="text-xs text-slate-500">Tiempo de espera agotado.</p>
+  if (ax?.message) return <p className="text-xs text-slate-500">{ax.message}</p>
+  return null
 }
 
 /** Alcance y modo de ejecución legibles en la UI */
@@ -256,7 +288,10 @@ export default function LogsPage() {
           {detailQuery.isLoading ? (
             <p className="text-slate-500">Cargando…</p>
           ) : detailQuery.isError ? (
-            <p className="text-red-600">No se pudo cargar el detalle. Reintentá.</p>
+            <div className="text-red-600 text-sm space-y-1">
+              <p>No se pudo cargar el detalle. Reintentá.</p>
+              <ExecutionDetailError err={detailQuery.error} />
+            </div>
           ) : detailQuery.data ? (
             <>
               <div className="rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50/80 dark:bg-slate-800/40 p-4 space-y-2">
