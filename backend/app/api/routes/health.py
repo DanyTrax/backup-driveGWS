@@ -1,7 +1,8 @@
 """Liveness / readiness endpoints used by Docker, NPM, and monitoring."""
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, status
 from sqlalchemy import text
@@ -23,7 +24,7 @@ async def health():
         "app": s.app_name,
         "version": __version__,
         "env": s.app_env,
-        "time": datetime.now(timezone.utc).isoformat(),
+        "time": datetime.now(ZoneInfo(s.tz)).isoformat(),
     }
 
 

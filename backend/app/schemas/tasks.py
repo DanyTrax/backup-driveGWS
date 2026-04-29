@@ -3,10 +3,23 @@ from __future__ import annotations
 
 from datetime import datetime
 from typing import Any
+from zoneinfo import ZoneInfo
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_serializer
 
 from app.models.enums import BackupMode, BackupScope, ScheduleKind
+
+
+def _dt_in_app_tz(v: datetime | None) -> datetime | None:
+    if v is None:
+        return None
+    from datetime import timezone as dt_timezone
+
+    from app.core.config import get_settings
+
+    if v.tzinfo is None:
+        v = v.replace(tzinfo=dt_timezone.utc)
+    return v.astimezone(ZoneInfo(get_settings().tz))
 
 
 class TaskCreate(BaseModel):
@@ -55,6 +68,10 @@ class TaskOut(BaseModel):
     last_run_at: datetime | None
     last_status: str | None
     created_at: datetime
+
+    @field_serializer("created_at", "last_run_at")
+    def _task_times_app_tz(self, v: datetime | None) -> datetime | None:
+        return _dt_in_app_tz(v)
 
 
 class SkippedActiveBackupOut(BaseModel):
@@ -116,3 +133,12 @@ class BackupLogOut(BaseModel):
     task_name: str | None = None
     account_email: str | None = None
     live_progress: dict[str, Any] | None = None
+
+    @field_serializer(
+        "started_at",
+        "finished_at",
+        "gmail_maildir_ready_at",
+        "gmail_vault_completed_at",
+    )
+    def _log_times_app_tz(self, v: datetime | None) -> datetime | None:
+        return _dt_in_app_tz(v)

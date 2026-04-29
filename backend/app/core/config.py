@@ -19,7 +19,10 @@ class Settings(BaseSettings):
 
     app_name: str = "MSA Backup Commander"
     app_env: Literal["development", "production"] = "production"
-    tz: str = "America/Bogota"
+    tz: str = Field(
+        default="America/Bogota",
+        description="IANA tz para carpetas MSA_Runs, hora en API (/api/health, logs) y Celery Beat (variable TZ).",
+    )
 
     domain_platform: str = Field(
         default="",

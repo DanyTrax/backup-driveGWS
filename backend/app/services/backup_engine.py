@@ -466,7 +466,9 @@ async def run_drive_backup(
             bwlimit = get_settings().rclone_bwlimit or None
 
             filters = task.filters_json or {}
-            dest_subpath = vault_layout.drive_dest_subpath_for_task(filters)
+            dest_subpath = vault_layout.drive_dest_subpath_for_task(
+                filters, tz_name=task.timezone or None
+            )
             # Layout: ``2-DRIVE/_sync`` (continuo) o ``2-DRIVE/MSA_Runs/<stamp>[( TOTAL|SNAPSHOT)]``;
             # legado: ``filters_json.vault_legacy_layout`` o ``vault_separated_layout: false``.
 

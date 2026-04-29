@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from unittest.mock import patch
 
 from app.services import vault_layout
 
@@ -59,6 +60,18 @@ def test_drive_dest_legacy_dated() -> None:
         now=d,
     )
     assert s == "MSA_Runs/2025-06-01T12-00"
+
+
+def test_drive_dest_dated_uses_wall_clock_tz_when_now_omitted() -> None:
+    """El sello MSA_Runs sigue la zona indicada (operación en Bogota)."""
+    with patch("app.services.vault_layout.datetime") as mock_dt:
+        mock_dt.now.side_effect = lambda tz: datetime(2025, 7, 20, 19, 45, tzinfo=tz)
+        s = vault_layout.drive_dest_subpath_for_task(
+            {"drive_layout": "dated_run"},
+            now=None,
+            tz_name="America/Bogota",
+        )
+    assert s == "2-DRIVE/MSA_Runs/2025-07-20T19-45"
 
 
 def test_purge_gyb_workdir_flag() -> None:

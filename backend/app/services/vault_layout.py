@@ -9,8 +9,11 @@ Activá ``filters_json.vault_legacy_layout = true`` para el comportamiento previ
 requiere tareas nuevas o no usar ``vault_gmail_disable_push``."""
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Any
+from zoneinfo import ZoneInfo
+
+from app.core.config import get_settings
 
 # Nombres fijos bajo el vault del usuario
 VAULT_DIR_GMAIL = "1-GMAIL"
@@ -71,10 +74,18 @@ def drive_dest_subpath_for_task(
     filters: dict[str, Any] | None,
     *,
     now: datetime | None = None,
+    tz_name: str | None = None,
 ) -> str | None:
-    """Subpath bajo el remoto dest (vault de la cuenta) para rclone (sin leading slash)."""
+    """Subpath bajo el remoto dest (vault de la cuenta) para rclone (sin leading slash).
+
+    Si ``now`` no se pasa, se usa la hora **local** en ``tz_name`` (o ``Settings.tz``, p. ej.
+    ``America/Bogota``) para el sello ``YYYY-MM-DDTHH-MM`` de ``MSA_Runs`` — coherente con
+    programación diaria y con lo que ve el operador en Colombia.
+    """
     filters = filters or {}
-    now = now or datetime.now(timezone.utc)
+    if now is None:
+        zn = tz_name or get_settings().tz
+        now = datetime.now(ZoneInfo(zn))
     base = drive_vault_base_prefix(filters)
 
     if not use_separated_vault_layout(filters):
