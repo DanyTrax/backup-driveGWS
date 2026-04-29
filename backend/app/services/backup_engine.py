@@ -26,7 +26,11 @@ from app.models.enums import BackupScope, BackupStatus
 from app.models.tasks import BackupLog, BackupTask
 from app.services import drive_retention, gyb_service, maildir_service, rclone_service, vault_layout
 from app.services.backup_batch_registry import is_batch_cancelled, set_log_cancelled
-from app.services.backup_concurrency_service import active_backup_log_id, drive_scope_stored_in_log
+from app.services.backup_concurrency_service import (
+    acquire_backup_start_xact_lock,
+    active_backup_log_id,
+    drive_scope_stored_in_log,
+)
 from app.services.gmail_backup_progress import (
     start_gmail_progress_ticker,
     stop_gmail_progress_ticker,
@@ -126,6 +130,9 @@ async def run_drive_backup(
     celery_task_id: str | None = None,
     run_batch_id: uuid.UUID | None = None,
 ) -> BackupLog:
+    await acquire_backup_start_xact_lock(
+        db, task_id=task.id, account_id=account.id, namespace="drive"
+    )
     dup = await active_backup_log_id(
         db,
         task_id=task.id,
@@ -135,6 +142,7 @@ async def run_drive_backup(
     if dup is not None:
         ex = await db.get(BackupLog, dup)
         if ex is not None and ex.celery_task_id != celery_task_id:
+            await db.rollback()
             await publish(
                 str(ex.id),
                 {
@@ -144,6 +152,9 @@ async def run_drive_backup(
                     "duplicate_celery_id": celery_task_id,
                 },
             )
+            return ex
+        if ex is not None:
+            await db.rollback()
             return ex
 
     log = await _create_log(
@@ -253,6 +264,9 @@ async def run_gmail_backup(
     celery_task_id: str | None = None,
     run_batch_id: uuid.UUID | None = None,
 ) -> BackupLog:
+    await acquire_backup_start_xact_lock(
+        db, task_id=task.id, account_id=account.id, namespace="gmail"
+    )
     dup = await active_backup_log_id(
         db,
         task_id=task.id,
@@ -262,6 +276,7 @@ async def run_gmail_backup(
     if dup is not None:
         ex = await db.get(BackupLog, dup)
         if ex is not None and ex.celery_task_id != celery_task_id:
+            await db.rollback()
             await publish(
                 str(ex.id),
                 {
@@ -271,6 +286,9 @@ async def run_gmail_backup(
                     "duplicate_celery_id": celery_task_id,
                 },
             )
+            return ex
+        if ex is not None:
+            await db.rollback()
             return ex
 
     log = await _create_log(
@@ -309,10 +327,10 @@ async def run_gmail_backup(
     if not (account.maildir_path or "").strip():
         account.maildir_path = maildir_home_from_email(account.email)
     maildir_target = maildir_root_for_account(account)
-    await asyncio.to_thread(maildir_service.ensure_maildir_layout, maildir_target)
     manifest_path = work_root / "manifest.sha256"
 
     try:
+        # 1) Una sola descarga GYB → work_root (sin tocar Maildir todavía).
         gyb_fin, gyb_tick = start_gmail_progress_ticker(
             log.id, log_id, work_root, mode="gyb"
         )
@@ -342,6 +360,17 @@ async def run_gmail_backup(
         finally:
             await stop_gmail_progress_ticker(gyb_fin, gyb_tick)
 
+        await publish(
+            log_id,
+            {
+                "stage": "gyb_done",
+                "scope": "gmail",
+                "account": account.email,
+                "next": "maildir_import",
+            },
+        )
+
+        # 2) Bandeja local (import desde work_root → Maildir); crea cur/new/tmp vía import_mbox_tree_to_maildir.
         if not task.dry_run:
             im_fin, im_tick = start_gmail_progress_ticker(
                 log.id, log_id, maildir_target, mode="import_maildir"
@@ -354,8 +383,19 @@ async def run_gmail_backup(
                 )
             finally:
                 await stop_gmail_progress_ticker(im_fin, im_tick)
+            await publish(
+                log_id,
+                {
+                    "stage": "maildir_ready",
+                    "scope": "gmail",
+                    "account": account.email,
+                    "messages": stats.messages,
+                    "next": "vault_push_or_finalize",
+                },
+            )
         else:
             stats = maildir_service.MaildirImportStats()
+            await asyncio.to_thread(maildir_service.ensure_maildir_layout, maildir_target)
 
         await db.refresh(log)
         if log.status == BackupStatus.CANCELLED.value:
