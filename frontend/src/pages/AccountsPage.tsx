@@ -235,6 +235,7 @@ export default function AccountsPage() {
                   <th>IMAP</th>
                   <th>Bandeja local</th>
                   <th>Ver Maildir</th>
+                  <th>Datos locales</th>
                   <th>Último backup</th>
                   <th>Acceso</th>
                   <th></th>
@@ -285,6 +286,17 @@ export default function AccountsPage() {
                         <Link to={`/accounts/${a.id}/mailbox`}>
                           <Button size="xs" color="light">
                             Ver correo
+                          </Button>
+                        </Link>
+                      ) : (
+                        <span className="text-slate-400 text-xs">—</span>
+                      )}
+                    </td>
+                    <td>
+                      {hasPermission('accounts.purge_mail_local') ? (
+                        <Link to={`/accounts/${a.id}/mail-data`}>
+                          <Button size="xs" color="light">
+                            Gestionar
                           </Button>
                         </Link>
                       ) : (

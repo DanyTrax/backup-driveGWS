@@ -1,7 +1,7 @@
 """System settings CRUD (key-value)."""
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -15,7 +15,12 @@ from app.api.deps import (
 from app.models.enums import AuditAction
 from app.models.settings import SysSetting
 from app.models.users import SysUser
+from app.schemas.mail_purge import PurgeAllLocalMailIn, PurgeAllLocalMailOut
 from app.services.audit_service import record_audit
+from app.services.mail_purge_service import (
+    PURGE_ALL_MAIL_LOCAL_CONFIRM_PHRASE,
+    purge_all_local_mail_data,
+)
 from app.services.settings_service import set_value
 
 router = APIRouter(prefix="/settings", tags=["settings"])
@@ -93,3 +98,34 @@ async def upsert_setting(
         is_secret=row.is_secret,
         description=row.description,
     )
+
+
+@router.post("/purge-all-local-mail", response_model=PurgeAllLocalMailOut)
+async def purge_all_local_mail(
+    payload: PurgeAllLocalMailIn,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    current: SysUser = Depends(require_permission("platform.purge_all_mail_local")),
+) -> PurgeAllLocalMailOut:
+    """Elimina en todas las cuentas Workspace: Maildir, trabajo GYB local, filas de log de backup Gmail y tokens webmail.
+
+    No borra usuarios de plataforma ni filas ``gw_accounts``. No elimina correo ni archivos en la nube.
+    Requiere frase de confirmación exacta en el cuerpo.
+    """
+    if payload.confirmation.strip() != PURGE_ALL_MAIL_LOCAL_CONFIRM_PHRASE:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="invalid_confirmation")
+
+    stats = await purge_all_local_mail_data(db)
+    await record_audit(
+        db,
+        action=AuditAction.MAIL_DATA_PURGED,
+        actor_user_id=current.id,
+        actor_label=current.email,
+        ip_address=get_client_ip(request),
+        user_agent=get_user_agent(request),
+        target_table="platform",
+        message="purge_all_local_mail",
+        metadata=dict(stats),
+    )
+    await db.commit()
+    return PurgeAllLocalMailOut(**stats)

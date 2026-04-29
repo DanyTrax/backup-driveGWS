@@ -30,6 +30,7 @@ from app.schemas.accounts import (
     SyncOut,
     VerifyAccessStreamStartOut,
 )
+from app.schemas.mail_purge import AccountMailPurgeIn, AccountMailPurgeOut, MailDataInventoryOut
 from app.services.account_access_service import verify_account_access
 from app.services.accounts_service import (
     approve_account,
@@ -37,6 +38,11 @@ from app.services.accounts_service import (
     sync_workspace_directory,
 )
 from app.services.audit_service import record_audit
+from app.services.mail_purge_service import (
+    AccountMailPurgeOptions,
+    build_mail_inventory,
+    purge_account_mail_local,
+)
 from app.services.maildir_paths import maildir_home_from_email, maildir_root_for_account
 from app.services.progress_bus import publish
 
@@ -222,6 +228,74 @@ async def approve(
     await db.commit()
     await db.refresh(acc)
     return _to_out(acc)
+
+
+@router.get(
+    "/{account_id}/mail-data-inventory",
+    response_model=MailDataInventoryOut,
+    summary="Inventario de datos locales de correo (Maildir, GYB, logs Gmail, webmail)",
+)
+async def mail_data_inventory(
+    account_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _u: SysUser = Depends(require_permission("accounts.purge_mail_local")),
+) -> MailDataInventoryOut:
+    acc = await _load(db, account_id)
+    data = await build_mail_inventory(db, acc)
+    return MailDataInventoryOut.model_validate(data)
+
+
+@router.post(
+    "/{account_id}/mail-data-purge",
+    response_model=AccountMailPurgeOut,
+    summary="Purgar datos locales de correo de una cuenta (opciones selectivas)",
+)
+async def mail_data_purge(
+    account_id: uuid.UUID,
+    payload: AccountMailPurgeIn,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    current: SysUser = Depends(require_permission("accounts.purge_mail_local")),
+) -> AccountMailPurgeOut:
+    acc = await _load(db, account_id)
+    selected = (
+        payload.maildir,
+        payload.gyb_workdir,
+        payload.gmail_backup_logs,
+        payload.webmail_tokens,
+        payload.revoke_imap_credentials,
+    )
+    if not any(selected):
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            detail="no_purge_options_selected",
+        )
+    if payload.confirmation_email.strip().lower() != acc.email.strip().lower():
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="confirmation_email_mismatch")
+
+    opts = AccountMailPurgeOptions(
+        maildir=payload.maildir,
+        gyb_workdir=payload.gyb_workdir,
+        gmail_backup_logs=payload.gmail_backup_logs,
+        webmail_tokens=payload.webmail_tokens,
+        revoke_imap_credentials=payload.revoke_imap_credentials,
+    )
+    counts = await purge_account_mail_local(db, account=acc, opts=opts)
+    await record_audit(
+        db,
+        action=AuditAction.MAIL_DATA_PURGED,
+        actor_user_id=current.id,
+        actor_label=current.email,
+        ip_address=get_client_ip(request),
+        user_agent=get_user_agent(request),
+        target_table="gw_accounts",
+        target_id=str(acc.id),
+        message="account_mail_data_purge",
+        metadata={**dict(counts), "email": acc.email},
+    )
+    await db.commit()
+    await db.refresh(acc)
+    return AccountMailPurgeOut.model_validate(counts)
 
 
 @router.post(

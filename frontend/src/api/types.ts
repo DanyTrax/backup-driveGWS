@@ -85,6 +85,50 @@ export interface WorkspaceAccount {
   maildir_user_cleared_at: string | null
 }
 
+/** Debe coincidir con ``PURGE_ALL_MAIL_LOCAL_CONFIRM_PHRASE`` en el backend. */
+export const PURGE_ALL_LOCAL_MAIL_CONFIRM_PHRASE =
+  'ELIMINAR_TODAS_LAS_COPIAS_LOCALES_DE_CORREO'
+
+export interface MailDataInventory {
+  account_id: string
+  email: string
+  maildir_root: string
+  maildir_on_disk: boolean
+  maildir_size_bytes: number | null
+  gyb_work_path: string
+  gyb_work_has_content: boolean
+  gyb_work_size_bytes: number | null
+  gmail_backup_logs_count: number
+  webmail_tokens_count: number
+  imap_enabled: boolean
+  imap_password_configured: boolean
+}
+
+export interface AccountMailPurgePayload {
+  confirmation_email: string
+  maildir: boolean
+  gyb_workdir: boolean
+  gmail_backup_logs: boolean
+  webmail_tokens: boolean
+  revoke_imap_credentials: boolean
+}
+
+export interface AccountMailPurgeResult {
+  maildir_cleared: number
+  gyb_workdir_cleared: number
+  gmail_logs_deleted: number
+  webmail_tokens_deleted: number
+  imap_credentials_revoked: boolean
+}
+
+export interface PurgeAllLocalMailResult {
+  workspace_accounts: number
+  maildirs_cleared: number
+  gyb_workdirs_cleared: number
+  gmail_backup_logs_deleted: number
+  webmail_tokens_deleted: number
+}
+
 export interface BackupTask {
   id: string
   name: string

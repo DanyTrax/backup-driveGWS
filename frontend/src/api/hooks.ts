@@ -2,14 +2,18 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import api from './client'
 import type {
   AccountAccessCheck,
+  AccountMailPurgePayload,
+  AccountMailPurgeResult,
   BackupLog,
   BackupTask,
   GitRefreshResult,
   MailboxFolder,
   MailboxMessageBody,
   MailboxMessagesPage,
+  MailDataInventory,
   PlatformBackupResult,
   Profile,
+  PurgeAllLocalMailResult,
   RestoreJob,
   RunTaskResult,
   SetupState,
@@ -212,6 +216,43 @@ export function useClearMailbox() {
   return useMutation({
     mutationFn: async (accountId: string) => api.post(`/accounts/${accountId}/mailbox/clear`),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['accounts'] }),
+  })
+}
+
+export function useMailDataInventory(accountId: string | null) {
+  return useQuery({
+    queryKey: ['mail-data-inventory', accountId],
+    queryFn: async () =>
+      (await api.get<MailDataInventory>(`/accounts/${accountId}/mail-data-inventory`)).data,
+    enabled: Boolean(accountId),
+  })
+}
+
+export function usePurgeAccountMailData() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (args: { accountId: string; payload: AccountMailPurgePayload }) =>
+      (
+        await api.post<AccountMailPurgeResult>(
+          `/accounts/${args.accountId}/mail-data-purge`,
+          args.payload,
+        )
+      ).data,
+    onSuccess: (_data, args) => {
+      void qc.invalidateQueries({ queryKey: ['accounts'] })
+      void qc.invalidateQueries({ queryKey: ['mail-data-inventory', args.accountId] })
+    },
+  })
+}
+
+export function usePurgeAllLocalMail() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (confirmation: string) =>
+      (await api.post<PurgeAllLocalMailResult>('/settings/purge-all-local-mail', { confirmation })).data,
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['accounts'] })
+    },
   })
 }
 

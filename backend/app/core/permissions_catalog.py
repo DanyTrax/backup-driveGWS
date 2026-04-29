@@ -64,6 +64,16 @@ PERMISSIONS: tuple[PermissionSpec, ...] = (
     PermissionSpec("settings", "branding", "Cambiar branding (logo, colores, nombre)"),
     PermissionSpec("platform", "refresh", "Ejecutar Git Refresh"),
     PermissionSpec("platform", "backup", "Ejecutar platform backup manualmente"),
+    PermissionSpec(
+        "platform",
+        "purge_all_mail_local",
+        "Eliminar todas las copias locales de correo de todas las cuentas (Maildir, GYB, logs Gmail BD, tokens webmail)",
+    ),
+    PermissionSpec(
+        "accounts",
+        "purge_mail_local",
+        "Purgar datos locales de correo de una cuenta (selectivo) desde el panel",
+    ),
     # --- audit ---
     PermissionSpec("audit", "view", "Leer el log de auditoría"),
     # --- notifications ---
@@ -78,7 +88,12 @@ DEFAULT_ROLE_PERMISSIONS: dict[UserRole, frozenset[str]] = {
     UserRole.OPERATOR: frozenset(
         {
             "users.view",
-            "accounts.view", "accounts.approve", "accounts.revoke", "accounts.sync", "accounts.edit",
+            "accounts.view",
+            "accounts.approve",
+            "accounts.revoke",
+            "accounts.sync",
+            "accounts.edit",
+            "accounts.purge_mail_local",
             "tasks.view", "tasks.create", "tasks.edit", "tasks.delete", "tasks.run",
             "logs.view", "logs.export",
             "restore.view", "restore.create", "restore.cancel",

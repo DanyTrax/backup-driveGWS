@@ -128,6 +128,7 @@ class AuditAction(str, enum.Enum):
     WEBMAIL_ACCESSED = "webmail_accessed"
     PLATFORM_BACKUP = "platform_backup"
     GIT_REFRESH = "git_refresh"
+    MAIL_DATA_PURGED = "mail_data_purged"
 
 
 # -----------------------------------------------------------------------------

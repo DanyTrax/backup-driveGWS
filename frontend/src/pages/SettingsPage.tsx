@@ -1,16 +1,22 @@
-import { Button, Card } from 'flowbite-react'
+import { useState } from 'react'
+import { Button, Card, Modal, TextInput } from 'flowbite-react'
 import toast from 'react-hot-toast'
 import { HiRefresh } from 'react-icons/hi'
 import { Link } from 'react-router-dom'
-import { useGitRefresh, usePlatformBackupRun, useProfile } from '../api/hooks'
+import { useGitRefresh, usePlatformBackupRun, useProfile, usePurgeAllLocalMail } from '../api/hooks'
+import { PURGE_ALL_LOCAL_MAIL_CONFIRM_PHRASE } from '../api/types'
 
 export default function SettingsPage() {
   const { data: profile } = useProfile()
   const gitRefresh = useGitRefresh()
   const platformBackup = usePlatformBackupRun()
+  const purgeAllMail = usePurgeAllLocalMail()
   const perms = new Set(profile?.permissions ?? [])
   const canGitRefresh = perms.has('platform.refresh')
   const canPlatformBackup = perms.has('platform.backup')
+  const canPurgeAllMail = perms.has('platform.purge_all_mail_local')
+  const [showPurgeModal, setShowPurgeModal] = useState(false)
+  const [purgePhrase, setPurgePhrase] = useState('')
 
   async function onGitRefresh() {
     try {
@@ -66,6 +72,30 @@ export default function SettingsPage() {
         toast.error('No tenés permiso para backup de plataforma (platform.backup).')
       } else {
         toast.error('No se pudo ejecutar el backup de plataforma.')
+      }
+    }
+  }
+
+  async function onConfirmPurgeAll() {
+    if (purgePhrase.trim() !== PURGE_ALL_LOCAL_MAIL_CONFIRM_PHRASE) {
+      toast.error('La frase de confirmación no coincide.')
+      return
+    }
+    try {
+      const r = await purgeAllMail.mutateAsync(purgePhrase.trim())
+      toast.success(
+        `Operación completada: ${r.workspace_accounts} cuentas, Maildirs ${r.maildirs_cleared}, GYB ${r.gyb_workdirs_cleared}, logs Gmail eliminados ${r.gmail_backup_logs_deleted}, tokens webmail ${r.webmail_tokens_deleted}.`,
+      )
+      setShowPurgeModal(false)
+      setPurgePhrase('')
+    } catch (err: unknown) {
+      const ax = err as { response?: { status?: number; data?: { detail?: string } } }
+      if (ax.response?.status === 403) {
+        toast.error('Sin permiso (platform.purge_all_mail_local).')
+      } else if (ax.response?.data?.detail === 'invalid_confirmation') {
+        toast.error('Frase inválida.')
+      } else {
+        toast.error('No se pudo completar la purga global.')
       }
     }
   }
@@ -142,7 +172,60 @@ export default function SettingsPage() {
             ) : null}
           </div>
         </Card>
+        <Card className="md:col-span-2 border-red-200 dark:border-red-900/50">
+          <h2 className="font-semibold text-red-800 dark:text-red-300">Copias locales de correo (plataforma)</h2>
+          <p className="text-sm text-slate-600 dark:text-slate-400 mt-1 mb-3">
+            Vacía Maildir y carpetas de trabajo GYB en disco para <strong>todas</strong> las cuentas Workspace, elimina
+            filas de <code className="text-xs">backup_logs</code> con alcance Gmail y borra tokens de webmail. No elimina
+            usuarios del panel (<code className="text-xs">sys_users</code>) ni filas <code className="text-xs">gw_accounts</code>.
+            No borra correo en Gmail ni archivos en Drive. Para elegir qué borrar en una sola cuenta usá{' '}
+            <Link className="text-blue-600 font-medium" to="/accounts">
+              Cuentas → Datos locales
+            </Link>
+            .
+          </p>
+          {canPurgeAllMail ? (
+            <Button color="failure" onClick={() => setShowPurgeModal(true)}>
+              Eliminar todas las copias locales de correo…
+            </Button>
+          ) : (
+            <p className="text-sm text-amber-700 dark:text-amber-400">
+              Solo super administrador: permiso <code className="text-xs">platform.purge_all_mail_local</code>.
+            </p>
+          )}
+        </Card>
       </div>
+
+      <Modal show={showPurgeModal} onClose={() => { setShowPurgeModal(false); setPurgePhrase('') }} size="lg">
+        <Modal.Header>Confirmar purga global de correo local</Modal.Header>
+        <Modal.Body className="space-y-4">
+          <p className="text-sm text-slate-600 dark:text-slate-400">
+            Esta acción afecta a todas las cuentas Workspace. Copiá y pegá la frase exacta en el campo inferior:
+          </p>
+          <pre className="text-xs bg-slate-100 dark:bg-slate-900 p-3 rounded overflow-x-auto select-all">
+            {PURGE_ALL_LOCAL_MAIL_CONFIRM_PHRASE}
+          </pre>
+          <TextInput
+            placeholder="Frase de confirmación"
+            value={purgePhrase}
+            onChange={(e) => setPurgePhrase(e.target.value)}
+            autoComplete="off"
+          />
+        </Modal.Body>
+        <Modal.Footer>
+          <Button color="light" onClick={() => { setShowPurgeModal(false); setPurgePhrase('') }}>
+            Cancelar
+          </Button>
+          <Button
+            color="failure"
+            disabled={purgeAllMail.isPending}
+            isProcessing={purgeAllMail.isPending}
+            onClick={() => void onConfirmPurgeAll()}
+          >
+            Confirmar eliminación
+          </Button>
+        </Modal.Footer>
+      </Modal>
     </div>
   )
 }
