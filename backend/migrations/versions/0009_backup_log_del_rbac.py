@@ -1,6 +1,6 @@
 """Audit backup_log_deleted + permiso logs.delete (export PDF en API).
 
-Revision ID: 0009_backup_log_delete_export_rbac
+Revision ID: 0009_backup_log_del_rbac  (<=32 chars para alembic_version VARCHAR(32))
 Revises: 0008_gmail_log_pipeline_phases
 """
 from __future__ import annotations
@@ -18,7 +18,7 @@ from app.core.permissions_catalog import (
 )
 from app.models.enums import UserRole
 
-revision: str = "0009_backup_log_delete_export_rbac"
+revision: str = "0009_backup_log_del_rbac"
 down_revision: Union[str, None] = "0008_gmail_log_pipeline_phases"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
