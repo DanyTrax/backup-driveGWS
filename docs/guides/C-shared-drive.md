@@ -16,13 +16,11 @@ La plataforma necesita una **Shared Drive** dedicada donde depositar los respald
 ```text
 MSA_Backups_Vault/
 └── <email_usuario>/
-    ├── drive/
-    │   └── YYYY_MM_DD/
-    │       ├── root/
-    │       └── computadoras/
-    └── gmail/
-        └── YYYY_MM_DD/
-            └── <usuario>.mbox
+    ├── 1-GMAIL/           # export GYB → p. ej. 1-GMAIL/gyb_mbox
+    ├── 2-DRIVE/         # respaldos rclone (p. ej. 2-DRIVE/_sync o MSA_Runs/…)
+    └── 3-REPORTS/       # informes y logs por cuenta
+        ├── reports/
+        └── logs/
 ```
 
 ## Cuota

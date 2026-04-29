@@ -7,7 +7,7 @@ Tras la guía B la plataforma ya puede listar las cuentas del dominio. En esta p
 - Todas las cuentas detectadas aparecen listadas con: nombre, email, OU, estado en Workspace, `is_backup_enabled = false`.
 - Excluí por defecto a la cuenta admin (podés desmarcarla o activarla como cualquiera).
 - Al marcar una cuenta y confirmar, la plataforma **inmediatamente**:
-  1. Crea `MSA_Backups_Vault/<email>/drive/` y `MSA_Backups_Vault/<email>/gmail/` en la Shared Drive.
+  1. Crea bajo la Shared Drive (raíz configurada en el wizard): carpeta con el **email** de la cuenta, y dentro **`1-GMAIL/`**, **`2-DRIVE/`** y **`3-REPORTS/`** (esta última con subcarpetas **`reports/`** y **`logs/`** para informes y registros).
   2. Crea `/var/mail/vhosts/<dominio>/<usuario>/Maildir` con la estructura estándar `cur/new/tmp`.
   3. Inserta el registro en `gw_accounts` con `imap_enabled = false` (no hay password aún) y `is_backup_enabled = true`.
   4. **No** lanza backup todavía — lo hacés desde el módulo de tareas.

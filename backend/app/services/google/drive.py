@@ -197,14 +197,52 @@ async def ensure_account_vault(
     root_folder_id: str,
     drive_id: str | None = None,
 ) -> dict[str, str]:
-    """Create the standard sub-folders for an account: Drive, Gmail-mbox, Reports."""
+    """Crea la jerarquía estándar bajo el vault de la cuenta (al activar backup).
+
+    Estructura (alineada a ``vault_layout``)::
+
+        <email>/
+          1-GMAIL/          # push GYB → 1-GMAIL/gyb_mbox en backups
+          2-DRIVE/        # rclone Mi unidad → 2-DRIVE/...
+          3-REPORTS/
+            reports/      # informes / exportaciones
+            logs/         # logs de ejecución u otros
+
+    Devuelve ids útiles: ``root`` (carpeta del email, la que se guarda en ``drive_vault_folder_id``),
+    más claves legadas ``gmail`` / ``drive`` / ``reports`` y subcarpetas bajo reports.
+    """
+    from app.services import vault_layout as vl
+
     top = await ensure_folder(
         db, name=email, parent_id=root_folder_id, drive_id=drive_id
     )
     folders: dict[str, str] = {"root": top["id"]}
-    for sub in ("Drive", "Gmail", "Reports"):
-        child = await ensure_folder(
-            db, name=sub, parent_id=top["id"], drive_id=drive_id
-        )
-        folders[sub.lower()] = child["id"]
+
+    gmail_f = await ensure_folder(
+        db, name=vl.VAULT_DIR_GMAIL, parent_id=top["id"], drive_id=drive_id
+    )
+    drive_f = await ensure_folder(
+        db, name=vl.VAULT_DIR_DRIVE, parent_id=top["id"], drive_id=drive_id
+    )
+    reports_root = await ensure_folder(
+        db, name=vl.VAULT_DIR_REPORTS, parent_id=top["id"], drive_id=drive_id
+    )
+    reports_sub = await ensure_folder(
+        db,
+        name=vl.VAULT_REPORTS_SUBDIR_REPORTS,
+        parent_id=reports_root["id"],
+        drive_id=drive_id,
+    )
+    logs_sub = await ensure_folder(
+        db,
+        name=vl.VAULT_REPORTS_SUBDIR_LOGS,
+        parent_id=reports_root["id"],
+        drive_id=drive_id,
+    )
+
+    folders["gmail"] = gmail_f["id"]
+    folders["drive"] = drive_f["id"]
+    folders["reports"] = reports_root["id"]
+    folders["reports_exports"] = reports_sub["id"]
+    folders["reports_logs"] = logs_sub["id"]
     return folders

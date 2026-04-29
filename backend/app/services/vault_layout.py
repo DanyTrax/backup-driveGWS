@@ -2,6 +2,7 @@
 
 * ``1-GMAIL/``  — acumulado incremental de export GYB (y opcionalmente otras entregas) por cuenta.
 * ``2-DRIVE/``  — respaldos de "Mi unidad" (rclone) separados de Gmail.
+* ``3-REPORTS/``  — informes y logs de plataforma por cuenta; subcarpetas ``reports/`` y ``logs/``.
 
 Activá ``filters_json.vault_legacy_layout = true`` para el comportamiento previo
 (sin prefijos ``1-``/``2-``) en el backup de archivos de Drive; Gmail al vault
@@ -14,6 +15,10 @@ from typing import Any
 # Nombres fijos bajo el vault del usuario
 VAULT_DIR_GMAIL = "1-GMAIL"
 VAULT_DIR_DRIVE = "2-DRIVE"
+VAULT_DIR_REPORTS = "3-REPORTS"
+# Bajo 3-REPORTS (creadas al activar backup de la cuenta)
+VAULT_REPORTS_SUBDIR_REPORTS = "reports"
+VAULT_REPORTS_SUBDIR_LOGS = "logs"
 
 # Ruta relativa bajo 1-GMAIL donde vuelca GYB (single bucket incremental en Drive)
 GMAIL_VAULT_GYB_SUBDIR = "gyb_mbox"

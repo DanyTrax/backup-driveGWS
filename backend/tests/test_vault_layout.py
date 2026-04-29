@@ -19,6 +19,12 @@ def test_gmail_rclone_subpath() -> None:
     assert vault_layout.gmail_vault_rclone_subpath() == "1-GMAIL/gyb_mbox"
 
 
+def test_vault_dir_reports_constants() -> None:
+    assert vault_layout.VAULT_DIR_REPORTS == "3-REPORTS"
+    assert vault_layout.VAULT_REPORTS_SUBDIR_REPORTS == "reports"
+    assert vault_layout.VAULT_REPORTS_SUBDIR_LOGS == "logs"
+
+
 def test_drive_dest_continuous() -> None:
     d = datetime(2025, 4, 23, 10, 0, tzinfo=timezone.utc)
     s = vault_layout.drive_dest_subpath_for_task({}, now=d)
