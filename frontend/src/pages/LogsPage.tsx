@@ -74,6 +74,8 @@ function describeLiveProgress(p: Record<string, unknown> | null | undefined): st
     }
     return 'Copiando o sincronizando archivos de Google Drive (rclone)…'
   }
+  if (stage === 'computers_backup_skipped')
+    return 'Sin carpeta «Computadoras»/«Computers» en la raíz de Mi unidad: finalizado sin copiar (ver informe en 3-REPORTS/logs).'
   if (stage === 'retention') return 'Aplicando retención en snapshots de Drive después del backup.'
   if (stage === 'retention_warning') return 'Aviso durante retención de Drive (revisá logs del worker si persiste).'
   if (stage === 'worker_skipped') return 'Omitido: ya había otro backup activo para esta cuenta y alcance.'

@@ -10,6 +10,7 @@ def build_success_report_text(
     account: Any,
     log: Any,
     drive_rclone_dest_subpath: str | None = None,
+    report_note_lines: list[str] | None = None,
 ) -> str:
     lines: list[str] = [
         "MSA Backup Commander — Informe de ejecución",
@@ -33,6 +34,11 @@ def build_success_report_text(
     ]
     if drive_rclone_dest_subpath:
         lines.append(f"Subpath en vault (backup de archivos Drive / rclone): {drive_rclone_dest_subpath}")
+        lines.append("")
+    if report_note_lines:
+        lines.append("Notas de esta ejecución:")
+        for ln in report_note_lines:
+            lines.append(f"  {ln}")
         lines.append("")
     if log.destination_path:
         lines.append(f"Ruta destino (servidor / Maildir): {log.destination_path}")

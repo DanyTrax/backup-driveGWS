@@ -55,6 +55,7 @@ async def build_rclone_config(
     *,
     impersonate_email: str,
     vault_folder_id: str,
+    source_root_folder_id: str | None = None,
 ) -> AsyncIterator[RcloneConfig]:
     """Materialize a per-account rclone.conf in a secure temp dir."""
     sa_info = await load_sa_info(db)
@@ -68,6 +69,7 @@ async def build_rclone_config(
         json.dump(sa_info, f)
     os.chmod(sa_path, 0o600)
 
+    root_src = (source_root_folder_id or "").strip()
     # Remote for the user's Drive (impersonated)
     source_lines = [
         "[source]",
@@ -75,8 +77,10 @@ async def build_rclone_config(
         f"service_account_file = {sa_path}",
         f"impersonate = {impersonate_email}",
         "scope = drive",
-        "",
     ]
+    if root_src:
+        source_lines.append(f"root_folder_id = {root_src}")
+    source_lines.append("")
     dest_lines = [
         "[dest]",
         "type = drive",

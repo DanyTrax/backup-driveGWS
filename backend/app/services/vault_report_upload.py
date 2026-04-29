@@ -28,6 +28,7 @@ async def upload_backup_success_report(
     log: BackupLog,
     drive_rclone_dest_subpath: str | None = None,
     dry_run: bool = False,
+    report_note_lines: list[str] | None = None,
 ) -> str | None:
     """Escribe un ``.txt`` bajo ``3-REPORTS/logs/``. Errores: solo log WARNING; no lanza.
 
@@ -46,6 +47,7 @@ async def upload_backup_success_report(
         account=account,
         log=log,
         drive_rclone_dest_subpath=drive_rclone_dest_subpath,
+        report_note_lines=report_note_lines,
     )
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S")
     safe_scope = (log.scope or "scope").replace("/", "-")[:48]

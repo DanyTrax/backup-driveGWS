@@ -98,3 +98,32 @@ def test_vault_success_reports_enabled_default() -> None:
     assert vault_layout.vault_success_reports_enabled({}) is True
     assert vault_layout.vault_success_reports_enabled(None) is True
     assert vault_layout.vault_success_reports_enabled({"vault_disable_success_reports": True}) is False
+
+
+def test_drive_dest_computadoras_continuous() -> None:
+    d = datetime(2025, 4, 23, 10, 0, tzinfo=timezone.utc)
+    s = vault_layout.drive_dest_subpath_for_task({}, now=d, backup_scope="drive_computadoras")
+    assert s == "2-DRIVE/_computadoras"
+
+
+def test_drive_dest_computadoras_dated_total() -> None:
+    d = datetime(2025, 4, 23, 10, 0, tzinfo=timezone.utc)
+    s = vault_layout.drive_dest_subpath_for_task(
+        {
+            "drive_layout": "dated_run",
+            "drive_run_kind": "TOTAL",
+        },
+        now=d,
+        backup_scope="drive_computadoras",
+    )
+    assert s == "2-DRIVE/MSA_Runs/2025-04-23T10-00 (TOTAL)/computadoras"
+
+
+def test_drive_dest_legacy_dated_computadoras() -> None:
+    d = datetime(2025, 6, 1, 12, 0, tzinfo=timezone.utc)
+    s = vault_layout.drive_dest_subpath_for_task(
+        {"drive_layout": "dated_run", "vault_legacy_layout": True},
+        now=d,
+        backup_scope="drive_computadoras",
+    )
+    assert s == "MSA_Runs/2025-06-01T12-00/computadoras"

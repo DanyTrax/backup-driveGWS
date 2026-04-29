@@ -404,7 +404,9 @@ export default function TasksPage() {
               >
                 <option value="gmail">Solo Gmail</option>
                 <option value="drive_root">Drive — raíz</option>
-                <option value="drive_computadoras">Drive — carpeta Computadoras</option>
+                <option value="drive_computadoras">
+                  Drive — copias del PC (Computadoras / Computers, app de escritorio)
+                </option>
                 <option value="full">Gmail + Drive (raíz)</option>
               </Select>
             </div>

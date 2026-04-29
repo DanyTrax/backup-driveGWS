@@ -25,6 +25,7 @@ from app.models.accounts import GwAccount
 from app.models.enums import BackupScope, BackupStatus
 from app.models.tasks import BackupLog, BackupTask
 from app.services import drive_retention, gyb_service, maildir_service, rclone_service, vault_layout
+from app.services.google import drive as google_drive_api
 from app.services.backup_batch_registry import is_batch_cancelled, set_log_cancelled
 from app.services.backup_concurrency_service import (
     acquire_backup_start_xact_lock,
@@ -453,23 +454,67 @@ async def run_drive_backup(
     await asyncio.to_thread(maildir_service.ensure_maildir_layout, maildir_root)
 
     dest_subpath: str | None = None
+    computers_report_notes: list[str] | None = None
+    source_root_folder_id: str | None = None
+
+    if task.scope == BackupScope.DRIVE_COMPUTADORAS.value:
+        cid, _cname, cexpl = await google_drive_api.find_computers_backup_folder_id(
+            db, subject=account.email
+        )
+        computers_report_notes = [
+            "Respaldo de carpetas «Computadoras» (copias desde la app de escritorio de Google Drive):",
+            cexpl,
+        ]
+        if not cid:
+            await publish(
+                log_id,
+                {
+                    "stage": "computers_backup_skipped",
+                    "reason": "no_computers_folder_in_my_drive_root",
+                },
+            )
+            await _finalise_log(
+                db,
+                log,
+                status=BackupStatus.SUCCESS,
+                stats={"bytes": 0, "files": 0},
+            )
+            account.last_successful_backup_at = datetime.now(UTC)
+            rel_rep = await upload_backup_success_report(
+                db,
+                task=task,
+                account=account,
+                log=log,
+                drive_rclone_dest_subpath=None,
+                dry_run=task.dry_run,
+                report_note_lines=computers_report_notes,
+            )
+            if rel_rep:
+                log.detail_log_path = rel_rep
+                await db.flush()
+            await publish(log_id, {"stage": "done", "status": BackupStatus.SUCCESS.value})
+            await db.commit()
+            return log
+        source_root_folder_id = cid
+
     try:
         async with rclone_service.build_rclone_config(
-            db, impersonate_email=account.email, vault_folder_id=vault
+            db,
+            impersonate_email=account.email,
+            vault_folder_id=vault,
+            source_root_folder_id=source_root_folder_id,
         ) as cfg:
-            drive_subpath = "Computadoras/" if task.scope == BackupScope.DRIVE_COMPUTADORAS.value else ""
-            if drive_subpath:
+            if task.scope == BackupScope.DRIVE_COMPUTADORAS.value:
                 ok_dir, pre_out = await rclone_service.rclone_verify_remote_dir(
-                    cfg, path_under_source="Computadoras", cancel_log_id=log_id
+                    cfg, path_under_source="", cancel_log_id=log_id
                 )
                 if not ok_dir:
                     detail = (
-                        "No existe o no es accesible la carpeta «Computadoras» en el Drive de esta cuenta "
-                        "(debe llamarse así en la raíz de «Mi unidad», o revisá permisos / delegación).\n"
-                        f"{pre_out[-3500:]}"
+                        "No se pudo listar la carpeta de respaldos de equipos en Drive (origen rclone). "
+                        f"Revisá permisos / delegación.\n{pre_out[-3500:]}"
                     )
                     await _finalise_log(db, log, status=BackupStatus.FAILED, error_summary=detail)
-                    await publish(log_id, {"stage": "failed", "error": "computadoras_folder_missing"})
+                    await publish(log_id, {"stage": "failed", "error": "computadores_rclone_source_unreadable"})
                     await db.commit()
                     return log
             mode = "sync" if task.mode == "mirror" else "copy"
@@ -479,15 +524,15 @@ async def run_drive_backup(
 
             filters = task.filters_json or {}
             dest_subpath = vault_layout.drive_dest_subpath_for_task(
-                filters, tz_name=task.timezone or None
+                filters, tz_name=task.timezone or None, backup_scope=task.scope
             )
-            # Layout: ``2-DRIVE/_sync`` (continuo) o ``2-DRIVE/MSA_Runs/<stamp>[( TOTAL|SNAPSHOT)]``;
-            # legado: ``filters_json.vault_legacy_layout`` o ``vault_separated_layout: false``.
+            # Layout: ``2-DRIVE/_sync`` (Mi unidad) o ``2-DRIVE/_computadoras`` (copias del PC);
+            # dated_run añade ``.../computadoras`` bajo el sello cuando scope es drive_computadoras.
 
             argv = rclone_service.build_rclone_argv(
                 cfg,
                 mode=mode,
-                subpath=drive_subpath,
+                subpath=None,
                 dest_subpath=dest_subpath,
                 bwlimit=bwlimit,
                 dry_run=task.dry_run,
@@ -533,6 +578,7 @@ async def run_drive_backup(
         log=log,
         drive_rclone_dest_subpath=dest_subpath,
         dry_run=task.dry_run,
+        report_note_lines=computers_report_notes,
     )
     if rel_rep:
         log.detail_log_path = rel_rep

@@ -1,7 +1,7 @@
 """Convención de paths bajo el vault por usuario (Shared Drive, ``drive_vault_folder_id``).
 
 * ``1-GMAIL/``  — acumulado incremental de export GYB (y opcionalmente otras entregas) por cuenta.
-* ``2-DRIVE/``  — respaldos de "Mi unidad" (rclone) separados de Gmail.
+* ``2-DRIVE/``  — respaldos de Drive: ``_sync`` = «Mi unidad» (rclone); ``_computadoras`` = copias desde la app de escritorio.
 * ``3-REPORTS/``  — informes y logs de plataforma por cuenta; subcarpetas ``reports/`` y ``logs/``.
 
 Activá ``filters_json.vault_legacy_layout = true`` para el comportamiento previo
@@ -40,6 +40,8 @@ GMAIL_VAULT_GYB_SUBDIR = "gyb_mbox"
 
 # Sincronización continua (sin ``dated_run``) bajo 2-DRIVE
 DRIVE_VAULT_CONTINUOUS_DIR = "_sync"
+# Copias desde Drive for desktop («Computadoras» / «Computers», etc.) — separado de ``_sync`` (Mi unidad).
+DRIVE_VAULT_COMPUTADORAS_DIR = "_computadoras"
 
 
 def use_separated_vault_layout(filters: dict[str, Any] | None) -> bool:
@@ -87,6 +89,7 @@ def drive_dest_subpath_for_task(
     *,
     now: datetime | None = None,
     tz_name: str | None = None,
+    backup_scope: str | None = None,
 ) -> str | None:
     """Subpath bajo el remoto dest (vault de la cuenta) para rclone (sin leading slash).
 
@@ -99,12 +102,16 @@ def drive_dest_subpath_for_task(
         zn = tz_name or get_settings().tz
         now = datetime.now(ZoneInfo(zn))
     base = drive_vault_base_prefix(filters)
+    is_comp = (backup_scope or "").strip() == "drive_computadoras"
 
     if not use_separated_vault_layout(filters):
         if filters.get("drive_layout") == "dated_run":
             stamp = now.strftime("%Y-%m-%dT%H-%M")
             prefix = str(filters.get("dated_run_prefix", "MSA_Runs")).strip("/") or "MSA_Runs"
-            return f"{prefix}/{stamp}"
+            path = f"{prefix}/{stamp}"
+            if is_comp:
+                path = f"{path}/computadoras"
+            return path
         return None
 
     if filters.get("drive_layout") == "dated_run":
@@ -116,9 +123,15 @@ def drive_dest_subpath_for_task(
             folder = f"{stamp} ({k})"
         else:
             folder = stamp
-        return f"{base}/{prefix}/{folder}"
+        path = f"{base}/{prefix}/{folder}"
+        if is_comp:
+            path = f"{path}/computadoras"
+        return path
 
     if filters.get("drive_dest_use_continuous_dir", True) is not False:
-        return f"{base}/{DRIVE_VAULT_CONTINUOUS_DIR}"
+        sub = DRIVE_VAULT_COMPUTADORAS_DIR if is_comp else DRIVE_VAULT_CONTINUOUS_DIR
+        return f"{base}/{sub}"
+    if is_comp:
+        return f"{base}/computadoras"
     return f"{base}/"
 

@@ -8,6 +8,11 @@ from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.services.computers_folder_names import (
+    computers_name_priority,
+    fold_display_name,
+    is_computers_backup_root_folder_name,
+)
 from app.services.google.credentials import drive_credentials
 
 
@@ -145,9 +150,14 @@ async def list_child_folders(
     *,
     parent_id: str,
     drive_id: str | None = None,
+    impersonate_user: str | None = None,
 ) -> list[dict[str, Any]]:
-    """Immediate subfolders of parent_id (folders only)."""
-    service = await _build_service(db)
+    """Immediate subfolders of parent_id (folders only).
+
+    Con ``impersonate_user`` se usa Domain-Wide Delegation hacia esa cuenta (p. ej. listar la raíz
+    de «Mi unidad»). Sin él se usa la identidad admin de la service account (típico del vault).
+    """
+    service = await build_drive_service(db, impersonate_user)
 
     def _op() -> list[dict[str, Any]]:
         q = (
@@ -178,6 +188,61 @@ async def list_child_folders(
         return out
 
     return await asyncio.to_thread(_op)
+
+
+async def find_computers_backup_folder_id(
+    db: AsyncSession,
+    *,
+    subject: str,
+) -> tuple[str | None, str | None, str]:
+    """Localiza carpeta de respaldos «Computadoras / Computers» en la raíz de Mi unidad.
+
+    Devuelve ``(folder_id, nombre_elegido, texto_explicativo)``. Si no hay carpeta reconocible,
+    ``folder_id`` y ``nombre_elegido`` son ``None`` y ``texto_explicativo`` resume el hallazgo
+    para informes (la corrida puede finalizar en éxito sin copiar nada).
+    """
+    try:
+        children = await list_child_folders(
+            db,
+            parent_id="root",
+            drive_id=None,
+            impersonate_user=subject,
+        )
+    except Exception as exc:  # pragma: no cover
+        return None, None, f"No se pudo listar la raíz de Drive del usuario: {exc}"
+
+    candidates = [c for c in children if is_computers_backup_root_folder_name(str(c.get("name") or ""))]
+    if not candidates:
+        names_list = sorted({str(c.get("name") or "?") for c in children})
+        sample = ", ".join(names_list[:25])
+        more = f" (+{len(names_list) - 25} nombres más)" if len(names_list) > 25 else ""
+        return (
+            None,
+            None,
+            "No se encontró carpeta de respaldos de equipos (Google Drive for desktop / «Computadoras»). "
+            "Se revisaron las carpetas en la raíz de «Mi unidad» bajo nombres habituales "
+            "(«Computadoras», «Computers», «Otras computadoras», etc.) sin coincidencias. "
+            f"Carpetas en raíz ({len(names_list)}): {sample}{more}. "
+            "Si no usás la copia de carpetas del PC hacia Drive, este resultado es esperado.",
+        )
+
+    candidates.sort(
+        key=lambda c: (
+            computers_name_priority(str(c.get("name") or "")),
+            fold_display_name(str(c.get("name") or "")),
+        )
+    )
+    chosen = candidates[0]
+    fid = str(chosen["id"])
+    fname = str(chosen.get("name") or "")
+    if len(candidates) > 1:
+        alt = ", ".join(f"«{c.get('name')}»" for c in candidates[1:4])
+        suffix = f" Varias coincidencias; se usa «{fname}». Otras: {alt}."
+        if len(candidates) > 4:
+            suffix += f" (+{len(candidates) - 4})"
+    else:
+        suffix = ""
+    return fid, fname, f"Carpeta de respaldos de equipos detectada: «{fname}».{suffix}"
 
 
 def vault_account_root_metadata_ok(
