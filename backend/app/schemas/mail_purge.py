@@ -13,6 +13,8 @@ class MailDataInventoryOut(BaseModel):
     gyb_work_path: str
     gyb_work_has_content: bool
     gyb_work_size_bytes: int | None = None
+    gyb_work_has_msg_db: bool = False
+    gyb_work_has_eml_export: bool = False
     gmail_backup_logs_count: int
     webmail_tokens_count: int
     imap_enabled: bool
@@ -26,6 +28,14 @@ class AccountMailPurgeIn(BaseModel):
     gmail_backup_logs: bool = False
     webmail_tokens: bool = False
     revoke_imap_credentials: bool = False
+
+
+class MaildirRebuildFromGybOut(BaseModel):
+    messages: int
+    eml_files: int
+    mbox_files: int
+    folders_touched: int
+    skipped_duplicates: int
 
 
 class AccountMailPurgeOut(BaseModel):

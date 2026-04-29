@@ -8,13 +8,39 @@ import mailbox
 import re
 import shutil
 import sqlite3
-import time
 from dataclasses import dataclass
 from email.message import Message
-from pathlib import Path
+from pathlib import Path, PurePosixPath
+
+
+def _normalize_gyb_relative_path(path_str: str) -> str:
+    """Clave única para comparar ruta GYB en SQLite vs disco (``YYYY/M/D/id.eml``).
+
+    GYB guarda ``message_filename`` con ``os.path.join`` (puede usar ``\\`` en Windows);
+    además puede aparecer prefijo ``./`` o mezclas evitables.
+    """
+    t = str(path_str).strip().replace("\\", "/")
+    while t.startswith("./"):
+        t = t[2:]
+    t = t.lstrip("/")
+    if not t:
+        return ""
+    parts = [p for p in PurePosixPath(t).parts if p != "."]
+    if not parts:
+        return ""
+    return str(PurePosixPath(*parts))
+
+
+@dataclass(slots=True)
+class GybSqliteLabelIndex:
+    """Índices desde ``msg-db.sqlite``: por ruta relativa al backup y por ID de mensaje Gmail."""
+
+    by_relpath: dict[str, list[str]]
+    by_message_uid: dict[str, list[str]]
 
 
 _SAFE = re.compile(r"[^A-Za-z0-9_.-]")
+
 
 # Gmail / GYB: no crear Maildir ``.Label`` para estados o bandejas que ya cubre el INBOX raíz.
 _NO_EXTRA_MAILDIR_SUBFOLDERS = frozenset(
@@ -58,11 +84,12 @@ def _labels_for_maildir_subfolders(label_list: list[str]) -> list[str]:
     return out
 
 
-def _load_gyb_sqlite_label_index(mbox_root: Path) -> dict[str, list[str]] | None:
-    """Mapeo ``ruta/relativa/eml`` → nombres de etiqueta según ``msg-db.sqlite`` de GYB.
+def _load_gyb_sqlite_label_index(mbox_root: Path) -> GybSqliteLabelIndex | None:
+    """Lee ``msg-db.sqlite`` de GYB: rutas relativas normalizadas + UID Gmail (nombre de ``.eml``).
 
-    GYB guarda las etiquetas aquí; muchos ``.eml`` no traen cabecera ``X-Gmail-Labels``. Sin esto,
-    todo el correo cae solo en INBOX en el visor Maildir / Dovecot.
+    Sin esto, los ``.eml`` suelen ir solo a INBOX (no traen ``X-Gmail-Labels``).
+    Si la ruta en disco no coincide texto a texto con ``message_filename`` (``\\`` vs ``/``, etc.),
+    sigue existiendo el índice por ``uid`` del mensaje.
     """
     db = (mbox_root / "msg-db.sqlite").resolve()
     if not db.is_file():
@@ -70,6 +97,7 @@ def _load_gyb_sqlite_label_index(mbox_root: Path) -> dict[str, list[str]] | None
     uri = "file:%s?mode=ro" % db.as_posix()
     conn = sqlite3.connect(uri, uri=True)
     try:
+        by_relpath: dict[str, list[str]] = {}
         cur = conn.execute(
             """
             SELECT m.message_filename, l.label
@@ -77,19 +105,58 @@ def _load_gyb_sqlite_label_index(mbox_root: Path) -> dict[str, list[str]] | None
             INNER JOIN labels AS l ON l.message_num = m.message_num
             """
         )
-        out: dict[str, list[str]] = {}
         for fn, lab in cur.fetchall():
             if not fn or not lab:
                 continue
-            key = str(fn).replace("\\", "/").strip().lstrip("/")
-            if not key:
+            nk = _normalize_gyb_relative_path(fn)
+            if not nk:
                 continue
-            bucket = out.setdefault(key, [])
+            bucket = by_relpath.setdefault(nk, [])
             if lab not in bucket:
                 bucket.append(lab)
-        return out
+
+        by_message_uid: dict[str, list[str]] = {}
+        cur2 = conn.execute(
+            """
+            SELECT u.uid, l.label
+            FROM uids AS u
+            INNER JOIN labels AS l ON l.message_num = u.message_num
+            """
+        )
+        for uid, lab in cur2.fetchall():
+            if not uid or not lab:
+                continue
+            ukey = str(uid).strip()
+            bucket = by_message_uid.setdefault(ukey, [])
+            if lab not in bucket:
+                bucket.append(lab)
+
+        return GybSqliteLabelIndex(by_relpath=by_relpath, by_message_uid=by_message_uid)
     finally:
         conn.close()
+
+
+def _merged_label_sources_from_gyb(
+    index: GybSqliteLabelIndex | None,
+    *,
+    norm_rel: str,
+    message_uid: str,
+    msg: Message,
+) -> list[str]:
+    header = _header_label_list(msg)
+    if index is None:
+        return header
+    from_sqlite: list[str] = []
+    if norm_rel in index.by_relpath:
+        from_sqlite.extend(index.by_relpath[norm_rel])
+    u = message_uid.strip()
+    if u and u in index.by_message_uid:
+        for x in index.by_message_uid[u]:
+            if x not in from_sqlite:
+                from_sqlite.append(x)
+    if from_sqlite:
+        return list(dict.fromkeys([*from_sqlite, *header]))
+    return header
 
 
 def _maildir(path: Path) -> mailbox.Maildir:
@@ -145,7 +212,7 @@ def _add_rfc822_to_maildirs(
     default: mailbox.Maildir,
     seen: set[str],
     stats: MaildirImportStats,
-    sqlite_labels: list[str] | None = None,
+    label_sources: list[str],
 ) -> None:
     digest = _message_digest(raw)
     if digest in seen:
@@ -153,10 +220,6 @@ def _add_rfc822_to_maildirs(
         return
     seen.add(digest)
 
-    if sqlite_labels is not None:
-        label_sources = sqlite_labels
-    else:
-        label_sources = _header_label_list(msg)
     targets: list[mailbox.Maildir] = [default]
     for label in _labels_for_maildir_subfolders(label_sources):
         folder = _safe_folder(label)
@@ -178,15 +241,15 @@ def import_mbox_tree_to_maildir(
     GYB reciente guarda cada mensaje como ``.eml`` bajo ``YYYY/M/D/<id>.eml``.
     Versiones antiguas usaban ``.mbox``. Se procesan ambos formatos.
 
-    Las etiquetas se toman de ``msg-db.sqlite`` (GYB) cuando existe; si no,
-    de la cabecera ``X-Gmail-Labels`` (p. ej. Takeout).
+    Las etiquetas se toman de ``msg-db.sqlite`` (ruta normalizada + UID del ``.eml``)
+    mezclado con cabeceras ``X-Gmail-Labels`` cuando existan.
     """
     stats = MaildirImportStats()
     seen: set[str] = set()
     maildir_root.mkdir(parents=True, exist_ok=True)
     default = _maildir(maildir_root)
     mbox_resolved = mbox_root.resolve()
-    sqlite_index = _load_gyb_sqlite_label_index(mbox_resolved)
+    sqlite_bundle = _load_gyb_sqlite_label_index(mbox_resolved)
 
     for mbox_file in mbox_root.rglob("*.mbox"):
         stats.mbox_files += 1
@@ -194,7 +257,13 @@ def import_mbox_tree_to_maildir(
         for msg in box:
             raw = bytes(msg.as_bytes())
             _add_rfc822_to_maildirs(
-                msg, raw, maildir_root=maildir_root, default=default, seen=seen, stats=stats
+                msg,
+                raw,
+                maildir_root=maildir_root,
+                default=default,
+                seen=seen,
+                stats=stats,
+                label_sources=_header_label_list(msg),
             )
 
     for eml_path in mbox_root.rglob("*.eml"):
@@ -203,10 +272,16 @@ def import_mbox_tree_to_maildir(
         if not raw.strip():
             continue
         msg = email.message_from_bytes(raw)
-        rel = eml_path.resolve().relative_to(mbox_resolved).as_posix().replace("\\", "/")
-        sqlite_labels: list[str] | None = None
-        if sqlite_index is not None and rel in sqlite_index:
-            sqlite_labels = sqlite_index[rel]
+        norm_rel = _normalize_gyb_relative_path(
+            eml_path.resolve().relative_to(mbox_resolved).as_posix()
+        )
+        message_uid = eml_path.stem
+        labels = _merged_label_sources_from_gyb(
+            sqlite_bundle,
+            norm_rel=norm_rel,
+            message_uid=message_uid,
+            msg=msg,
+        )
         _add_rfc822_to_maildirs(
             msg,
             raw,
@@ -214,7 +289,45 @@ def import_mbox_tree_to_maildir(
             default=default,
             seen=seen,
             stats=stats,
-            sqlite_labels=sqlite_labels,
+            label_sources=labels,
         )
 
     return stats
+
+
+def gyb_workdir_has_eml_or_mbox(work_root: Path) -> bool:
+    """True si el directorio de trabajo GYB contiene al menos un ``.eml`` o ``.mbox``."""
+    if not work_root.is_dir():
+        return False
+    for p in work_root.rglob("*"):
+        if p.is_file() and p.suffix.lower() in (".eml", ".mbox"):
+            return True
+    return False
+
+
+def gyb_export_ready_for_maildir_rebuild(work_root: Path) -> tuple[bool, str]:
+    """Comprueba si se puede reconstruir Maildir solo con datos locales (sin Gmail)."""
+    if not work_root.is_dir():
+        return False, "gyb_workdir_missing"
+    if not (work_root / "msg-db.sqlite").is_file():
+        return False, "gyb_msg_db_missing"
+    if not gyb_workdir_has_eml_or_mbox(work_root):
+        return False, "gyb_eml_export_missing"
+    return True, ""
+
+
+def rebuild_maildir_from_local_gyb_workdir(
+    *,
+    work_root: Path,
+    maildir_root: Path,
+) -> MaildirImportStats:
+    """Vuelca de nuevo ``work_root`` (export GYB + msg-db.sqlite) sobre Maildir.
+
+    Borra el contenido previo del Maildir (como ``clear_maildir_tree``) y reimporta con la
+    lógica actual de etiquetas (evita tener que bajar otra vez de Gmail si el GYB local sigue íntegro).
+    """
+    ok, code = gyb_export_ready_for_maildir_rebuild(work_root)
+    if not ok:
+        raise ValueError(code)
+    clear_maildir_tree(maildir_root)
+    return import_mbox_tree_to_maildir(mbox_root=work_root, maildir_root=maildir_root)

@@ -135,6 +135,8 @@ export interface MailDataInventory {
   gyb_work_path: string
   gyb_work_has_content: boolean
   gyb_work_size_bytes: number | null
+  gyb_work_has_msg_db: boolean
+  gyb_work_has_eml_export: boolean
   gmail_backup_logs_count: number
   webmail_tokens_count: number
   imap_enabled: boolean
@@ -156,6 +158,14 @@ export interface AccountMailPurgeResult {
   gmail_logs_deleted: number
   webmail_tokens_deleted: number
   imap_credentials_revoked: boolean
+}
+
+export interface MaildirRebuildFromGybResult {
+  messages: number
+  eml_files: number
+  mbox_files: number
+  folders_touched: number
+  skipped_duplicates: number
 }
 
 export interface PurgeAllLocalMailResult {

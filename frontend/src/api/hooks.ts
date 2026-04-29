@@ -13,6 +13,7 @@ import type {
   MailboxMessageBody,
   MailboxMessagesPage,
   MailDataInventory,
+  MaildirRebuildFromGybResult,
   PlatformBackupResult,
   Profile,
   PurgeAllLocalMailResult,
@@ -335,12 +336,12 @@ export function useClearMailbox() {
   })
 }
 
-export function useMailDataInventory(accountId: string | null) {
+export function useMailDataInventory(accountId: string | null, enabled = true) {
   return useQuery({
     queryKey: ['mail-data-inventory', accountId],
     queryFn: async () =>
       (await api.get<MailDataInventory>(`/accounts/${accountId}/mail-data-inventory`)).data,
-    enabled: Boolean(accountId),
+    enabled: Boolean(accountId) && enabled,
   })
 }
 
@@ -357,6 +358,23 @@ export function usePurgeAccountMailData() {
     onSuccess: (_data, args) => {
       void qc.invalidateQueries({ queryKey: ['accounts'] })
       void qc.invalidateQueries({ queryKey: ['mail-data-inventory', args.accountId] })
+    },
+  })
+}
+
+export function useRebuildMaildirFromLocalGyb() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (accountId: string) =>
+      (
+        await api.post<MaildirRebuildFromGybResult>(
+          `/accounts/${accountId}/maildir/rebuild-from-local-gyb`,
+        )
+      ).data,
+    onSuccess: (_data, accountId) => {
+      void qc.invalidateQueries({ queryKey: ['accounts'] })
+      void qc.invalidateQueries({ queryKey: ['mail-data-inventory', accountId] })
+      void qc.invalidateQueries({ queryKey: ['mailbox-folders', accountId] })
     },
   })
 }

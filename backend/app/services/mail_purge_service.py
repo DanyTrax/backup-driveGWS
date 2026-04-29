@@ -16,7 +16,7 @@ from app.models.enums import BackupScope
 from app.models.tasks import BackupLog
 from app.models.webmail import WebmailAccessToken
 from app.services.maildir_paths import maildir_home_from_email, maildir_root_for_account
-from app.services.maildir_service import clear_maildir_tree
+from app.services.maildir_service import clear_maildir_tree, gyb_workdir_has_eml_or_mbox
 
 PURGE_ALL_MAIL_LOCAL_CONFIRM_PHRASE = "ELIMINAR_TODAS_LAS_COPIAS_LOCALES_DE_CORREO"
 
@@ -76,6 +76,8 @@ async def build_mail_inventory(db: AsyncSession, account: GwAccount) -> dict:
     root = maildir_root_for_account(account)
     gyb = gyb_work_root_for_email(account.email)
     on_disk = _maildir_has_layout(root)
+    has_msg_db = (gyb / "msg-db.sqlite").is_file()
+    has_eml = gyb_workdir_has_eml_or_mbox(gyb)
     return {
         "account_id": str(account.id),
         "email": account.email,
@@ -85,6 +87,8 @@ async def build_mail_inventory(db: AsyncSession, account: GwAccount) -> dict:
         "gyb_work_path": str(gyb),
         "gyb_work_has_content": gyb.is_dir() and any(gyb.iterdir()),
         "gyb_work_size_bytes": _dir_size(gyb) if gyb.is_dir() else None,
+        "gyb_work_has_msg_db": has_msg_db,
+        "gyb_work_has_eml_export": has_eml,
         "gmail_backup_logs_count": await count_gmail_logs_for_account(db, account.id),
         "webmail_tokens_count": await count_webmail_tokens_for_account(db, account.id),
         "imap_enabled": account.imap_enabled,

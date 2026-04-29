@@ -1,6 +1,7 @@
 """Google Workspace account listing, opt-in and sync."""
 from __future__ import annotations
 
+import asyncio
 import uuid
 from datetime import UTC, datetime
 from pathlib import Path
@@ -30,7 +31,12 @@ from app.schemas.accounts import (
     SyncOut,
     VerifyAccessStreamStartOut,
 )
-from app.schemas.mail_purge import AccountMailPurgeIn, AccountMailPurgeOut, MailDataInventoryOut
+from app.schemas.mail_purge import (
+    AccountMailPurgeIn,
+    AccountMailPurgeOut,
+    MailDataInventoryOut,
+    MaildirRebuildFromGybOut,
+)
 from app.services.account_access_service import verify_account_access
 from app.services.accounts_service import (
     approve_account,
@@ -238,7 +244,12 @@ async def approve(
 async def mail_data_inventory(
     account_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _u: SysUser = Depends(require_permission("accounts.purge_mail_local")),
+    _u: SysUser = Depends(
+        require_any_permission(
+            "accounts.purge_mail_local",
+            "accounts.edit",
+        )
+    ),
 ) -> MailDataInventoryOut:
     acc = await _load(db, account_id)
     data = await build_mail_inventory(db, acc)
@@ -296,6 +307,83 @@ async def mail_data_purge(
     await db.commit()
     await db.refresh(acc)
     return AccountMailPurgeOut.model_validate(counts)
+
+
+@router.post(
+    "/{account_id}/maildir/rebuild-from-local-gyb",
+    response_model=MaildirRebuildFromGybOut,
+    summary="Reconstruir Maildir desde export GYB en disco (sin descargar Gmail)",
+)
+async def maildir_rebuild_from_local_gyb(
+    account_id: uuid.UUID,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    current: SysUser = Depends(require_permission("accounts.edit")),
+) -> MaildirRebuildFromGybOut:
+    """Reimporta desde ``/var/msa/work/gmail/<email>/`` si existen ``msg-db.sqlite`` y ``.eml``."""
+    from app.services.maildir_service import rebuild_maildir_from_local_gyb_workdir
+    from app.services.mail_purge_service import gyb_work_root_for_email
+
+    acc = await _load(db, account_id)
+    if acc.is_backup_enabled is not True and acc.imap_enabled is not True:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            "backup_or_imap_required",
+        )
+    if not (acc.maildir_path or "").strip():
+        acc.maildir_path = maildir_home_from_email(acc.email)
+    work_root = gyb_work_root_for_email(acc.email)
+    mroot = maildir_root_for_account(acc)
+    try:
+        stats = await asyncio.to_thread(
+            lambda: rebuild_maildir_from_local_gyb_workdir(
+                work_root=work_root,
+                maildir_root=mroot,
+            ),
+        )
+    except ValueError as exc:
+        code = str(exc.args[0]) if exc.args else "rebuild_precondition_failed"
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            detail={"error": code},
+        ) from exc
+    except OSError as exc:
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={
+                "error": "maildir_volume_unavailable",
+                "reason": str(exc)[:500],
+            },
+        ) from exc
+
+    acc.maildir_user_cleared_at = None
+    acc.total_messages_cache = stats.messages
+    await record_audit(
+        db,
+        action=AuditAction.SETTING_CHANGED,
+        actor_user_id=current.id,
+        actor_label=current.email,
+        ip_address=get_client_ip(request),
+        user_agent=get_user_agent(request),
+        target_table="gw_accounts",
+        target_id=str(acc.id),
+        message="maildir_rebuilt_from_local_gyb",
+        metadata={
+            "email": acc.email,
+            "messages": stats.messages,
+            "eml_files": stats.eml_files,
+            "work_root": str(work_root),
+        },
+    )
+    await db.commit()
+    await db.refresh(acc)
+    return MaildirRebuildFromGybOut(
+        messages=stats.messages,
+        eml_files=stats.eml_files,
+        mbox_files=stats.mbox_files,
+        folders_touched=stats.folders,
+        skipped_duplicates=stats.skipped_duplicates,
+    )
 
 
 @router.post(
