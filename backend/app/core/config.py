@@ -87,6 +87,10 @@ class Settings(BaseSettings):
     rclone_rc_port_range_start: int = 5572
     rclone_rc_port_range_end: int = 5599
     rclone_bwlimit: str = ""
+    # Solo ``rclone copy`` local → vault ``1-GMAIL/gyb_mbox`` (muchos .eml). Subir un poco más
+    # el paralelismo suele acortar tiempos; si Drive responde 403/rate limit, bajá estos valores.
+    rclone_gmail_vault_transfers: int = Field(default=16, ge=1, le=128)
+    rclone_gmail_vault_checkers: int = Field(default=16, ge=1, le=128)
     # GYB --action estimate en «Comprobar acceso». 0 = sin límite (hasta que termine GYB).
     account_verify_gyb_timeout_seconds: int = 0
     # Export ZIP del Maildir desde el panel. 0 = sin límite de tamaño (proveedor/ops asume el riesgo).

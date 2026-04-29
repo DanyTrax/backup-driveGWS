@@ -170,6 +170,9 @@ def build_rclone_local_to_vault_argv(
     extra_flags: Iterable[str] = (),
 ) -> list[str]:
     """``rclone copy <local> dest:<ruta>`` hacia un vault de cuenta (sin remoto de origen Google)."""
+    s = get_settings()
+    transfers = s.rclone_gmail_vault_transfers
+    checkers = s.rclone_gmail_vault_checkers
     rel = dest_subpath.strip().lstrip("/")
     remote = f"{cfg.remote_dest.rstrip(':')}:{rel}/" if rel else cfg.remote_dest
     argv = [
@@ -184,9 +187,10 @@ def build_rclone_local_to_vault_argv(
         "--stats-log-level",
         "NOTICE",
         "--transfers",
-        "4",
+        str(transfers),
         "--checkers",
-        "8",
+        str(checkers),
+        "--fast-list",
         "--retries",
         "3",
         "--low-level-retries",
