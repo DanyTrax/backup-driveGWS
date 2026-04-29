@@ -1,13 +1,25 @@
 """API: visor de Maildir local por cuenta (mismo dato que Dovecot/Roundcube)."""
 from __future__ import annotations
 
+import asyncio
 import uuid
+from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi.responses import FileResponse
 from sqlalchemy.ext.asyncio import AsyncSession
+from starlette.background import BackgroundTask
 
-from app.api.deps import get_db, mailbox_reader_for_path_account
+from app.api.deps import get_client_ip, get_db, get_user_agent, mailbox_reader_for_path_account
+from app.core.config import get_settings
+from app.models.enums import AuditAction
 from app.models.users import SysUser
+from app.services.audit_service import record_audit
+from app.services.maildir_export_service import (
+    MaildirExportTooLarge,
+    build_maildir_zip_file,
+    safe_maildir_zip_stem,
+)
 from app.schemas.mailbox import (
     MailboxFolderOut,
     MailboxMessageBodyOut,
@@ -114,4 +126,74 @@ async def mailbox_get_message(
         date=body.date_display,
         text_plain=body.text_plain,
         text_html=body.text_html,
+    )
+
+
+def _unlink_zip_path(p: Path) -> None:
+    try:
+        p.unlink(missing_ok=True)
+    except OSError:
+        pass
+
+
+@router.get(
+    "/{account_id}/mailbox/maildir-export.zip",
+    summary="Descargar ZIP del Maildir local (copia del backup en disco)",
+    response_class=FileResponse,
+)
+async def mailbox_maildir_export_zip(
+    account_id: uuid.UUID,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    current: SysUser = Depends(mailbox_reader_for_path_account),
+) -> FileResponse:
+    """Empaqueta el árbol Maildir actual (carpetas .Label, cur/new/tmp, etc.) en un ``.zip``.
+
+    Misma autorización que el visor Maildir. Puede tardar bastante en buzones grandes; ajustá
+    ``MAILDIR_EXPORT_MAX_BYTES`` en ``.env`` si querés un tope (0 = sin tope).
+    """
+    acc = await _load(db, account_id)
+    root = maildir_root_for_account(acc)
+    if not _maildir_ready(root):
+        raise HTTPException(status.HTTP_409_CONFLICT, "maildir_not_ready")
+
+    settings = get_settings()
+    max_b = settings.maildir_export_max_bytes
+
+    try:
+        zip_path = await asyncio.to_thread(
+            lambda: build_maildir_zip_file(root, max_total_bytes=max_b),
+        )
+    except MaildirExportTooLarge as exc:
+        raise HTTPException(
+            status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail={
+                "error": "maildir_export_too_large",
+                "limit": exc.limit,
+                "would_total": exc.would_total,
+            },
+        ) from exc
+
+    stem = safe_maildir_zip_stem(acc.email)
+    filename = f"{stem}_maildir.zip"
+
+    await record_audit(
+        db,
+        action=AuditAction.SETTING_CHANGED,
+        actor_user_id=current.id,
+        actor_label=current.email,
+        ip_address=get_client_ip(request),
+        user_agent=get_user_agent(request),
+        target_table="gw_accounts",
+        target_id=str(acc.id),
+        message="maildir_zip_exported",
+        metadata={"email": acc.email, "filename": filename},
+    )
+    await db.commit()
+
+    return FileResponse(
+        path=str(zip_path),
+        filename=filename,
+        media_type="application/zip",
+        background=BackgroundTask(_unlink_zip_path, zip_path),
     )

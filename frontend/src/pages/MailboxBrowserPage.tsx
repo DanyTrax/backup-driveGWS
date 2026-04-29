@@ -1,7 +1,9 @@
 import { useMemo, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { Alert, Badge, Button, Card, Spinner } from 'flowbite-react'
-import { HiArrowLeft } from 'react-icons/hi'
+import toast from 'react-hot-toast'
+import { HiArrowLeft, HiDownload } from 'react-icons/hi'
+import { downloadMaildirExportZip, maildirExportErrorMessage } from '../api/maildirExport'
 import { useMailboxFolders, useMailboxMessage, useMailboxMessages } from '../api/hooks'
 
 export default function MailboxBrowserPage() {
@@ -11,6 +13,7 @@ export default function MailboxBrowserPage() {
   const [folderId, setFolderId] = useState('INBOX')
   const [page, setPage] = useState(0)
   const [selectedKey, setSelectedKey] = useState<string | null>(null)
+  const [exporting, setExporting] = useState(false)
 
   const foldersQ = useMailboxFolders(id)
   const msgsQ = useMailboxMessages(id, folderId, page * 80)
@@ -33,13 +36,31 @@ export default function MailboxBrowserPage() {
         </Button>
         <h1 className="text-xl font-semibold">Correo en Maildir (backup local)</h1>
         <Badge color="info">Cuenta {id}</Badge>
+        <Button
+          color="light"
+          size="sm"
+          disabled={exporting || foldersQ.isError}
+          isProcessing={exporting}
+          onClick={() => {
+            if (!id) return
+            setExporting(true)
+            downloadMaildirExportZip(id)
+              .then(() => toast.success('Descarga iniciada (ZIP del Maildir).'))
+              .catch((e) => toast.error(maildirExportErrorMessage(e)))
+              .finally(() => setExporting(false))
+          }}
+        >
+          <HiDownload className="h-4 w-4 mr-2" />
+          Exportar Maildir (.zip)
+        </Button>
       </div>
 
       <p className="text-sm text-slate-500 dark:text-slate-400 max-w-3xl">
         Lectura directa del Maildir en el servidor (mismos datos que importan a Dovecot). Requiere permiso{' '}
         <code className="text-xs">mailbox.view_all</code> o delegación explícita con{' '}
         <code className="text-xs">mailbox.view_delegated</code>. No sustituye Roundcube; sirve para revisar el
-        respaldo desde el panel.
+        respaldo desde el panel. <strong>Exportar ZIP</strong> genera un archivo con la estructura Maildir tal
+        como está en disco para que lo extraigas donde quieras (archivo suelto, archivo, o otro cliente).
       </p>
 
       {foldersQ.isError && (

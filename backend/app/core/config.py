@@ -89,6 +89,8 @@ class Settings(BaseSettings):
     rclone_bwlimit: str = ""
     # GYB --action estimate en «Comprobar acceso». 0 = sin límite (hasta que termine GYB).
     account_verify_gyb_timeout_seconds: int = 0
+    # Export ZIP del Maildir desde el panel. 0 = sin límite de tamaño (proveedor/ops asume el riesgo).
+    maildir_export_max_bytes: int = 0
 
     @field_validator("account_verify_gyb_timeout_seconds", mode="before")
     @classmethod
@@ -97,6 +99,13 @@ class Settings(BaseSettings):
             return 0
         n = int(v)
         return max(0, n)
+
+    @field_validator("maildir_export_max_bytes", mode="before")
+    @classmethod
+    def _non_negative_maildir_export_max(cls, v: object) -> int:
+        if v is None:
+            return 0
+        return max(0, int(v))
 
     @field_validator("rclone_bwlimit", mode="before")
     @classmethod

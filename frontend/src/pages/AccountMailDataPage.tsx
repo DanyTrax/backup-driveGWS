@@ -2,7 +2,8 @@ import { useMemo, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { Badge, Button, Card, Checkbox, Label, TextInput } from 'flowbite-react'
 import toast from 'react-hot-toast'
-import { HiArrowLeft } from 'react-icons/hi'
+import { HiArrowLeft, HiDownload } from 'react-icons/hi'
+import { downloadMaildirExportZip, maildirExportErrorMessage } from '../api/maildirExport'
 import { useMailDataInventory, usePurgeAccountMailData } from '../api/hooks'
 import { useAuthStore } from '../stores/auth'
 
@@ -19,10 +20,17 @@ function fmtBytes(n: number | null | undefined): string {
 export default function AccountMailDataPage() {
   const { accountId } = useParams<{ accountId: string }>()
   const hasPermission = useAuthStore((s) => s.hasPermission)
+  const profile = useAuthStore((s) => s.profile)
   const canPurge = hasPermission('accounts.purge_mail_local')
+  const canExportZip =
+    hasPermission('mailbox.view_all') ||
+    (hasPermission('mailbox.view_delegated') &&
+      !!accountId &&
+      (profile?.mailbox_delegated_account_ids ?? []).includes(accountId))
 
   const { data: inv, isLoading, error, refetch } = useMailDataInventory(accountId ?? null)
   const purge = usePurgeAccountMailData()
+  const [exportingZip, setExportingZip] = useState(false)
 
   const [maildir, setMaildir] = useState(false)
   const [gyb, setGyb] = useState(false)
@@ -167,6 +175,35 @@ export default function AccountMailDataPage() {
               </div>
             </dl>
           </Card>
+
+          {canExportZip ? (
+            <Card>
+              <h2 className="font-semibold mb-2">Exportar copia (.zip)</h2>
+              <p className="text-sm text-slate-600 dark:text-slate-400 mb-3">
+                Descarga un ZIP con el árbol Maildir tal como está en el servidor (mismas carpetas y ficheros que
+                usa Dovecot). Podés extraerlo donde quieras; no depende de Mozilla ni Outlook.
+              </p>
+              <Button
+                color="light"
+                disabled={!inv?.maildir_on_disk || exportingZip}
+                isProcessing={exportingZip}
+                onClick={() => {
+                  if (!accountId) return
+                  setExportingZip(true)
+                  downloadMaildirExportZip(accountId)
+                    .then(() => toast.success('Descarga del ZIP iniciada.'))
+                    .catch((e) => toast.error(maildirExportErrorMessage(e)))
+                    .finally(() => setExportingZip(false))
+                }}
+              >
+                <HiDownload className="h-4 w-4 mr-2" />
+                Descargar Maildir (.zip)
+              </Button>
+              {!inv?.maildir_on_disk ? (
+                <p className="text-xs text-slate-500 mt-2">No hay layout Maildir en disco todavía.</p>
+              ) : null}
+            </Card>
+          ) : null}
 
           <Card className="border-red-200 dark:border-red-900/40">
             <h2 className="font-semibold text-red-800 dark:text-red-300 mb-2">Eliminar seleccionado</h2>
