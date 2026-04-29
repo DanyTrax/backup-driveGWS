@@ -79,11 +79,13 @@ def _upsert_permission(
 
 
 def upgrade() -> None:
-    op.execute(
-        sa.text(
-            "ALTER TYPE audit_action ADD VALUE IF NOT EXISTS 'backup_log_deleted'"
+    # ALTER TYPE … ADD VALUE no debe quedar en la misma transacción que el resto en algunas versiones de PostgreSQL.
+    with op.get_context().autocommit_block():
+        op.execute(
+            sa.text(
+                "ALTER TYPE audit_action ADD VALUE IF NOT EXISTS 'backup_log_deleted'"
+            )
         )
-    )
 
     bind = op.get_bind()
     role_ids: dict[str, uuid.UUID] = {}

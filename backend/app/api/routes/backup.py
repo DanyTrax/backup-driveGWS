@@ -27,7 +27,6 @@ from app.models.tasks import BackupLog, BackupTask
 from app.models.users import SysUser
 from app.schemas.tasks import BackupLogBulkDeleteIn, BackupLogBulkDeleteOut, BackupLogOut
 from app.services.audit_service import record_audit
-from app.services.backup_logs_pdf import render_backup_logs_pdf
 from app.services.backup_batch_registry import cancel_entire_batch
 from app.services.backup_concurrency_service import active_backup_log_id
 from app.services.backup_engine import (
@@ -175,11 +174,24 @@ async def export_logs_pdf(
     if account_id:
         parts.append(f"account_id={account_id}")
     filter_note = ", ".join(parts) if parts else None
-    pdf_bytes = render_backup_logs_pdf(
-        outs,
-        filter_note=filter_note,
-        generated_at=datetime.now(timezone.utc),
-    )
+    try:
+        from app.services.backup_logs_pdf import render_backup_logs_pdf
+    except ImportError as exc:
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="pdf_library_missing: instale fpdf2 en la imagen/backend (pip install fpdf2)",
+        ) from exc
+    try:
+        pdf_bytes = render_backup_logs_pdf(
+            outs,
+            filter_note=filter_note,
+            generated_at=datetime.now(timezone.utc),
+        )
+    except RuntimeError as exc:
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=str(exc),
+        ) from exc
     fname = f"backup-logs-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M')}.pdf"
     return Response(
         content=pdf_bytes,

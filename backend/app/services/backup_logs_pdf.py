@@ -6,8 +6,6 @@ from datetime import datetime, timezone
 from io import BytesIO
 from pathlib import Path
 
-from fpdf import FPDF
-
 from app.schemas.tasks import BackupLogOut
 
 _FONT_CANDIDATES = (
@@ -38,6 +36,13 @@ def render_backup_logs_pdf(
     filter_note: str | None = None,
     generated_at: datetime | None = None,
 ) -> bytes:
+    try:
+        from fpdf import FPDF
+    except ImportError as exc:
+        raise RuntimeError(
+            "Dependencia PDF no instalada: ejecutá pip install fpdf2 en el entorno del API."
+        ) from exc
+
     pdf = FPDF(orientation="L", unit="mm", format="A4")
     pdf.set_auto_page_break(auto=True, margin=12)
     pdf.set_margins(10, 10, 10)
