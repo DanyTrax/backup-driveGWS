@@ -21,6 +21,38 @@ export interface Profile {
   permissions: string[]
 }
 
+export const MAILBOX_MESSAGE_TIMEOUT_MS = 120_000
+
+export interface MailboxFolder {
+  id: string
+  name: string
+}
+
+export interface MailboxMessageSummary {
+  id: string
+  subject: string
+  from: string
+  date: string | null
+  size: number
+}
+
+export interface MailboxMessagesPage {
+  folder_id: string
+  offset: number
+  limit: number
+  total_estimated: number | null
+  items: MailboxMessageSummary[]
+}
+
+export interface MailboxMessageBody {
+  id: string
+  subject: string
+  from: string
+  date: string | null
+  text_plain: string | null
+  text_html: string | null
+}
+
 export interface AccountAccessCheck {
   account_id: string
   email: string

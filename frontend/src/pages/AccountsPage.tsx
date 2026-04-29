@@ -1,5 +1,6 @@
 import { useMemo, useRef, useState } from 'react'
 import type { AxiosError } from 'axios'
+import { Link } from 'react-router-dom'
 import { Badge, Button, Card, Modal, TextInput, ToggleSwitch } from 'flowbite-react'
 import { HiSearch, HiRefresh } from 'react-icons/hi'
 import toast from 'react-hot-toast'
@@ -216,6 +217,7 @@ export default function AccountsPage() {
                   <th>Backup</th>
                   <th>IMAP</th>
                   <th>Bandeja local</th>
+                  <th>Ver Maildir</th>
                   <th>Último backup</th>
                   <th>Acceso</th>
                   <th></th>
@@ -260,6 +262,17 @@ export default function AccountsPage() {
                         : a.maildir_user_cleared_at
                           ? 'vacía (sync Gmail)'
                           : 'en disco'}
+                    </td>
+                    <td>
+                      {a.maildir_on_disk && !a.maildir_user_cleared_at ? (
+                        <Link to={`/accounts/${a.id}/mailbox`}>
+                          <Button size="xs" color="light">
+                            Ver correo
+                          </Button>
+                        </Link>
+                      ) : (
+                        <span className="text-slate-400 text-xs">—</span>
+                      )}
                     </td>
                     <td className="text-xs text-slate-500">
                       {a.last_successful_backup_at ?? '—'}

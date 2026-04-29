@@ -1,17 +1,21 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import api from './client'
 import type {
+  AccountAccessCheck,
   BackupLog,
   BackupTask,
   GitRefreshResult,
+  MailboxFolder,
+  MailboxMessageBody,
+  MailboxMessagesPage,
   PlatformBackupResult,
   Profile,
   RestoreJob,
   RunTaskResult,
   SetupState,
   WorkspaceAccount,
-  AccountAccessCheck,
 } from './types'
+import { MAILBOX_MESSAGE_TIMEOUT_MS } from './types'
 
 export type TaskPayload = {
   name: string
@@ -182,6 +186,42 @@ export function useClearMailbox() {
   return useMutation({
     mutationFn: async (accountId: string) => api.post(`/accounts/${accountId}/mailbox/clear`),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['accounts'] }),
+  })
+}
+
+export function useMailboxFolders(accountId: string | null) {
+  return useQuery({
+    queryKey: ['mailbox-folders', accountId],
+    queryFn: async () => (await api.get<MailboxFolder[]>(`/accounts/${accountId}/mailbox/folders`)).data,
+    enabled: Boolean(accountId),
+  })
+}
+
+export function useMailboxMessages(accountId: string | null, folderId: string, offset: number) {
+  return useQuery({
+    queryKey: ['mailbox-messages', accountId, folderId, offset],
+    queryFn: async () => {
+      const params = { folder: folderId, limit: 80, offset }
+      return (await api.get<MailboxMessagesPage>(`/accounts/${accountId}/mailbox/messages`, { params }))
+        .data
+    },
+    enabled: Boolean(accountId),
+  })
+}
+
+export function useMailboxMessage(accountId: string | null, folderId: string, messageKey: string | null) {
+  return useQuery({
+    queryKey: ['mailbox-message', accountId, folderId, messageKey],
+    queryFn: async () => {
+      const params = { folder: folderId, key: messageKey! }
+      return (
+        await api.get<MailboxMessageBody>(`/accounts/${accountId}/mailbox/message`, {
+          params,
+          timeout: MAILBOX_MESSAGE_TIMEOUT_MS,
+        })
+      ).data
+    },
+    enabled: Boolean(accountId && messageKey),
   })
 }
 

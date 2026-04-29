@@ -10,6 +10,7 @@ from app.api.routes import (
     auth,
     backup,
     health,
+    mailbox,
     meta,
     notifications,
     restore,
@@ -28,6 +29,7 @@ api_router.include_router(users.router)
 api_router.include_router(audit.router)
 api_router.include_router(setup.router)
 api_router.include_router(accounts.router)
+api_router.include_router(mailbox.router, prefix="/accounts")
 api_router.include_router(tasks.router)
 api_router.include_router(backup.router)
 api_router.include_router(restore.router)

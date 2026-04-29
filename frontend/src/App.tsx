@@ -13,6 +13,7 @@ import SettingsPage from './pages/SettingsPage'
 import ProfilePage from './pages/ProfilePage'
 import WebmailPage from './pages/WebmailPage'
 import WebmailAssignPasswordPage from './pages/WebmailAssignPasswordPage'
+import MailboxBrowserPage from './pages/MailboxBrowserPage'
 
 export default function App() {
   return (
@@ -28,6 +29,7 @@ export default function App() {
       >
         <Route path="/dashboard" element={<DashboardPage />} />
         <Route path="/accounts" element={<AccountsPage />} />
+        <Route path="/accounts/:accountId/mailbox" element={<MailboxBrowserPage />} />
         <Route path="/tasks" element={<TasksPage />} />
         <Route path="/logs" element={<LogsPage />} />
         <Route path="/restore" element={<RestorePage />} />
