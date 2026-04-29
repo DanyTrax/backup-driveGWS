@@ -105,7 +105,9 @@ async def get_log(
     if row is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "log_not_found")
     log, task_name, account_email = row
-    return _to_out(log, task_name=task_name, account_email=account_email)
+    base = _to_out(log, task_name=task_name, account_email=account_email)
+    snap = await last_event(str(log_id))
+    return base.model_copy(update={"live_progress": snap})
 
 
 @router.post(

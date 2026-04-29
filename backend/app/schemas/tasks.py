@@ -113,3 +113,4 @@ class BackupLogOut(BaseModel):
     error_summary: str | None
     task_name: str | None = None
     account_email: str | None = None
+    live_progress: dict[str, Any] | None = None

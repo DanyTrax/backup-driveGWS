@@ -197,6 +197,8 @@ export interface BackupLog {
   task_name?: string | null
   /** Correo Workspace de la cuenta ejecutada */
   account_email?: string | null
+  /** Último evento de progreso (Redis); útil cuando status === running */
+  live_progress?: Record<string, unknown> | null
 }
 
 export interface SkippedActiveBackup {

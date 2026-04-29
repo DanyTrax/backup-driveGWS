@@ -27,6 +27,51 @@ function humanBytes(n: number) {
   return `${v.toFixed(1)} ${units[i]}`
 }
 
+/** Texto legible del último evento Redis (backup en curso). */
+function describeLiveProgress(p: Record<string, unknown> | null | undefined): string {
+  if (!p || typeof p !== 'object') return ''
+  const stage = String(p.stage ?? '')
+  if (stage === 'gmail_progress') {
+    const phase =
+      p.phase === 'gyb'
+        ? 'Descargando correo desde Gmail (GYB) al servidor'
+        : 'Importando mensajes al buzón local Maildir (el que ve Dovecot/Roundcube)'
+    const parts: string[] = []
+    if (typeof p.messages === 'number') parts.push(`~${p.messages} mensajes (estimado en vivo)`)
+    if (typeof p.files === 'number') parts.push(`${p.files} archivos`)
+    if (typeof p.bytes === 'number') parts.push(humanBytes(p.bytes))
+    const extra = parts.length ? ` · ${parts.join(' · ')}` : ''
+    return `${phase}${extra}.`
+  }
+  if (stage === 'vault_push') {
+    const sub = typeof p.subpath === 'string' ? p.subpath : '1-GMAIL/…'
+    return `Subiendo el export a la bóveda de Google Drive del usuario (ruta relativa: ${sub}).`
+  }
+  if (stage === 'gyb_workdir_purge') {
+    return 'Vaciando el directorio de trabajo GYB en el servidor tras verificar la subida a Drive.'
+  }
+  if (stage === 'start') {
+    const sc = String(p.scope ?? '')
+    if (sc === 'gmail') return 'Iniciando el job de Gmail (preparación y GYB)…'
+    if (sc === 'drive_root' || sc === 'drive_computadoras') return 'Iniciando copia/sincronización de Google Drive…'
+    return `Iniciando (${sc})…`
+  }
+  if (stage === 'progress') {
+    const raw = typeof p.raw === 'string' ? p.raw.trim() : ''
+    if (raw) {
+      return `Drive (rclone): ${raw.slice(0, 280)}${raw.length > 280 ? '…' : ''}`
+    }
+    return 'Copiando o sincronizando archivos de Google Drive (rclone)…'
+  }
+  if (stage === 'retention') return 'Aplicando retención en snapshots de Drive después del backup.'
+  if (stage === 'retention_warning') return 'Aviso durante retención de Drive (revisá logs del worker si persiste).'
+  if (stage === 'worker_skipped') return 'Omitido: ya había otro backup activo para esta cuenta y alcance.'
+  if (stage === 'cancelled') return 'Cancelación registrada.'
+  if (stage === 'failed') return 'El worker reportó un fallo en esta fase (ver detalle abajo si hay traza).'
+  if (stage === 'done') return 'El worker marcó paso «done»; el log puede tardar un momento en pasar a exitoso.'
+  return `Etapa: ${stage}`
+}
+
 /** Alcance y modo de ejecución legibles en la UI */
 function taskTypeLabel(scope: string, mode: string): string {
   const scopePart =
@@ -233,6 +278,34 @@ export default function LogsPage() {
                   <div className="font-mono text-[11px] text-slate-500 break-all">{detailQuery.data.task_id}</div>
                 </div>
               </div>
+
+              {detailQuery.data.status === 'running' ? (
+                <div className="rounded-lg border border-blue-200 dark:border-blue-900/50 bg-blue-50/70 dark:bg-blue-950/25 p-4">
+                  <div className="text-xs font-semibold uppercase tracking-wide text-blue-800 dark:text-blue-300">
+                    Qué está haciendo ahora
+                  </div>
+                  <p className="text-sm text-slate-800 dark:text-slate-200 mt-2 leading-relaxed">
+                    {describeLiveProgress(detailQuery.data.live_progress ?? null) ||
+                      'Todavía no llegó telemetría al panel (esperá unos segundos). Si persiste, comprobá Redis y el worker.'}
+                  </p>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-2">
+                    Gmail suele pasar por: <strong>GYB</strong> (descarga) → <strong>Maildir</strong> (importación
+                    local) → opcionalmente <strong>subida a la bóveda</strong> (1-GMAIL en Drive). El detalle se
+                    actualiza solo mientras el estado es «running» (refresco ~3 s).
+                  </p>
+                  {detailQuery.data.live_progress && Object.keys(detailQuery.data.live_progress).length > 0 ? (
+                    <details className="mt-3 text-xs">
+                      <summary className="cursor-pointer text-slate-600 dark:text-slate-400 select-none">
+                        Último evento (JSON)
+                      </summary>
+                      <pre className="mt-2 whitespace-pre-wrap break-all bg-slate-100 dark:bg-slate-900 p-2 rounded border border-slate-200 dark:border-slate-700 max-h-44 overflow-y-auto font-mono">
+                        {JSON.stringify(detailQuery.data.live_progress, null, 2)}
+                      </pre>
+                    </details>
+                  ) : null}
+                </div>
+              ) : null}
+
               <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-2 text-sm">
                 <div>
                   <dt className="text-slate-500">ID del log</dt>
