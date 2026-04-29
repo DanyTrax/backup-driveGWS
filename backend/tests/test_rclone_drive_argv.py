@@ -21,5 +21,5 @@ def test_build_rclone_argv_server_side_flag_is_one_token() -> None:
     assert argv[0] == "copy"
     assert argv[1] == "source:Computadoras/"
     assert argv[2] == "dest:2-DRIVE/MSA_Runs/2026-04-29T06-25"
-    assert "--drive-server-side-across-configs=false" in argv
+    assert not any("drive-server-side-across-configs" in a for a in argv)
     assert argv.count("false") == 0

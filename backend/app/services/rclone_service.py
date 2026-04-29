@@ -312,8 +312,8 @@ def build_rclone_argv(
         source,
         dest,
         "--config", cfg.config_path,
-        # Un solo token: si se pasa "false" aparte, rclone 1.6x+ lo interpreta como 3.º arg de copy.
-        "--drive-server-side-across-configs=false",
+        # No usar ``--drive-server-side-across-configs`` con valor en otro token: rclone reciente
+        # interpreta ese ``false`` como 3.er argumento de copy. El default en Drive es false → omitimos el flag.
         "--stats", "5s",
         "--stats-one-line",
         "--stats-log-level", "NOTICE",
@@ -329,6 +329,33 @@ def build_rclone_argv(
         argv += ["--bwlimit", bwlimit]
     argv += list(extra_flags)
     return argv
+
+
+async def rclone_verify_remote_dir(
+    cfg: RcloneConfig,
+    *,
+    path_under_source: str,
+    cancel_log_id: str | None = None,
+    timeout: int = 90,
+) -> tuple[bool, str]:
+    """Comprueba que exista y sea listable ``source:<path>`` (p. ej. carpeta ``Computadoras``).
+
+    Usa ``lsd`` con profundidad mínima: carpeta vacía sigue dando rc 0.
+    """
+    name = path_under_source.strip().strip("/")
+    if not name:
+        return True, ""
+    remote = f"{cfg.remote_source.rstrip(':')}:{name}"
+    argv = [
+        "lsd",
+        remote,
+        "--config",
+        cfg.config_path,
+        "--max-depth",
+        "1",
+    ]
+    rc, out = await run_rclone(argv, on_line=None, timeout=timeout, cancel_log_id=cancel_log_id)
+    return rc == 0, out
 
 
 async def run_rclone(

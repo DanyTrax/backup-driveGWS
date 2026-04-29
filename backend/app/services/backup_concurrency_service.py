@@ -8,7 +8,7 @@ import uuid
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.enums import BackupScope, BackupStatus
+from app.models.enums import BackupStatus
 from app.models.tasks import BackupLog
 
 # Estados considerados «en curso» para deduplicar encolados.
@@ -19,9 +19,9 @@ _ACTIVE: tuple[str, ...] = (
 )
 
 
-def drive_scope_stored_in_log(_task_scope: str) -> str:
-    """Siempre coincide con ``run_drive_backup`` → ``BackupScope.DRIVE_ROOT`` en el log."""
-    return BackupScope.DRIVE_ROOT.value
+def drive_scope_stored_in_log(task_scope: str) -> str:
+    """Scope persistido en ``BackupLog`` (mismo string que la tarea: raíz vs Computadoras)."""
+    return task_scope
 
 
 async def active_backup_log_id(

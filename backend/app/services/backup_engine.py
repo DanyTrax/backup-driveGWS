@@ -415,7 +415,7 @@ async def run_drive_backup(
         db,
         task=task,
         account=account,
-        scope=BackupScope.DRIVE_ROOT,
+        scope=BackupScope(task.scope),
         celery_task_id=celery_task_id,
         run_batch_id=run_batch_id,
     )
@@ -446,6 +446,20 @@ async def run_drive_backup(
             db, impersonate_email=account.email, vault_folder_id=vault
         ) as cfg:
             drive_subpath = "Computadoras/" if task.scope == BackupScope.DRIVE_COMPUTADORAS.value else ""
+            if drive_subpath:
+                ok_dir, pre_out = await rclone_service.rclone_verify_remote_dir(
+                    cfg, path_under_source="Computadoras", cancel_log_id=log_id
+                )
+                if not ok_dir:
+                    detail = (
+                        "No existe o no es accesible la carpeta «Computadoras» en el Drive de esta cuenta "
+                        "(debe llamarse así en la raíz de «Mi unidad», o revisá permisos / delegación).\n"
+                        f"{pre_out[-3500:]}"
+                    )
+                    await _finalise_log(db, log, status=BackupStatus.FAILED, error_summary=detail)
+                    await publish(log_id, {"stage": "failed", "error": "computadoras_folder_missing"})
+                    await db.commit()
+                    return log
             mode = "sync" if task.mode == "mirror" else "copy"
             from app.core.config import get_settings
 
