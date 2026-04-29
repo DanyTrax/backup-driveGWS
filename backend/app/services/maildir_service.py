@@ -110,6 +110,13 @@ def ensure_maildir_layout(maildir_root: Path) -> None:
         (maildir_root / sub).mkdir(parents=True, exist_ok=True)
 
 
+def ensure_maildir_subfolder(subfolder: Path) -> None:
+    """Crea cur/new/tmp bajo un buzón hijo (p. ej. ``Maildir/.SENT``)."""
+    subfolder.mkdir(parents=True, exist_ok=True)
+    for sub in ("cur", "new", "tmp"):
+        (subfolder / sub).mkdir(parents=True, exist_ok=True)
+
+
 def clear_maildir_tree(maildir_root: Path) -> None:
     """Borra el árbol Maildir y deja solo cur/new/tmp vacíos (Dovecot)."""
     if maildir_root.exists():

@@ -7,6 +7,43 @@ export interface TokenPair {
   mfa_challenge?: string | null
 }
 
+/** Respuesta de GET /meta/branding y de PUT/POST/DELETE branding (valores efectivos). */
+export interface BrandingPublic {
+  app_name: string
+  primary_color: string
+  accent_color: string
+  logo_url: string
+}
+
+/** GET /settings/branding-config (formulario: URL en BD + si hay archivo subido). */
+export interface BrandingConfig {
+  app_name: string
+  primary_color: string
+  accent_color: string
+  logo_url_external: string
+  has_uploaded_logo: boolean
+}
+
+export const DEFAULT_BRANDING: BrandingPublic = {
+  app_name: 'MSA Backup Commander',
+  primary_color: '#1d4ed8',
+  accent_color: '#0ea5e9',
+  logo_url: '',
+}
+
+export function mergeBranding(b: Partial<BrandingPublic> | undefined | null): BrandingPublic {
+  return { ...DEFAULT_BRANDING, ...b }
+}
+
+/** Iniciales para avatar cuando no hay logo o falla la imagen. */
+export function brandingInitials(name: string): string {
+  const parts = name.trim().split(/\s+/).filter(Boolean)
+  if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase()
+  if (parts.length === 1 && parts[0].length >= 2) return parts[0].slice(0, 2).toUpperCase()
+  if (parts.length === 1) return (parts[0][0] || '?').toUpperCase()
+  return '?'
+}
+
 export interface Profile {
   id: string
   email: string

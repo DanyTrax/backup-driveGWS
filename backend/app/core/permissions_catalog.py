@@ -101,6 +101,7 @@ DEFAULT_ROLE_PERMISSIONS: dict[UserRole, frozenset[str]] = {
             "webmail.sso_admin", "webmail.issue_magic_link", "webmail.revoke_access",
             "mailbox.view_all", "mailbox.delegate",
             "settings.view",
+            "settings.branding",
             "platform.refresh",
             "notifications.manage_global",
             "audit.view",
@@ -125,7 +126,7 @@ ROLE_DISPLAY: dict[UserRole, tuple[str, str]] = {
     UserRole.SUPER_ADMIN: ("Super Administrador", "Acceso completo incluido cambio de configuración crítica"),
     UserRole.OPERATOR: (
         "Operador",
-        "Gestiona backups, restauraciones y cuentas, sin cambiar configuración global",
+        "Gestiona backups, restauraciones y cuentas; puede personalizar branding del panel (nombre, colores, logo).",
     ),
     UserRole.AUDITOR: ("Auditor", "Solo lectura del sistema"),
 }

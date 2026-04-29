@@ -6,6 +6,8 @@ import type {
   AccountMailPurgeResult,
   BackupLog,
   BackupTask,
+  BrandingConfig,
+  BrandingPublic,
   GitRefreshResult,
   MailboxFolder,
   MailboxMessageBody,
@@ -77,7 +79,60 @@ export function usePutMailboxDelegations() {
 export function useBranding() {
   return useQuery({
     queryKey: ['branding'],
-    queryFn: async () => (await api.get<Record<string, string>>('/meta/branding')).data,
+    queryFn: async () => (await api.get<BrandingPublic>('/meta/branding')).data,
+    staleTime: 60_000,
+  })
+}
+
+export function useBrandingConfig() {
+  return useQuery({
+    queryKey: ['branding-config'],
+    queryFn: async () => (await api.get<BrandingConfig>('/settings/branding-config')).data,
+  })
+}
+
+export type BrandingUpdatePayload = {
+  app_name?: string
+  primary_color?: string
+  accent_color?: string
+  logo_url?: string
+}
+
+export function useUpdateBranding() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (payload: BrandingUpdatePayload) =>
+      (await api.put<BrandingPublic>('/settings/branding', payload)).data,
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['branding'] })
+      void qc.invalidateQueries({ queryKey: ['branding-config'] })
+    },
+  })
+}
+
+export function useUploadBrandingLogo() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (file: File) => {
+      const body = new FormData()
+      body.append('file', file)
+      return (await api.post<BrandingPublic>('/settings/branding/logo', body)).data
+    },
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['branding'] })
+      void qc.invalidateQueries({ queryKey: ['branding-config'] })
+    },
+  })
+}
+
+export function useDeleteBrandingLogo() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async () => (await api.delete<BrandingPublic>('/settings/branding/logo')).data,
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['branding'] })
+      void qc.invalidateQueries({ queryKey: ['branding-config'] })
+    },
   })
 }
 

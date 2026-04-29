@@ -9,7 +9,54 @@ from email.parser import BytesParser
 from email.policy import compat32
 from pathlib import Path
 
+from app.services.maildir_service import ensure_maildir_subfolder
+
 _FOLDER_ID = re.compile(r"^(\.?[A-Za-z0-9_.-]+|INBOX)$")
+
+# Buzones tipo Gmail/gyb: agrupa variantes en disco (.Sent / .SENT) y nombres en español.
+_SYSTEM_FOLDER_GROUP: tuple[tuple[str, frozenset[str], str, str], ...] = (
+    ("sent", frozenset({"sent", "sents"}), ".SENT", "Enviados"),
+    ("draft", frozenset({"draft", "drafts"}), ".DRAFT", "Borradores"),
+    ("spam", frozenset({"spam", "junk"}), ".SPAM", "Spam"),
+    (
+        "trash",
+        frozenset({"trash", "bin", "deleted", "papeleradeborrados"}),
+        ".TRASH",
+        "Papelera",
+    ),
+    ("starred", frozenset({"starred", "flagged"}), ".STARRED", "Destacados"),
+    ("important", frozenset({"important"}), ".IMPORTANT", "Importantes"),
+)
+
+
+def _system_label(group_id: str) -> str:
+    for gid, _vars, _canon, lab in _SYSTEM_FOLDER_GROUP:
+        if gid == group_id:
+            return lab
+    return group_id
+
+
+def _system_group_for_subfolder(folder_id: str) -> str | None:
+    if folder_id == "INBOX" or not folder_id.startswith("."):
+        return None
+    base = folder_id[1:].lower()
+    compact = base.replace("_", "")
+    for gid, variants, _canon, _lab in _SYSTEM_FOLDER_GROUP:
+        if base in variants or any(compact == v.replace("_", "") for v in variants):
+            return gid
+    if "gmail" in base and "trash" in base:
+        return "trash"
+    if "gmail" in base and "spam" in base:
+        return "spam"
+    if "gmail" in base and ("sent" in base or "enviado" in base):
+        return "sent"
+    if "gmail" in base and ("draft" in base or "borrador" in base):
+        return "draft"
+    return None
+
+
+def _has_maildir_mailbox(p: Path) -> bool:
+    return (p / "cur").is_dir() or (p / "new").is_dir()
 
 
 def _decode_mime_header(value: str | None) -> str:
@@ -25,7 +72,7 @@ def _safe_folder_path(maildir_root: Path, folder_id: str) -> Path:
     fid = (folder_id or "").strip() or "INBOX"
     if fid == "INBOX":
         root = maildir_root.resolve()
-        if not (root / "cur").is_dir():
+        if not (root / "cur").is_dir() and not (root / "new").is_dir():
             raise ValueError("not_maildir")
         return root
     if not _FOLDER_ID.match(fid) or ".." in fid:
@@ -34,26 +81,62 @@ def _safe_folder_path(maildir_root: Path, folder_id: str) -> Path:
     resolved = sub.resolve()
     if not resolved.is_relative_to(maildir_root.resolve()):
         raise ValueError("invalid_folder_id")
-    if not (resolved / "cur").is_dir():
+    if not (resolved / "cur").is_dir() and not (resolved / "new").is_dir():
         raise ValueError("not_maildir")
     return resolved
 
 
 def list_maildir_folders(maildir_root: Path) -> list[tuple[str, str]]:
-    """``(folder_id, display_name)``. INBOX primero, luego subcarpetas tipo Maildir ``.Label``."""
+    """``(folder_id, display_name)``. INBOX primero; hijos ``.Label``; buzones Gmail estándar aunque estén vacíos."""
     out: list[tuple[str, str]] = []
     root = maildir_root.resolve()
     if not root.is_dir():
         return out
-    if (root / "cur").is_dir():
+
+    if _has_maildir_mailbox(root):
         out.append(("INBOX", "Bandeja de entrada"))
+
+    covered_system: set[str] = set()
     for child in sorted(root.iterdir(), key=lambda p: p.name.lower()):
         if not child.is_dir() or not child.name.startswith("."):
             continue
-        if (child / "cur").is_dir():
-            name = child.name[1:].replace("_", " ")
-            out.append((child.name, name))
-    return out
+        if not _has_maildir_mailbox(child):
+            continue
+        fid = child.name
+        sg = _system_group_for_subfolder(fid)
+        if sg:
+            covered_system.add(sg)
+            out.append((fid, _system_label(sg)))
+        else:
+            out.append((fid, fid[1:].replace("_", " ")))
+
+    for gid, _variants, canon_id, label in _SYSTEM_FOLDER_GROUP:
+        if gid in covered_system:
+            continue
+        dest = root / canon_id
+        try:
+            if not _has_maildir_mailbox(dest):
+                ensure_maildir_subfolder(dest)
+        except OSError:
+            continue
+        if not _has_maildir_mailbox(dest):
+            continue
+        out.append((canon_id, label))
+        covered_system.add(gid)
+
+    seen: set[str] = set()
+    deduped: list[tuple[str, str]] = []
+    for fid, name in out:
+        if fid in seen:
+            continue
+        seen.add(fid)
+        deduped.append((fid, name))
+
+    inbox_row = next(((i, n) for i, n in deduped if i == "INBOX"), None)
+    rest = sorted([x for x in deduped if x[0] != "INBOX"], key=lambda t: t[1].casefold())
+    if inbox_row:
+        return [inbox_row, *rest]
+    return rest
 
 
 @dataclass

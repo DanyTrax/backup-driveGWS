@@ -1,11 +1,12 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { HiEye, HiEyeOff } from 'react-icons/hi'
 import { Alert, Button, Card, Label, TextInput } from 'flowbite-react'
 import toast from 'react-hot-toast'
 import api from '../api/client'
+import { useBranding } from '../api/hooks'
 import { useAuthStore } from '../stores/auth'
-import type { TokenPair } from '../api/types'
+import { brandingInitials, mergeBranding, type TokenPair } from '../api/types'
 
 export default function LoginPage() {
   const [email, setEmail] = useState('')
@@ -15,8 +16,21 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [showPassword, setShowPassword] = useState(false)
+  const [logoFailed, setLogoFailed] = useState(false)
   const setTokens = useAuthStore((s) => s.setTokens)
   const navigate = useNavigate()
+  const { data: brandingRaw } = useBranding()
+  const b = mergeBranding(brandingRaw)
+
+  useEffect(() => {
+    document.title = `Iniciar sesión · ${b.app_name}`
+  }, [b.app_name])
+
+  useEffect(() => {
+    setLogoFailed(false)
+  }, [b.logo_url])
+
+  const showLogoImg = Boolean(b.logo_url && !logoFailed)
 
   async function submit(e: React.FormEvent) {
     e.preventDefault()
@@ -61,14 +75,31 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-600 to-sky-500 p-4">
+    <div
+      className="min-h-screen flex items-center justify-center p-4"
+      style={{
+        background: `linear-gradient(to bottom right, ${b.primary_color}, ${b.accent_color})`,
+      }}
+    >
       <Card className="w-full max-w-md">
         <div className="text-center">
-          <div className="mx-auto h-12 w-12 rounded-lg bg-blue-600 flex items-center justify-center text-white font-bold">
-            MSA
-          </div>
-          <h1 className="mt-3 text-2xl font-semibold text-slate-800">Backup Commander</h1>
-          <p className="text-sm text-slate-500">Orquestador de backups Google Workspace</p>
+          {showLogoImg ? (
+            <img
+              src={b.logo_url}
+              alt=""
+              className="mx-auto h-12 w-auto max-w-[220px] object-contain"
+              onError={() => setLogoFailed(true)}
+            />
+          ) : (
+            <div
+              className="mx-auto h-12 w-12 rounded-lg flex items-center justify-center text-white font-bold text-sm"
+              style={{ backgroundColor: b.primary_color }}
+            >
+              {brandingInitials(b.app_name)}
+            </div>
+          )}
+          <h1 className="mt-3 text-2xl font-semibold text-slate-800 dark:text-slate-100">{b.app_name}</h1>
+          <p className="text-sm text-slate-500 dark:text-slate-400">Orquestador de backups Google Workspace</p>
         </div>
         <form onSubmit={submit} className="space-y-4">
           <div>
@@ -116,7 +147,12 @@ export default function LoginPage() {
             </div>
           )}
           {error && <Alert color="failure">{error}</Alert>}
-          <Button type="submit" isProcessing={loading} className="w-full">
+          <Button
+            type="submit"
+            isProcessing={loading}
+            className="w-full text-white"
+            style={{ backgroundColor: b.primary_color }}
+          >
             Iniciar sesión
           </Button>
         </form>

@@ -44,6 +44,8 @@ def test_subfolder(tmp_path: Path) -> None:
 
     folders = list_maildir_folders(root)
     assert any(f[0] == ".Sent" for f in folders)
+    sent_entry = next(f for f in folders if f[0] == ".Sent")
+    assert sent_entry[1] == "Enviados"
 
     msgs = list_messages(root, folder_id=".Sent", limit=5, offset=0)
     assert len(msgs) == 1
@@ -74,3 +76,27 @@ def test_rejects_path_traversal(tmp_path: Path) -> None:
 
     with pytest.raises(ValueError):
         list_messages(root, folder_id="..", limit=1, offset=0)
+
+
+def test_new_only_subfolder_is_listed(tmp_path: Path) -> None:
+    root = tmp_path / "Maildir"
+    for sub in ("cur", "new", "tmp"):
+        (root / sub).mkdir(parents=True)
+    sent = root / ".Sent"
+    (sent / "new").mkdir(parents=True)
+    (sent / "tmp").mkdir(parents=True)
+
+    folders = list_maildir_folders(root)
+    assert any(f[0] == ".Sent" for f in folders)
+
+
+def test_standard_gmail_folders_created_when_absent(tmp_path: Path) -> None:
+    root = tmp_path / "Maildir"
+    for sub in ("cur", "new", "tmp"):
+        (root / sub).mkdir(parents=True)
+
+    folders = {fid: name for fid, name in list_maildir_folders(root)}
+    assert ".SENT" in folders and folders[".SENT"] == "Enviados"
+    assert ".DRAFT" in folders and folders[".DRAFT"] == "Borradores"
+    assert ".SPAM" in folders
+    assert (root / ".SENT" / "cur").is_dir()

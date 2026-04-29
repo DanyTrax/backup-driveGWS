@@ -14,9 +14,10 @@ import {
   HiShieldCheck,
   HiUserGroup,
 } from 'react-icons/hi'
-import { useProfile } from '../api/hooks'
+import { useBranding, useProfile } from '../api/hooks'
 import api from '../api/client'
 import { useAuthStore } from '../stores/auth'
+import { brandingInitials, mergeBranding } from '../api/types'
 
 const SIDEBAR_STORAGE_KEY = 'msa-sidebar-expanded'
 
@@ -48,9 +49,20 @@ function readSidebarExpanded(): boolean {
 
 export default function AppLayout() {
   const { data: profile } = useProfile()
+  const { data: brandRaw } = useBranding()
+  const brand = mergeBranding(brandRaw)
   const navigate = useNavigate()
   const { logout, refreshToken } = useAuthStore()
   const [sidebarExpanded, setSidebarExpanded] = useState(readSidebarExpanded)
+  const [brandLogoFailed, setBrandLogoFailed] = useState(false)
+
+  useEffect(() => {
+    document.title = brand.app_name
+  }, [brand.app_name])
+
+  useEffect(() => {
+    setBrandLogoFailed(false)
+  }, [brand.logo_url])
 
   useEffect(() => {
     try {
@@ -74,6 +86,7 @@ export default function AppLayout() {
 
   const perms = new Set(profile?.permissions ?? [])
   const visibleNav = NAV.filter((i) => !i.perm || perms.has(i.perm))
+  const showHeaderLogo = Boolean(brand.logo_url && !brandLogoFailed)
 
   return (
     <div className="flex min-h-screen bg-slate-50 dark:bg-slate-950">
@@ -102,19 +115,38 @@ export default function AppLayout() {
           </button>
           {sidebarExpanded ? (
             <div className="flex min-w-0 flex-1 items-center gap-2">
-              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-blue-600 text-sm font-bold text-white">
-                MSA
-              </div>
-              <span className="truncate text-sm font-semibold text-slate-900 dark:text-white">
-                Backup Commander
-              </span>
+              {showHeaderLogo ? (
+                <img
+                  src={brand.logo_url}
+                  alt=""
+                  className="h-8 w-auto max-w-[140px] object-contain shrink-0"
+                  onError={() => setBrandLogoFailed(true)}
+                />
+              ) : (
+                <div
+                  className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-xs font-bold text-white"
+                  style={{ backgroundColor: brand.primary_color }}
+                >
+                  {brandingInitials(brand.app_name)}
+                </div>
+              )}
+              <span className="truncate text-sm font-semibold text-slate-900 dark:text-white">{brand.app_name}</span>
             </div>
+          ) : showHeaderLogo ? (
+            <img
+              src={brand.logo_url}
+              alt=""
+              className="flex h-8 w-auto max-w-[2.5rem] object-contain shrink-0 rounded"
+              title={brand.app_name}
+              onError={() => setBrandLogoFailed(true)}
+            />
           ) : (
             <div
-              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-blue-600 text-xs font-bold text-white"
-              title="MSA Backup Commander"
+              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-xs font-bold text-white"
+              style={{ backgroundColor: brand.primary_color }}
+              title={brand.app_name}
             >
-              MSA
+              {brandingInitials(brand.app_name)}
             </div>
           )}
         </div>
@@ -125,13 +157,20 @@ export default function AppLayout() {
                 <NavLink
                   to={item.to}
                   title={item.label}
+                  style={({ isActive }) =>
+                    isActive
+                      ? {
+                          backgroundColor: `${brand.primary_color}22`,
+                          color: brand.primary_color,
+                        }
+                      : undefined
+                  }
                   className={({ isActive }) =>
                     clsx(
                       'flex items-center rounded-lg text-sm font-medium transition-colors',
                       sidebarExpanded ? 'gap-3 px-3 py-2.5' : 'justify-center px-0 py-2.5',
-                      isActive
-                        ? 'bg-blue-50 text-blue-700 dark:bg-blue-950/50 dark:text-blue-300'
-                        : 'text-slate-600 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-800',
+                      !isActive &&
+                        'text-slate-600 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-800',
                     )
                   }
                 >
@@ -156,7 +195,7 @@ export default function AppLayout() {
             to="/dashboard"
             className="truncate text-sm font-medium text-slate-700 dark:text-slate-200 md:text-base"
           >
-            MSA Backup Commander
+            {brand.app_name}
           </Link>
           <Dropdown
             arrowIcon={false}

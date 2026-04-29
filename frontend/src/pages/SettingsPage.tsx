@@ -1,13 +1,218 @@
-import { useState } from 'react'
-import { Button, Card, Modal, TextInput } from 'flowbite-react'
+import { useEffect, useState } from 'react'
+import { Button, Card, Label, Modal, TextInput } from 'flowbite-react'
 import toast from 'react-hot-toast'
 import { HiRefresh } from 'react-icons/hi'
 import { Link } from 'react-router-dom'
-import { useGitRefresh, usePlatformBackupRun, useProfile, usePurgeAllLocalMail } from '../api/hooks'
-import { PURGE_ALL_LOCAL_MAIL_CONFIRM_PHRASE } from '../api/types'
+import {
+  useBranding,
+  useBrandingConfig,
+  useDeleteBrandingLogo,
+  useGitRefresh,
+  usePlatformBackupRun,
+  useProfile,
+  usePurgeAllLocalMail,
+  useUpdateBranding,
+  useUploadBrandingLogo,
+} from '../api/hooks'
+import {
+  PURGE_ALL_LOCAL_MAIL_CONFIRM_PHRASE,
+  brandingInitials,
+  mergeBranding,
+  type BrandingConfig,
+} from '../api/types'
+
+const HEX = /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/
+
+function BrandingSettingsForm({ config, canEdit }: { config: BrandingConfig; canEdit: boolean }) {
+  const { data: publicBrand } = useBranding()
+  const preview = mergeBranding(publicBrand)
+  const updateBranding = useUpdateBranding()
+  const uploadLogo = useUploadBrandingLogo()
+  const deleteLogoFile = useDeleteBrandingLogo()
+
+  const [appName, setAppName] = useState(config.app_name)
+  const [primary, setPrimary] = useState(config.primary_color)
+  const [accent, setAccent] = useState(config.accent_color)
+  const [logoUrl, setLogoUrl] = useState(config.logo_url_external)
+  const [logoFailPreview, setLogoFailPreview] = useState(false)
+
+  useEffect(() => {
+    setAppName(config.app_name)
+    setPrimary(config.primary_color)
+    setAccent(config.accent_color)
+    setLogoUrl(config.logo_url_external)
+  }, [config])
+
+  useEffect(() => {
+    setLogoFailPreview(false)
+  }, [preview.logo_url])
+
+  async function onSave() {
+    if (!HEX.test(primary.trim()) || !HEX.test(accent.trim())) {
+      toast.error('Los colores deben ser hex válidos (#RGB, #RRGGBB o #RRGGBBAA).')
+      return
+    }
+    try {
+      await updateBranding.mutateAsync({
+        app_name: appName.trim() || 'MSA Backup Commander',
+        primary_color: primary.trim(),
+        accent_color: accent.trim(),
+        logo_url: logoUrl.trim(),
+      })
+      toast.success('Branding guardado.')
+    } catch (err: unknown) {
+      const st = (err as { response?: { status?: number } })?.response?.status
+      if (st === 403) {
+        toast.error('Sin permiso para editar branding (settings.branding).')
+      } else if (st === 422) {
+        toast.error('Validación: revisá URL del logo (http(s) o ruta que empiece con /) y colores.')
+      } else {
+        toast.error('No se pudo guardar el branding.')
+      }
+    }
+  }
+
+  async function onPickFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    e.target.value = ''
+    if (!file || !canEdit) return
+    try {
+      await uploadLogo.mutateAsync(file)
+      toast.success('Logo subido. La URL guardada se vació para priorizar el archivo.')
+    } catch (err: unknown) {
+      const st = (err as { response?: { status?: number } })?.response?.status
+      if (st === 403) toast.error('Sin permiso (settings.branding).')
+      else if (st === 400) toast.error('Archivo no permitido o demasiado grande (máx. 2 MB).')
+      else toast.error('No se pudo subir el logo.')
+    }
+  }
+
+  async function onDeleteUploaded() {
+    if (!canEdit) return
+    try {
+      await deleteLogoFile.mutateAsync()
+      toast.success('Archivo de logo eliminado del servidor.')
+    } catch (err: unknown) {
+      const st = (err as { response?: { status?: number } })?.response?.status
+      if (st === 403) toast.error('Sin permiso (settings.branding).')
+      else toast.error('No se pudo eliminar el archivo.')
+    }
+  }
+
+  const busy = updateBranding.isPending || uploadLogo.isPending || deleteLogoFile.isPending
+
+  return (
+    <div className="space-y-4">
+      {!canEdit ? (
+        <p className="text-sm text-amber-700 dark:text-amber-400">
+          Solo lectura: tu rol no incluye permiso <code className="text-xs">settings.branding</code>.
+        </p>
+      ) : null}
+
+      <div className="rounded-lg border border-slate-200 dark:border-slate-700 p-3 bg-slate-50/80 dark:bg-slate-900/40">
+        <p className="text-xs font-medium text-slate-500 dark:text-slate-400 mb-2">Vista previa pública</p>
+        <div
+          className="rounded-md p-4 flex flex-col items-center gap-2 text-center"
+          style={{
+            background: `linear-gradient(135deg, ${preview.primary_color}, ${preview.accent_color})`,
+          }}
+        >
+          {preview.logo_url && !logoFailPreview ? (
+            <img
+              src={preview.logo_url}
+              alt=""
+              className="h-10 w-auto max-w-[180px] object-contain bg-white/90 rounded px-1"
+              onError={() => setLogoFailPreview(true)}
+            />
+          ) : (
+            <span
+              className="inline-flex h-10 w-10 items-center justify-center rounded-md text-sm font-bold text-white"
+              style={{ backgroundColor: preview.primary_color }}
+            >
+              {brandingInitials(preview.app_name)}
+            </span>
+          )}
+          <span className="text-sm font-semibold text-white drop-shadow-sm">{preview.app_name}</span>
+        </div>
+      </div>
+
+      <div className="grid gap-3 sm:grid-cols-2">
+        <div className="sm:col-span-2">
+          <Label htmlFor="branding-app-name" value="Nombre visible" />
+          <TextInput
+            id="branding-app-name"
+            value={appName}
+            onChange={(e) => setAppName(e.target.value)}
+            disabled={!canEdit || busy}
+          />
+        </div>
+        <div>
+          <Label htmlFor="branding-primary" value="Color primario" />
+          <TextInput
+            id="branding-primary"
+            value={primary}
+            onChange={(e) => setPrimary(e.target.value)}
+            disabled={!canEdit || busy}
+            type="text"
+          />
+          <p className="mt-1 text-xs text-slate-500">Hex, ej. #1d4ed8</p>
+        </div>
+        <div>
+          <Label htmlFor="branding-accent" value="Color acento" />
+          <TextInput
+            id="branding-accent"
+            value={accent}
+            onChange={(e) => setAccent(e.target.value)}
+            disabled={!canEdit || busy}
+            type="text"
+          />
+          <p className="mt-1 text-xs text-slate-500">Hex, ej. #0ea5e9</p>
+        </div>
+        <div className="sm:col-span-2">
+          <Label htmlFor="branding-logo-url" value="URL del logo (opcional)" />
+          <TextInput
+            id="branding-logo-url"
+            value={logoUrl}
+            onChange={(e) => setLogoUrl(e.target.value)}
+            disabled={!canEdit || busy}
+            placeholder="https://… o /ruta/relativa.svg"
+          />
+          <p className="mt-1 text-xs text-slate-500">
+            Si guardás una URL http(s) o ruta absoluta /…, se elimina un logo previamente subido como archivo.
+          </p>
+        </div>
+      </div>
+
+      <div className="space-y-2">
+        <Label value="Logo como archivo (PNG, JPG, WebP, SVG, GIF)" />
+        <input
+          type="file"
+          accept=".png,.jpg,.jpeg,.webp,.svg,.gif,image/png,image/jpeg,image/webp,image/svg+xml,image/gif"
+          disabled={!canEdit || busy}
+          onChange={(e) => void onPickFile(e)}
+          className="block w-full text-sm text-slate-600 dark:text-slate-400 file:mr-3 file:rounded-lg file:border-0 file:bg-slate-200 file:px-3 file:py-2 file:text-sm file:font-medium dark:file:bg-slate-700"
+        />
+        {config.has_uploaded_logo ? (
+          <Button size="xs" color="light" disabled={!canEdit || busy} onClick={() => void onDeleteUploaded()}>
+            Quitar solo el archivo del servidor
+          </Button>
+        ) : (
+          <p className="text-xs text-slate-500">No hay archivo de logo en disco (o ya fue reemplazado por URL).</p>
+        )}
+      </div>
+
+      {canEdit ? (
+        <Button color="blue" disabled={busy} isProcessing={busy} onClick={() => void onSave()}>
+          Guardar branding
+        </Button>
+      ) : null}
+    </div>
+  )
+}
 
 export default function SettingsPage() {
   const { data: profile } = useProfile()
+  const { data: brandingConfig, isLoading: brandingLoading } = useBrandingConfig()
   const gitRefresh = useGitRefresh()
   const platformBackup = usePlatformBackupRun()
   const purgeAllMail = usePurgeAllLocalMail()
@@ -15,6 +220,7 @@ export default function SettingsPage() {
   const canGitRefresh = perms.has('platform.refresh')
   const canPlatformBackup = perms.has('platform.backup')
   const canPurgeAllMail = perms.has('platform.purge_all_mail_local')
+  const canBranding = perms.has('settings.branding')
   const [showPurgeModal, setShowPurgeModal] = useState(false)
   const [purgePhrase, setPurgePhrase] = useState('')
 
@@ -128,11 +334,16 @@ export default function SettingsPage() {
             Conecta Telegram, Discord y Gmail. Define matrices por categoría.
           </p>
         </Card>
-        <Card>
+        <Card className="md:col-span-2">
           <h2 className="font-semibold">Branding</h2>
-          <p className="text-sm text-slate-500">
-            Cambia logo, colores y nombre visible de la plataforma.
+          <p className="text-sm text-slate-500 mb-4">
+            Cambia logo, colores y nombre visible de la plataforma (login, título del navegador y cabecera del panel).
           </p>
+          {brandingLoading || !brandingConfig ? (
+            <p className="text-sm text-slate-500">Cargando configuración…</p>
+          ) : (
+            <BrandingSettingsForm config={brandingConfig} canEdit={canBranding} />
+          )}
         </Card>
         <Card>
           <h2 className="font-semibold mb-2">Git y respaldo de plataforma</h2>
