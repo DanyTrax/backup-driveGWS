@@ -111,6 +111,8 @@ class BackupLogOut(BaseModel):
     sha256_manifest_path: str | None
     destination_path: str | None
     error_summary: str | None
+    gmail_maildir_ready_at: datetime | None = None
+    gmail_vault_completed_at: datetime | None = None
     task_name: str | None = None
     account_email: str | None = None
     live_progress: dict[str, Any] | None = None

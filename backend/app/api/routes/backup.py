@@ -5,6 +5,8 @@ import logging
 import uuid
 from typing import Any
 
+from pathlib import Path
+
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, WebSocket, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -18,13 +20,18 @@ from app.api.deps import (
 )
 from app.core.database import AsyncSessionLocal
 from app.models.accounts import GwAccount
-from app.models.enums import AuditAction
+from app.models.enums import AuditAction, BackupScope
 from app.models.tasks import BackupLog, BackupTask
 from app.models.users import SysUser
 from app.schemas.tasks import BackupLogOut
 from app.services.audit_service import record_audit
 from app.services.backup_batch_registry import cancel_entire_batch
-from app.services.backup_engine import cancel_backup
+from app.services.backup_concurrency_service import active_backup_log_id
+from app.services.backup_engine import (
+    cancel_backup,
+    gmail_log_vault_retry_reason,
+    gyb_workdir_has_export,
+)
 from app.services.progress_bus import last_event, subscribe
 
 router = APIRouter(prefix="/backup", tags=["backup"])
@@ -70,6 +77,8 @@ def _to_out(
         sha256_manifest_path=l.sha256_manifest_path,
         destination_path=l.destination_path,
         error_summary=l.error_summary,
+        gmail_maildir_ready_at=l.gmail_maildir_ready_at,
+        gmail_vault_completed_at=l.gmail_vault_completed_at,
         task_name=task_name,
         account_email=account_email,
     )
@@ -182,6 +191,72 @@ async def cancel_log(
         target_id=str(log_id),
     )
     await db.commit()
+
+
+@router.post(
+    "/logs/{log_id}/retry-gmail-vault",
+    status_code=status.HTTP_202_ACCEPTED,
+)
+async def retry_gmail_vault(
+    log_id: uuid.UUID,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    current: SysUser = Depends(require_permission("tasks.run")),
+) -> dict[str, str | bool]:
+    """Reintenta solo la subida del export GYB a 1-GMAIL/gyb_mbox (Maildir local ya consolidado)."""
+    log = await db.get(BackupLog, log_id)
+    if log is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail={"error": "log_not_found"})
+    task = await db.get(BackupTask, log.task_id)
+    account = await db.get(GwAccount, log.account_id)
+    if task is None or account is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail={"error": "task_or_account_missing"})
+
+    reason = gmail_log_vault_retry_reason(log, task)
+    if reason:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail={"error": reason})
+
+    work_root = Path(f"/var/msa/work/gmail/{account.email}")
+    if not gyb_workdir_has_export(work_root):
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            detail={"error": "gyb_workdir_empty"},
+        )
+    if not (account.drive_vault_folder_id or "").strip():
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            detail={"error": "missing_vault_folder"},
+        )
+
+    dup = await active_backup_log_id(
+        db,
+        task_id=log.task_id,
+        account_id=log.account_id,
+        log_scope=BackupScope.GMAIL.value,
+    )
+    if dup is not None and dup != log.id:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            detail={"error": "active_gmail_backup_exists", "active_log_id": str(dup)},
+        )
+
+    from app.workers.tasks.backup_gmail_vault_retry import run as retry_gmail_vault_task
+
+    async_result = retry_gmail_vault_task.delay(str(log_id))
+    await record_audit(
+        db,
+        action=AuditAction.BACKUP_TRIGGERED,
+        actor_user_id=current.id,
+        actor_label=current.email,
+        ip_address=get_client_ip(request),
+        user_agent=get_user_agent(request),
+        target_table="backup_logs",
+        target_id=str(log_id),
+        message="gmail_vault_retry_queued",
+        metadata={"celery_id": async_result.id},
+    )
+    await db.commit()
+    return {"queued": True, "celery_id": async_result.id}
 
 
 @router.websocket("/ws/progress/{log_id}")

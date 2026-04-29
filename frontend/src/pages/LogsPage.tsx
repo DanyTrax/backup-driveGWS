@@ -7,6 +7,7 @@ import {
   useBackupLogs,
   useCancelBackupBatch,
   useCancelBackupLog,
+  useRetryGmailVault,
 } from '../api/hooks'
 import type { BackupLog } from '../api/types'
 
@@ -67,6 +68,10 @@ function describeLiveProgress(p: Record<string, unknown> | null | undefined): st
   if (stage === 'retention') return 'Aplicando retención en snapshots de Drive después del backup.'
   if (stage === 'retention_warning') return 'Aviso durante retención de Drive (revisá logs del worker si persiste).'
   if (stage === 'worker_skipped') return 'Omitido: ya había otro backup activo para esta cuenta y alcance.'
+  if (stage === 'gyb_done') return 'GYB terminó la descarga; sigue la importación al buzón Maildir local.'
+  if (stage === 'maildir_ready')
+    return 'Buzón local listo: ya podés revisar correo en el visor / IMAP mientras continúa la subida al vault (si aplica).'
+  if (stage === 'vault_push_retry') return 'Reintentando solo la subida del export a la bóveda Google (1-GMAIL/…)…'
   if (stage === 'cancelled') return 'Cancelación registrada.'
   if (stage === 'failed') return 'El worker reportó un fallo en esta fase (ver detalle abajo si hay traza).'
   if (stage === 'done') return 'El worker marcó paso «done»; el log puede tardar un momento en pasar a exitoso.'
@@ -118,11 +123,21 @@ function taskTypeLabel(scope: string, mode: string): string {
   return `${scopePart} · ${modePart}`
 }
 
+/** Reintento solo de rclone al vault (1-GMAIL); requiere export GYB aún en disco. */
+function canRetryGmailVault(log: BackupLog): boolean {
+  if (log.scope !== 'gmail') return false
+  if (!log.gmail_maildir_ready_at) return false
+  if (log.gmail_vault_completed_at) return false
+  if (log.status !== 'failed' && log.status !== 'cancelled') return false
+  return true
+}
+
 export default function LogsPage() {
   const [status, setStatus] = useState<string>('')
   const { data = [], isLoading } = useBackupLogs({ status: status || undefined })
   const cancelLog = useCancelBackupLog()
   const cancelBatch = useCancelBackupBatch()
+  const retryGmailVault = useRetryGmailVault()
 
   const [confirmLog, setConfirmLog] = useState<BackupLog | null>(null)
   const [detailId, setDetailId] = useState<string | null>(null)
@@ -377,6 +392,14 @@ export default function LogsPage() {
                   </dd>
                 </div>
                 <div>
+                  <dt className="text-slate-500">Pipeline Gmail (local / vault)</dt>
+                  <dd className="text-xs">
+                    Maildir en BD: {detailQuery.data.gmail_maildir_ready_at ?? '—'}
+                    <br />
+                    Vault 1-GMAIL: {detailQuery.data.gmail_vault_completed_at ?? '—'}
+                  </dd>
+                </div>
+                <div>
                   <dt className="text-slate-500">Scope / modo (técnico)</dt>
                   <dd>
                     {detailQuery.data.scope} · {detailQuery.data.mode}
@@ -432,7 +455,25 @@ export default function LogsPage() {
             </>
           ) : null}
         </Modal.Body>
-        <Modal.Footer>
+        <Modal.Footer className="flex flex-wrap gap-2 justify-end">
+          {detailQuery.data && canRetryGmailVault(detailQuery.data) ? (
+            <Button
+              color="blue"
+              disabled={retryGmailVault.isPending}
+              onClick={() => {
+                void (async () => {
+                  try {
+                    const r = await retryGmailVault.mutateAsync(detailQuery.data!.id)
+                    toast.success(`Reintento encolado (Celery ${r.celery_id.slice(0, 8)}…)`)
+                  } catch {
+                    toast.error('No se pudo encolar el reintento (¿workdir GYB vacío u otro backup activo?)')
+                  }
+                })()
+              }}
+            >
+              Reintentar subida al vault
+            </Button>
+          ) : null}
           <Button color="gray" onClick={() => setDetailId(null)}>
             Cerrar
           </Button>

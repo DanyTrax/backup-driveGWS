@@ -73,6 +73,8 @@ def test_backup_logs_tracks_rclone_rc_and_checksum() -> None:
         "sha256_manifest_path",
         "celery_task_id",
         "run_batch_id",
+        "gmail_maildir_ready_at",
+        "gmail_vault_completed_at",
     } <= cols
 
 

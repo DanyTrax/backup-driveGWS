@@ -193,6 +193,10 @@ export interface BackupLog {
   sha256_manifest_path: string | null
   destination_path: string | null
   error_summary: string | null
+  /** Tras importar Maildir: correo local listo (IMAP/visor) antes del vault */
+  gmail_maildir_ready_at?: string | null
+  /** Subida 1-GMAIL/gyb_mbox completada (o omitida según política de tarea) */
+  gmail_vault_completed_at?: string | null
   /** Nombre de la definición de tarea (backup_tasks.name) */
   task_name?: string | null
   /** Correo Workspace de la cuenta ejecutada */

@@ -173,6 +173,18 @@ export function useCancelBackupBatch() {
   })
 }
 
+export function useRetryGmailVault() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (logId: string) =>
+      (await api.post<{ queued: boolean; celery_id: string }>(`/backup/logs/${logId}/retry-gmail-vault`)).data,
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['backup-logs'] })
+      void qc.invalidateQueries({ queryKey: ['backup-log-detail'] })
+    },
+  })
+}
+
 export function useCreateTask() {
   const qc = useQueryClient()
   return useMutation({

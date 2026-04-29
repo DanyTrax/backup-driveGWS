@@ -122,6 +122,240 @@ def _write_manifest(root: Path, manifest_path: Path) -> tuple[int, int]:
     return files, total_bytes
 
 
+def gyb_workdir_has_export(work_root: Path) -> bool:
+    """True si queda export GYB (.eml / .mbox) en disco (reintento vault)."""
+    if not work_root.is_dir():
+        return False
+    for p in work_root.rglob("*"):
+        if p.is_file() and p.suffix.lower() in (".eml", ".mbox"):
+            return True
+    return False
+
+
+async def run_gmail_vault_push_phase(
+    db: AsyncSession,
+    *,
+    log: BackupLog,
+    task: BackupTask,
+    account: GwAccount,
+    work_root: Path,
+    log_id_str: str,
+    want_vault_push: bool,
+    vault_id: str,
+) -> tuple[bool, str | None]:
+    """Sube export GYB a ``1-GMAIL/gyb_mbox``. Devuelve (False, resumen) si falla rclone/check."""
+    if not want_vault_push:
+        return True, None
+
+    subp = vault_layout.gmail_vault_rclone_subpath()
+    await publish(
+        log_id_str,
+        {
+            "stage": "vault_push",
+            "scope": "gmail",
+            "subpath": subp,
+        },
+    )
+    async with rclone_service.build_rclone_vault_dest_only_config(
+        db, vault_folder_id=vault_id
+    ) as push_cfg:
+        pargv = rclone_service.build_rclone_local_to_vault_argv(
+            str(work_root),
+            push_cfg,
+            dest_subpath=subp,
+            dry_run=False,
+        )
+        vrc, vout = await rclone_service.run_rclone(pargv, cancel_log_id=log_id_str)
+        await db.refresh(log)
+        if log.status == BackupStatus.CANCELLED.value:
+            return False, "cancelled"
+        if vrc != 0:
+            return False, f"vault_rclone_to_1_gmail_rc={vrc}\n{vout[-4000:]}"
+
+        workdir_purged = False
+        want_purge = vault_layout.gmail_purge_gyb_workdir_after_vault_verified(
+            task.filters_json or {}
+        )
+        if want_purge:
+            cargv = rclone_service.build_rclone_check_local_vault_argv(
+                str(work_root),
+                push_cfg,
+                dest_subpath=subp,
+            )
+            crc, cout = await rclone_service.run_rclone(cargv, cancel_log_id=log_id_str)
+            await db.refresh(log)
+            if log.status == BackupStatus.CANCELLED.value:
+                return False, "cancelled"
+            if crc != 0:
+                return (
+                    False,
+                    (
+                        "vault_rclone_check_failed_after_copy (no se vació work GYB; "
+                        f"revisar 1-GMAIL/gyb_mbox en Drive)\nrc={crc}\n{cout[-4000:]}"
+                    ),
+                )
+            await publish(
+                log_id_str,
+                {
+                    "stage": "gyb_workdir_purge",
+                    "scope": "gmail",
+                    "path": str(work_root),
+                },
+            )
+            await asyncio.to_thread(_purge_gyb_workdir_contents, work_root)
+            workdir_purged = True
+
+        await publish(
+            log_id_str,
+            {
+                "stage": "vault_push",
+                "ok": True,
+                "scope": "gmail",
+                "workdir_purged": workdir_purged,
+            },
+        )
+    return True, None
+
+
+def gmail_log_vault_retry_reason(log: BackupLog, task: BackupTask) -> str | None:
+    """None si se puede reintentar solo la fase vault; código corto en caso contrario."""
+    if log.scope != BackupScope.GMAIL.value:
+        return "not_gmail_scope"
+    if log.gmail_maildir_ready_at is None:
+        return "maildir_not_ready"
+    if log.gmail_vault_completed_at is not None:
+        return "vault_already_done"
+    if log.status not in (
+        BackupStatus.FAILED.value,
+        BackupStatus.CANCELLED.value,
+    ):
+        return "invalid_status"
+    if not vault_layout.use_gmail_vault_push(task.filters_json or {}):
+        return "vault_push_disabled"
+    return None
+
+
+async def retry_gmail_vault_push(
+    db: AsyncSession,
+    log_id: uuid.UUID,
+    celery_task_id: str,
+) -> BackupLog:
+    """Reanuda solo la subida al vault para un log Gmail con Maildir ya consolidado y vault pendiente."""
+    stmt = select(BackupLog).where(BackupLog.id == log_id).with_for_update()
+    log = (await db.execute(stmt)).scalar_one_or_none()
+    if log is None:
+        raise ValueError("log_not_found")
+
+    task = await db.get(BackupTask, log.task_id)
+    account = await db.get(GwAccount, log.account_id)
+    if task is None or account is None:
+        raise ValueError("task_or_account_missing")
+
+    reason = gmail_log_vault_retry_reason(log, task)
+    if reason:
+        raise ValueError(reason)
+
+    work_root = Path(f"/var/msa/work/gmail/{account.email}")
+    if not gyb_workdir_has_export(work_root):
+        raise ValueError("gyb_workdir_empty")
+
+    vault_id = (account.drive_vault_folder_id or "").strip()
+    if not vault_id:
+        raise ValueError("missing_vault_folder")
+
+    dup = await active_backup_log_id(
+        db,
+        task_id=log.task_id,
+        account_id=log.account_id,
+        log_scope=BackupScope.GMAIL.value,
+    )
+    if dup is not None and dup != log.id:
+        raise ValueError("active_gmail_backup_exists")
+
+    log.status = BackupStatus.RUNNING.value
+    log.finished_at = None
+    log.error_summary = None
+    log.celery_task_id = celery_task_id
+    await db.commit()
+    await db.refresh(log)
+
+    log_id_str = str(log.id)
+    await publish(
+        log_id_str,
+        {"stage": "vault_push_retry", "scope": "gmail", "account": account.email},
+    )
+
+    maildir_target = maildir_root_for_account(account)
+    manifest_path = work_root / "manifest.sha256"
+
+    try:
+        ok, err = await run_gmail_vault_push_phase(
+            db,
+            log=log,
+            task=task,
+            account=account,
+            work_root=work_root,
+            log_id_str=log_id_str,
+            want_vault_push=True,
+            vault_id=vault_id,
+        )
+        await db.refresh(log)
+        if log.status == BackupStatus.CANCELLED.value:
+            await publish(log_id_str, {"stage": "cancelled"})
+            await db.commit()
+            return log
+        if not ok:
+            if err == "cancelled":
+                await publish(log_id_str, {"stage": "cancelled"})
+                await db.commit()
+                return log
+            await _finalise_log(db, log, status=BackupStatus.FAILED, error_summary=err)
+            await publish(
+                log_id_str,
+                {"stage": "failed", "scope": "vault_push", "retry": True},
+            )
+            await db.commit()
+            return log
+
+        files, total_bytes = await asyncio.to_thread(
+            _write_manifest, maildir_target, manifest_path
+        )
+        stats_messages = log.messages_count
+        await _finalise_log(
+            db,
+            log,
+            status=BackupStatus.SUCCESS,
+            stats={
+                "messages": stats_messages,
+                "files": files,
+                "bytes": total_bytes,
+            },
+        )
+        log.sha256_manifest_path = str(manifest_path)
+        log.destination_path = str(maildir_target)
+        log.gmail_vault_completed_at = datetime.now(UTC)
+        account.last_successful_backup_at = datetime.now(UTC)
+        account.total_bytes_cache = total_bytes
+        if stats_messages:
+            account.total_messages_cache = stats_messages
+        await publish(
+            log_id_str,
+            {
+                "stage": "done",
+                "status": "success",
+                "messages": stats_messages,
+                "vault_retry": True,
+            },
+        )
+        await db.commit()
+        return log
+    except Exception as exc:  # pragma: no cover
+        await _finalise_log(db, log, status=BackupStatus.FAILED, error_summary=str(exc))
+        await publish(log_id_str, {"stage": "failed", "error": str(exc), "retry": True})
+        await db.commit()
+        return log
+
+
 async def run_drive_backup(
     db: AsyncSession,
     *,
@@ -391,8 +625,17 @@ async def run_gmail_backup(
                     "account": account.email,
                     "messages": stats.messages,
                     "next": "vault_push_or_finalize",
+                    "local_mail_ready": True,
                 },
             )
+            log.gmail_maildir_ready_at = datetime.now(UTC)
+            log.messages_count = stats.messages
+            account.imap_enabled = True
+            account.total_messages_cache = stats.messages
+            account.maildir_user_cleared_at = None
+            await db.commit()
+            await db.refresh(log)
+            await db.refresh(account)
         else:
             stats = maildir_service.MaildirImportStats()
             await asyncio.to_thread(maildir_service.ensure_maildir_layout, maildir_target)
@@ -405,98 +648,39 @@ async def run_gmail_backup(
 
         files, total_bytes = await asyncio.to_thread(_write_manifest, maildir_target, manifest_path)
 
-        if not task.dry_run and want_vault_push:
-            subp = vault_layout.gmail_vault_rclone_subpath()
-            await publish(
-                log_id,
-                {
-                    "stage": "vault_push",
-                    "scope": "gmail",
-                    "subpath": subp,
-                },
+        if not task.dry_run:
+            ok, verr = await run_gmail_vault_push_phase(
+                db,
+                log=log,
+                task=task,
+                account=account,
+                work_root=work_root,
+                log_id_str=log_id,
+                want_vault_push=want_vault_push,
+                vault_id=vault_id,
             )
-            async with rclone_service.build_rclone_vault_dest_only_config(
-                db, vault_folder_id=vault_id
-            ) as push_cfg:
-                pargv = rclone_service.build_rclone_local_to_vault_argv(
-                    str(work_root),
-                    push_cfg,
-                    dest_subpath=subp,
-                    dry_run=False,
-                )
-                vrc, vout = await rclone_service.run_rclone(pargv, cancel_log_id=log_id)
-                await db.refresh(log)
-                if log.status == BackupStatus.CANCELLED.value:
+            await db.refresh(log)
+            if log.status == BackupStatus.CANCELLED.value:
+                await publish(log_id, {"stage": "cancelled"})
+                await db.commit()
+                return log
+            if not ok:
+                if verr == "cancelled":
                     await publish(log_id, {"stage": "cancelled"})
                     await db.commit()
                     return log
-                if vrc != 0:
-                    await _finalise_log(
-                        db,
-                        log,
-                        status=BackupStatus.FAILED,
-                        error_summary=f"vault_rclone_to_1_gmail_rc={vrc}\n{vout[-4000:]}",
-                    )
-                    await publish(log_id, {"stage": "failed", "scope": "vault_push", "returncode": vrc})
-                    await db.commit()
-                    return log
-
-                workdir_purged = False
-                want_purge = vault_layout.gmail_purge_gyb_workdir_after_vault_verified(
-                    task.filters_json or {}
+                await _finalise_log(
+                    db,
+                    log,
+                    status=BackupStatus.FAILED,
+                    error_summary=verr,
                 )
-                if want_purge:
-                    cargv = rclone_service.build_rclone_check_local_vault_argv(
-                        str(work_root),
-                        push_cfg,
-                        dest_subpath=subp,
-                    )
-                    crc, cout = await rclone_service.run_rclone(cargv, cancel_log_id=log_id)
-                    await db.refresh(log)
-                    if log.status == BackupStatus.CANCELLED.value:
-                        await publish(log_id, {"stage": "cancelled"})
-                        await db.commit()
-                        return log
-                    if crc != 0:
-                        await _finalise_log(
-                            db,
-                            log,
-                            status=BackupStatus.FAILED,
-                            error_summary=(
-                                "vault_rclone_check_failed_after_copy (no se vació work GYB; "
-                                f"revisar 1-GMAIL/gyb_mbox en Drive)\nrc={crc}\n{cout[-4000:]}"
-                            ),
-                        )
-                        await publish(
-                            log_id,
-                            {
-                                "stage": "failed",
-                                "scope": "vault_check",
-                                "returncode": crc,
-                            },
-                        )
-                        await db.commit()
-                        return log
-                    await publish(
-                        log_id,
-                        {
-                            "stage": "gyb_workdir_purge",
-                            "scope": "gmail",
-                            "path": str(work_root),
-                        },
-                    )
-                    await asyncio.to_thread(_purge_gyb_workdir_contents, work_root)
-                    workdir_purged = True
-
-            await publish(
-                log_id,
-                {
-                    "stage": "vault_push",
-                    "ok": True,
-                    "scope": "gmail",
-                    "workdir_purged": workdir_purged,
-                },
-            )
+                await publish(
+                    log_id,
+                    {"stage": "failed", "scope": "vault_push"},
+                )
+                await db.commit()
+                return log
     except Exception as exc:  # pragma: no cover
         await _finalise_log(db, log, status=BackupStatus.FAILED, error_summary=str(exc))
         await publish(log_id, {"stage": "failed", "error": str(exc)})
@@ -515,12 +699,14 @@ async def run_gmail_backup(
     )
     log.sha256_manifest_path = str(manifest_path)
     log.destination_path = str(maildir_target)
-    account.imap_enabled = True
-    account.total_messages_cache = stats.messages
+    if task.dry_run:
+        account.imap_enabled = True
+        account.total_messages_cache = stats.messages
     account.total_bytes_cache = total_bytes
     account.last_successful_backup_at = datetime.now(UTC)
     if not task.dry_run:
         account.maildir_user_cleared_at = None
+        log.gmail_vault_completed_at = datetime.now(UTC)
     await publish(log_id, {"stage": "done", "status": "success", "messages": stats.messages})
     await db.commit()
     return log

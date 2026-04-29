@@ -165,6 +165,16 @@ class BackupLog(UUIDPKMixin, TimestampMixin, Base):
     error_summary: Mapped[str | None] = mapped_column(Text)
     detail_log_path: Mapped[str | None] = mapped_column(String(500))
 
+    # Gmail: fases del pipeline (visor/IMAP tras Maildir; reintento solo vault).
+    gmail_maildir_ready_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+    gmail_vault_completed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+
     __table_args__ = (
         Index("ix_backup_logs_status_started", "status", "started_at"),
         Index("ix_backup_logs_account_started", "account_id", "started_at"),
