@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
+import type { AxiosError } from 'axios'
 import { Badge, Button, Card, Checkbox, Label, Modal, Select, TextInput, Textarea } from 'flowbite-react'
 import { HiPencil, HiPlay, HiPlus, HiTrash } from 'react-icons/hi'
 import toast from 'react-hot-toast'
@@ -131,6 +132,38 @@ export default function TasksPage() {
   const update = useUpdateTask()
   const remove = useDeleteTask()
 
+  async function runTaskWithFeedback(taskId: string) {
+    let estHint = ''
+    try {
+      const est: RunEstimateOut = (await api.get<RunEstimateOut>(`/tasks/${taskId}/run-estimate`)).data
+      if (est.sum_minutes_min != null && est.sum_minutes_max != null) {
+        estHint = ` · ~${est.sum_minutes_min}–${est.sum_minutes_max} min de trabajo aprox. (heurística, no fijo).`
+      }
+    } catch {
+      /* sin estimado */
+    }
+    try {
+      const data = await run.mutateAsync(taskId)
+      const skipped = data.skipped_due_to_active?.length ?? 0
+      let msg = `${data.queued} jobs en cola · lote ${data.batch_id.slice(0, 8)}…${estHint}`
+      if (skipped > 0) {
+        msg += ` · ${skipped} omitido(s) (backup ya en curso para esa cuenta)`
+      }
+      toast.success(msg)
+    } catch (err) {
+      const ax = err as AxiosError<{ detail?: unknown }>
+      if (ax.response?.status === 409) {
+        const d = ax.response.data?.detail
+        const msg =
+          d && typeof d === 'object' && d !== null && 'message' in d
+            ? String((d as { message: string }).message)
+            : 'Ya hay backups en curso para esta tarea y cuentas. Esperá o cancelá el lote activo.'
+        toast.error(msg)
+        return
+      }
+      toast.error('No se pudo encolar (¿sin cuentas con backup activo?)')
+    }
+  }
   const [modalOpen, setModalOpen] = useState(false)
   const [taskToDelete, setTaskToDelete] = useState<BackupTask | null>(null)
   const [editing, setEditing] = useState<BackupTask | null>(null)
@@ -244,22 +277,7 @@ export default function TasksPage() {
       }
       setModalOpen(false)
       if (runAfterSave) {
-        try {
-          let estHint = ''
-          try {
-            const est: RunEstimateOut = (await api.get<RunEstimateOut>(`/tasks/${taskId}/run-estimate`))
-              .data
-            if (est.sum_minutes_min != null && est.sum_minutes_max != null) {
-              estHint = ` · ~${est.sum_minutes_min}–${est.sum_minutes_max} min trabajo aprox.`
-            }
-          } catch {
-            /* no estimado */
-          }
-          const r = await run.mutateAsync(taskId)
-          toast.success(`${r.queued} jobs · lote ${r.batch_id.slice(0, 8)}…${estHint}`)
-        } catch {
-          toast.error('Tarea guardada pero no se pudo ejecutar ahora')
-        }
+        void runTaskWithFeedback(taskId)
       }
     } catch (err) {
       toastTaskSaveError(err)
@@ -338,25 +356,8 @@ export default function TasksPage() {
                       </Button>
                       <Button
                         size="xs"
-                        onClick={async () => {
-                          let estHint = ''
-                          try {
-                            const est: RunEstimateOut = (await api.get<RunEstimateOut>(`/tasks/${t.id}/run-estimate`))
-                              .data
-                            if (est.sum_minutes_min != null && est.sum_minutes_max != null) {
-                              estHint = ` · ~${est.sum_minutes_min}–${est.sum_minutes_max} min de trabajo aprox. (heurística, no fijo).`
-                            }
-                          } catch {
-                            /* sin estimado */
-                          }
-                          try {
-                            const data = await run.mutateAsync(t.id)
-                            toast.success(
-                              `${data.queued} jobs en cola · lote ${data.batch_id.slice(0, 8)}…${estHint}`,
-                            )
-                          } catch {
-                            toast.error('No se pudo encolar (¿sin cuentas con backup activo?)')
-                          }
+                        onClick={() => {
+                          void runTaskWithFeedback(t.id)
                         }}
                       >
                         <HiPlay className="h-4 w-4 mr-1" /> Ejecutar

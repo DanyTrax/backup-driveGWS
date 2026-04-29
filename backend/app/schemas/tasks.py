@@ -6,7 +6,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-from app.models.enums import BackupMode, BackupScope, BackupStatus, ScheduleKind
+from app.models.enums import BackupMode, BackupScope, ScheduleKind
 
 
 class TaskCreate(BaseModel):
@@ -57,10 +57,18 @@ class TaskOut(BaseModel):
     created_at: datetime
 
 
+class SkippedActiveBackupOut(BaseModel):
+    account_id: str
+    email: str | None = None
+    kind: str  # gmail | drive
+    active_log_id: str
+
+
 class RunResultOut(BaseModel):
     queued: int
     celery_ids: list[str]
     batch_id: str
+    skipped_due_to_active: list[SkippedActiveBackupOut] = Field(default_factory=list)
 
 
 class RunEstimatePart(BaseModel):

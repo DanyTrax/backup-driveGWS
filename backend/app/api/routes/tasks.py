@@ -15,14 +15,22 @@ from app.api.deps import (
     require_any_permission,
     require_permission,
 )
+from app.core.logging import get_logger
 from app.models.accounts import GwAccount
 from app.models.enums import AuditAction, BackupScope
 from app.models.tasks import BackupTask, backup_task_accounts
 from app.models.users import SysUser
-from app.schemas.tasks import RunEstimateOut, RunResultOut, TaskCreate, TaskOut, TaskUpdate
-from app.core.logging import get_logger
-from app.services.backup_batch_registry import store_batch_celery_ids
+from app.schemas.tasks import (
+    RunEstimateOut,
+    RunResultOut,
+    SkippedActiveBackupOut,
+    TaskCreate,
+    TaskOut,
+    TaskUpdate,
+)
 from app.services.audit_service import record_audit
+from app.services.backup_batch_registry import store_batch_celery_ids
+from app.services.backup_concurrency_service import active_backup_log_id, drive_scope_stored_in_log
 from app.services.backup_estimate_service import run_estimate_payload
 
 router = APIRouter(prefix="/tasks", tags=["tasks"])
@@ -275,16 +283,67 @@ async def run_task(
     if not accounts:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "no_enabled_accounts")
 
+    skipped: list[SkippedActiveBackupOut] = []
+    celery_ids: list[str] = []
     batch_id = uuid.uuid4()
     batch_str = str(batch_id)
-    celery_ids: list[str] = []
+
     for account in accounts:
-        if task.scope in (BackupScope.DRIVE_ROOT.value, BackupScope.DRIVE_COMPUTADORAS.value, BackupScope.FULL.value):
-            res = run_drive.delay(str(task.id), str(account.id), batch_str)
-            celery_ids.append(res.id)
+        if task.scope in (
+            BackupScope.DRIVE_ROOT.value,
+            BackupScope.DRIVE_COMPUTADORAS.value,
+            BackupScope.FULL.value,
+        ):
+            active_d = await active_backup_log_id(
+                db,
+                task_id=task.id,
+                account_id=account.id,
+                log_scope=drive_scope_stored_in_log(task.scope),
+            )
+            if active_d is not None:
+                skipped.append(
+                    SkippedActiveBackupOut(
+                        account_id=str(account.id),
+                        email=account.email,
+                        kind="drive",
+                        active_log_id=str(active_d),
+                    )
+                )
+            else:
+                res = run_drive.delay(str(task.id), str(account.id), batch_str)
+                celery_ids.append(res.id)
         if task.scope in (BackupScope.GMAIL.value, BackupScope.FULL.value):
-            res = run_gmail.delay(str(task.id), str(account.id), batch_str)
-            celery_ids.append(res.id)
+            active_g = await active_backup_log_id(
+                db,
+                task_id=task.id,
+                account_id=account.id,
+                log_scope=BackupScope.GMAIL.value,
+            )
+            if active_g is not None:
+                skipped.append(
+                    SkippedActiveBackupOut(
+                        account_id=str(account.id),
+                        email=account.email,
+                        kind="gmail",
+                        active_log_id=str(active_g),
+                    )
+                )
+            else:
+                res = run_gmail.delay(str(task.id), str(account.id), batch_str)
+                celery_ids.append(res.id)
+
+    if not celery_ids:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            detail={
+                "error": "all_runs_active",
+                "skipped": [s.model_dump() for s in skipped],
+                "message": (
+                    "Ya hay backup en curso para esta tarea y cuentas (Gmail y/o Drive). "
+                    "Esperá a que termine o cancelá el lote activo."
+                ),
+            },
+        )
 
     await store_batch_celery_ids(batch_str, celery_ids)
 
@@ -297,7 +356,16 @@ async def run_task(
         user_agent=get_user_agent(request),
         target_table="backup_tasks",
         target_id=str(task.id),
-        metadata={"celery_ids": celery_ids, "run_batch_id": batch_str},
+        metadata={
+            "celery_ids": celery_ids,
+            "run_batch_id": batch_str,
+            "skipped_due_to_active": [s.model_dump() for s in skipped],
+        },
     )
     await db.commit()
-    return RunResultOut(queued=len(celery_ids), celery_ids=celery_ids, batch_id=batch_str)
+    return RunResultOut(
+        queued=len(celery_ids),
+        celery_ids=celery_ids,
+        batch_id=batch_str,
+        skipped_due_to_active=skipped,
+    )

@@ -151,10 +151,18 @@ export interface BackupLog {
   error_summary: string | null
 }
 
+export interface SkippedActiveBackup {
+  account_id: string
+  email?: string | null
+  kind: string
+  active_log_id: string
+}
+
 export interface RunTaskResult {
   queued: number
   celery_ids: string[]
   batch_id: string
+  skipped_due_to_active?: SkippedActiveBackup[]
 }
 
 export interface RestoreJob {

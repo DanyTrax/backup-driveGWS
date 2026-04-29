@@ -14,7 +14,7 @@ import hashlib
 import os
 import shutil
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -25,17 +25,18 @@ from app.models.accounts import GwAccount
 from app.models.enums import BackupScope, BackupStatus
 from app.models.tasks import BackupLog, BackupTask
 from app.services import drive_retention, gyb_service, maildir_service, rclone_service, vault_layout
+from app.services.backup_batch_registry import is_batch_cancelled, set_log_cancelled
+from app.services.backup_concurrency_service import active_backup_log_id, drive_scope_stored_in_log
 from app.services.gmail_backup_progress import (
     start_gmail_progress_ticker,
     stop_gmail_progress_ticker,
 )
-from app.services.backup_batch_registry import is_batch_cancelled, set_log_cancelled
 from app.services.maildir_paths import maildir_home_from_email, maildir_root_for_account
 from app.services.progress_bus import publish
 
 
 def _purge_gyb_workdir_contents(work_root: Path) -> None:
-    """Borra el contenido de ``/var/msa/work/gmail/<email>/`` sin eliminar el directorio raíz (no toca Maildir)."""
+    """Vacia ``/var/msa/work/gmail/<email>/`` conservando el directorio raíz (no toca Maildir)."""
     if not work_root.is_dir():
         return
     for child in work_root.iterdir():
@@ -61,7 +62,7 @@ async def _create_log(
         status=BackupStatus.RUNNING.value,
         scope=scope.value,
         mode=task.mode,
-        started_at=datetime.now(timezone.utc),
+        started_at=datetime.now(UTC),
         pid=os.getpid(),
         celery_task_id=celery_task_id,
     )
@@ -79,7 +80,7 @@ async def _finalise_log(
     stats: dict[str, Any] | None = None,
 ) -> None:
     log.status = status.value
-    log.finished_at = datetime.now(timezone.utc)
+    log.finished_at = datetime.now(UTC)
     if error_summary:
         log.error_summary = error_summary[:10000]
     if stats:
@@ -125,6 +126,26 @@ async def run_drive_backup(
     celery_task_id: str | None = None,
     run_batch_id: uuid.UUID | None = None,
 ) -> BackupLog:
+    dup = await active_backup_log_id(
+        db,
+        task_id=task.id,
+        account_id=account.id,
+        log_scope=drive_scope_stored_in_log(task.scope),
+    )
+    if dup is not None:
+        ex = await db.get(BackupLog, dup)
+        if ex is not None and ex.celery_task_id != celery_task_id:
+            await publish(
+                str(ex.id),
+                {
+                    "stage": "worker_skipped",
+                    "reason": "active_backup_exists",
+                    "scope": "drive",
+                    "duplicate_celery_id": celery_task_id,
+                },
+            )
+            return ex
+
     log = await _create_log(
         db,
         task=task,
@@ -186,7 +207,7 @@ async def run_drive_backup(
                 )
 
             rc, output = await rclone_service.run_rclone(
-                argv, on_line=lambda l: None, cancel_log_id=log_id
+                argv, on_line=lambda _ln: None, cancel_log_id=log_id
             )
             await db.refresh(log)
             if log.status == BackupStatus.CANCELLED.value:
@@ -211,7 +232,7 @@ async def run_drive_backup(
 
     status = BackupStatus.SUCCESS
     await _finalise_log(db, log, status=status)
-    account.last_successful_backup_at = datetime.now(timezone.utc)
+    account.last_successful_backup_at = datetime.now(UTC)
     if not task.dry_run:
         try:
             removed = await drive_retention.prune_after_drive_backup(db, task=task, account=account)
@@ -232,6 +253,26 @@ async def run_gmail_backup(
     celery_task_id: str | None = None,
     run_batch_id: uuid.UUID | None = None,
 ) -> BackupLog:
+    dup = await active_backup_log_id(
+        db,
+        task_id=task.id,
+        account_id=account.id,
+        log_scope=BackupScope.GMAIL.value,
+    )
+    if dup is not None:
+        ex = await db.get(BackupLog, dup)
+        if ex is not None and ex.celery_task_id != celery_task_id:
+            await publish(
+                str(ex.id),
+                {
+                    "stage": "worker_skipped",
+                    "reason": "active_backup_exists",
+                    "scope": "gmail",
+                    "duplicate_celery_id": celery_task_id,
+                },
+            )
+            return ex
+
     log = await _create_log(
         db,
         task=task,
@@ -437,7 +478,7 @@ async def run_gmail_backup(
     account.imap_enabled = True
     account.total_messages_cache = stats.messages
     account.total_bytes_cache = total_bytes
-    account.last_successful_backup_at = datetime.now(timezone.utc)
+    account.last_successful_backup_at = datetime.now(UTC)
     if not task.dry_run:
         account.maildir_user_cleared_at = None
     await publish(log_id, {"stage": "done", "status": "success", "messages": stats.messages})
@@ -454,7 +495,7 @@ async def cancel_backup(db: AsyncSession, log_id: uuid.UUID) -> bool:
         return False
     await set_log_cancelled(str(log.id))
     log.status = BackupStatus.CANCELLED.value
-    log.finished_at = datetime.now(timezone.utc)
+    log.finished_at = datetime.now(UTC)
     await db.commit()
     await publish(str(log.id), {"stage": "cancelled"})
     return True
