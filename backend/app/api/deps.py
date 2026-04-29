@@ -151,6 +151,33 @@ def require_any_permission(*codes: str) -> Callable[[SysUser], SysUser]:
     return _dep
 
 
+async def mailbox_reader_for_path_account(
+    account_id: uuid.UUID,
+    user: SysUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> SysUser:
+    perms = get_user_permissions(user)
+    if "mailbox.view_all" in perms:
+        return user
+    if "mailbox.view_delegated" in perms:
+        from app.models.mailbox_delegation import SysUserMailboxDelegation
+
+        stmt = (
+            select(SysUserMailboxDelegation.id)
+            .where(
+                SysUserMailboxDelegation.sys_user_id == user.id,
+                SysUserMailboxDelegation.gw_account_id == account_id,
+            )
+            .limit(1)
+        )
+        if (await db.execute(stmt)).scalar_one_or_none() is not None:
+            return user
+    raise HTTPException(
+        status.HTTP_403_FORBIDDEN,
+        detail={"error": "mailbox_forbidden", "missing": ["mailbox.view_all", "mailbox.view_delegated"]},
+    )
+
+
 def require_role(*roles: UserRole) -> Callable[[SysUser], SysUser]:
     async def _dep(user: SysUser = Depends(get_current_user)) -> SysUser:
         if user.role_code not in {r.value for r in roles}:

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import (
@@ -13,6 +14,7 @@ from app.api.deps import (
     rate_limit,
 )
 from app.core.config import get_settings
+from app.models.mailbox_delegation import SysUserMailboxDelegation
 from app.models.users import SysUser
 from app.schemas.auth import (
     LoginRequest,
@@ -130,7 +132,19 @@ async def logout(
 
 
 @router.get("/me", response_model=ProfileOut)
-async def me(user: SysUser = Depends(get_current_user)) -> ProfileOut:
+async def me(
+    user: SysUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> ProfileOut:
+    perms = get_user_permissions(user)
+    delegated_ids: list[str] = []
+    if "mailbox.view_delegated" in perms and "mailbox.view_all" not in perms:
+        stmt = select(SysUserMailboxDelegation.gw_account_id).where(
+            SysUserMailboxDelegation.sys_user_id == user.id
+        )
+        rows = (await db.execute(stmt)).scalars().all()
+        delegated_ids = [str(r) for r in rows]
+
     return ProfileOut(
         id=str(user.id),
         email=user.email,
@@ -142,7 +156,8 @@ async def me(user: SysUser = Depends(get_current_user)) -> ProfileOut:
         last_login_at=user.last_login_at,
         preferred_locale=user.preferred_locale,
         preferred_timezone=user.preferred_timezone,
-        permissions=sorted(get_user_permissions(user)),
+        permissions=sorted(perms),
+        mailbox_delegated_account_ids=sorted(delegated_ids),
     )
 
 

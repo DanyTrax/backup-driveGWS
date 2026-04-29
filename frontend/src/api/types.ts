@@ -19,6 +19,8 @@ export interface Profile {
   preferred_timezone: string
   last_login_at: string | null
   permissions: string[]
+  /** Solo aplica con permiso mailbox.view_delegated (sin view_all). */
+  mailbox_delegated_account_ids?: string[]
 }
 
 export const MAILBOX_MESSAGE_TIMEOUT_MS = 120_000

@@ -14,6 +14,17 @@ import {
 import type { AccountAccessCheck, WorkspaceAccount } from '../api/types'
 import { useAuthStore } from '../stores/auth'
 
+function canOpenMailbox(
+  account: WorkspaceAccount,
+  hasPermission: (code: string) => boolean,
+  delegatedIds: Set<string>,
+): boolean {
+  if (!account.maildir_on_disk || account.maildir_user_cleared_at) return false
+  if (hasPermission('mailbox.view_all')) return true
+  if (hasPermission('mailbox.view_delegated') && delegatedIds.has(account.id)) return true
+  return false
+}
+
 function verifyAccessErrorMessage(err: unknown): string {
   const ax = err as AxiosError<{ detail?: unknown }>
   if (ax.code === 'ECONNABORTED') {
@@ -55,6 +66,12 @@ export default function AccountsPage() {
   const [liveVerify, setLiveVerify] = useState<LiveVerifyState | null>(null)
   const wsRef = useRef<WebSocket | null>(null)
 
+  const hasPermission = useAuthStore((s) => s.hasPermission)
+  const profile = useAuthStore((s) => s.profile)
+  const delegatedMailboxIds = useMemo(
+    () => new Set(profile?.mailbox_delegated_account_ids ?? []),
+    [profile?.mailbox_delegated_account_ids],
+  )
   const filtered = useMemo(() => {
     const term = search.trim().toLowerCase()
     if (!term) return data
@@ -264,7 +281,7 @@ export default function AccountsPage() {
                           : 'en disco'}
                     </td>
                     <td>
-                      {a.maildir_on_disk && !a.maildir_user_cleared_at ? (
+                      {canOpenMailbox(a, hasPermission, delegatedMailboxIds) ? (
                         <Link to={`/accounts/${a.id}/mailbox`}>
                           <Button size="xs" color="light">
                             Ver correo

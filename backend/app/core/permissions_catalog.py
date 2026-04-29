@@ -54,6 +54,10 @@ PERMISSIONS: tuple[PermissionSpec, ...] = (
     PermissionSpec("webmail", "sso_admin", "Acceder a cualquier buzón via SSO master"),
     PermissionSpec("webmail", "issue_magic_link", "Emitir magic link para un cliente"),
     PermissionSpec("webmail", "revoke_access", "Revocar acceso webmail de una cuenta"),
+    # --- mailbox (visor Maildir en panel) ---
+    PermissionSpec("mailbox", "view_all", "Ver correo (Maildir) de cualquier cuenta con backup"),
+    PermissionSpec("mailbox", "view_delegated", "Ver correo solo en cuentas delegadas explícitamente"),
+    PermissionSpec("mailbox", "delegate", "Asignar o quitar cuentas auditables (delegación Maildir)"),
     # --- settings / platform ---
     PermissionSpec("settings", "view", "Ver configuración del sistema"),
     PermissionSpec("settings", "edit", "Modificar configuración del sistema"),
@@ -79,6 +83,7 @@ DEFAULT_ROLE_PERMISSIONS: dict[UserRole, frozenset[str]] = {
             "logs.view", "logs.export",
             "restore.view", "restore.create", "restore.cancel",
             "webmail.sso_admin", "webmail.issue_magic_link", "webmail.revoke_access",
+            "mailbox.view_all", "mailbox.delegate",
             "settings.view",
             "platform.refresh",
             "notifications.manage_global",
@@ -94,6 +99,7 @@ DEFAULT_ROLE_PERMISSIONS: dict[UserRole, frozenset[str]] = {
             "restore.view",
             "settings.view",
             "audit.view",
+            "mailbox.view_delegated",
         }
     ),
 }
@@ -101,6 +107,9 @@ DEFAULT_ROLE_PERMISSIONS: dict[UserRole, frozenset[str]] = {
 
 ROLE_DISPLAY: dict[UserRole, tuple[str, str]] = {
     UserRole.SUPER_ADMIN: ("Super Administrador", "Acceso completo incluido cambio de configuración crítica"),
-    UserRole.OPERATOR: ("Operador", "Gestiona backups, restauraciones y cuentas, sin cambiar configuración global"),
+    UserRole.OPERATOR: (
+        "Operador",
+        "Gestiona backups, restauraciones y cuentas, sin cambiar configuración global",
+    ),
     UserRole.AUDITOR: ("Auditor", "Solo lectura del sistema"),
 }

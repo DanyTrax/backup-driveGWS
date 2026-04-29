@@ -73,3 +73,4 @@ class ProfileOut(BaseModel):
     preferred_locale: str
     preferred_timezone: str
     permissions: list[str]
+    mailbox_delegated_account_ids: list[str] = Field(default_factory=list)

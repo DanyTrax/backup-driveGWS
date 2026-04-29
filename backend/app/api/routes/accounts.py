@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, Response, status
@@ -11,16 +11,17 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import (
     get_client_ip,
-    get_current_user,
     get_db,
     get_user_agent,
+    get_user_permissions,
     require_any_permission,
     require_permission,
 )
+from app.core.database import AsyncSessionLocal
 from app.models.accounts import GwAccount
 from app.models.enums import AuditAction
+from app.models.mailbox_delegation import SysUserMailboxDelegation
 from app.models.users import SysUser
-from app.core.database import AsyncSessionLocal
 from app.schemas.accounts import (
     AccountAccessCheckOut,
     AccountApproveIn,
@@ -29,15 +30,15 @@ from app.schemas.accounts import (
     SyncOut,
     VerifyAccessStreamStartOut,
 )
-from app.services.maildir_paths import maildir_home_from_email, maildir_root_for_account
 from app.services.account_access_service import verify_account_access
-from app.services.progress_bus import publish
 from app.services.accounts_service import (
     approve_account,
     revoke_account,
     sync_workspace_directory,
 )
 from app.services.audit_service import record_audit
+from app.services.maildir_paths import maildir_home_from_email, maildir_root_for_account
+from app.services.progress_bus import publish
 
 router = APIRouter(prefix="/accounts", tags=["accounts"])
 
@@ -73,11 +74,20 @@ def _to_out(a: GwAccount) -> AccountOut:
 async def list_accounts(
     enabled: bool | None = None,
     db: AsyncSession = Depends(get_db),
-    _u: SysUser = Depends(require_permission("accounts.view")),
+    current: SysUser = Depends(require_permission("accounts.view")),
 ) -> list[AccountOut]:
     stmt = select(GwAccount).order_by(GwAccount.email.asc())
     if enabled is not None:
         stmt = stmt.where(GwAccount.is_backup_enabled.is_(enabled))
+    perms = get_user_permissions(current)
+    if "mailbox.view_delegated" in perms and "mailbox.view_all" not in perms:
+        stmt = stmt.where(
+            GwAccount.id.in_(
+                select(SysUserMailboxDelegation.gw_account_id).where(
+                    SysUserMailboxDelegation.sys_user_id == current.id
+                )
+            )
+        )
     rows = (await db.execute(stmt)).scalars().all()
     return [_to_out(a) for a in rows]
 
@@ -293,7 +303,7 @@ async def clear_mailbox(
     if not (acc.maildir_path or "").strip():
         acc.maildir_path = maildir_home_from_email(acc.email)
     clear_maildir_tree(maildir_root_for_account(acc))
-    acc.maildir_user_cleared_at = datetime.now(timezone.utc)
+    acc.maildir_user_cleared_at = datetime.now(UTC)
     acc.total_messages_cache = 0
     acc.total_bytes_cache = 0
     await record_audit(

@@ -1,6 +1,7 @@
 """Schemas for platform user CRUD and related admin ops."""
 from __future__ import annotations
 
+import uuid
 from datetime import datetime
 
 from pydantic import BaseModel, EmailStr, Field
@@ -27,6 +28,10 @@ class UserUpdate(BaseModel):
 class AdminPasswordReset(BaseModel):
     new_password: str = Field(min_length=12, max_length=256)
     must_change_password: bool = True
+
+
+class MailboxDelegationsPut(BaseModel):
+    account_ids: list[uuid.UUID] = Field(default_factory=list, max_length=2048)
 
 
 class UserOut(BaseModel):

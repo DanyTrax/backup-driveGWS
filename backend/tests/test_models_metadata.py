@@ -3,8 +3,6 @@ from __future__ import annotations
 
 import os
 
-import pytest
-
 os.environ.setdefault("SECRET_KEY", "a" * 64)
 os.environ.setdefault("FERNET_KEY", "X4R0fXsPI_dKv-EbN8JxW7zKdOqmRVcAjUPblhMx7eg=")
 os.environ.setdefault("POSTGRES_USER", "ci")
@@ -29,6 +27,7 @@ EXPECTED_TABLES = {
     "webmail_access_tokens",
     "notifications",
     "sys_user_notification_prefs",
+    "sys_user_mailbox_delegations",
 }
 
 

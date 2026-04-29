@@ -4,21 +4,22 @@ from __future__ import annotations
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.api.deps import (
     get_client_ip,
-    get_current_user,
     get_db,
     get_user_agent,
     require_permission,
 )
 from app.core.security import hash_password
+from app.models.accounts import GwAccount
 from app.models.enums import AuditAction, UserRole
+from app.models.mailbox_delegation import SysUserMailboxDelegation
 from app.models.users import SysRole, SysUser
-from app.schemas.users import AdminPasswordReset, UserCreate, UserOut, UserUpdate
+from app.schemas.users import AdminPasswordReset, MailboxDelegationsPut, UserCreate, UserOut, UserUpdate
 from app.services.audit_service import record_audit
 
 router = APIRouter(prefix="/users", tags=["users"])
@@ -55,6 +56,68 @@ async def list_users(
     stmt = select(SysUser).order_by(SysUser.created_at.desc())
     rows = (await db.execute(stmt)).scalars().all()
     return [_to_out(u) for u in rows]
+
+
+@router.get("/{user_id}/mailbox-delegations", response_model=list[str])
+async def list_user_mailbox_delegations(
+    user_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _viewer: SysUser = Depends(require_permission("users.view")),
+) -> list[str]:
+    target = (await db.execute(select(SysUser).where(SysUser.id == user_id))).scalar_one_or_none()
+    if target is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "user_not_found")
+    stmt = select(SysUserMailboxDelegation.gw_account_id).where(
+        SysUserMailboxDelegation.sys_user_id == user_id
+    )
+    rows = (await db.execute(stmt)).scalars().all()
+    return sorted(str(r) for r in rows)
+
+
+@router.put("/{user_id}/mailbox-delegations", response_model=list[str])
+async def put_user_mailbox_delegations(
+    user_id: uuid.UUID,
+    payload: MailboxDelegationsPut,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    current: SysUser = Depends(require_permission("mailbox.delegate")),
+) -> list[str]:
+    target = (await db.execute(select(SysUser).where(SysUser.id == user_id))).scalar_one_or_none()
+    if target is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "user_not_found")
+
+    ids = list(dict.fromkeys(payload.account_ids))
+    if ids:
+        cnt = (
+            await db.execute(select(func.count()).select_from(GwAccount).where(GwAccount.id.in_(ids)))
+        ).scalar_one()
+        if int(cnt) != len(ids):
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "unknown_account_id")
+
+    await db.execute(delete(SysUserMailboxDelegation).where(SysUserMailboxDelegation.sys_user_id == user_id))
+    for aid in ids:
+        db.add(
+            SysUserMailboxDelegation(
+                sys_user_id=user_id,
+                gw_account_id=aid,
+                granted_by_user_id=current.id,
+            )
+        )
+
+    await record_audit(
+        db,
+        action=AuditAction.USER_UPDATED,
+        actor_user_id=current.id,
+        actor_label=current.email,
+        target_table="sys_users",
+        target_id=str(user_id),
+        ip_address=get_client_ip(request),
+        user_agent=get_user_agent(request),
+        message="mailbox_delegations_updated",
+        metadata={"account_ids": [str(x) for x in ids]},
+    )
+    await db.commit()
+    return sorted(str(x) for x in ids)
 
 
 @router.post("", response_model=UserOut, status_code=status.HTTP_201_CREATED)

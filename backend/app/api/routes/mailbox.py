@@ -6,8 +6,7 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_db, require_permission
-from app.models.accounts import GwAccount
+from app.api.deps import get_db, mailbox_reader_for_path_account
 from app.models.users import SysUser
 from app.schemas.mailbox import (
     MailboxFolderOut,
@@ -35,7 +34,7 @@ router = APIRouter()
 async def mailbox_list_folders(
     account_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _u: SysUser = Depends(require_permission("accounts.view")),
+    _u: SysUser = Depends(mailbox_reader_for_path_account),
 ) -> list[MailboxFolderOut]:
     acc = await _load(db, account_id)
     root = maildir_root_for_account(acc)
@@ -58,7 +57,7 @@ async def mailbox_list_messages(
     limit: int = Query(80, ge=1, le=200),
     offset: int = Query(0, ge=0),
     db: AsyncSession = Depends(get_db),
-    _u: SysUser = Depends(require_permission("accounts.view")),
+    _u: SysUser = Depends(mailbox_reader_for_path_account),
 ) -> MailboxMessagesPageOut:
     acc = await _load(db, account_id)
     root = maildir_root_for_account(acc)
@@ -96,7 +95,7 @@ async def mailbox_get_message(
     folder: str = Query("INBOX"),
     key: str = Query(..., min_length=1, max_length=512, description="Nombre de fichero en cur/new"),
     db: AsyncSession = Depends(get_db),
-    _u: SysUser = Depends(require_permission("accounts.view")),
+    _u: SysUser = Depends(mailbox_reader_for_path_account),
 ) -> MailboxMessageBodyOut:
     acc = await _load(db, account_id)
     root = maildir_root_for_account(acc)

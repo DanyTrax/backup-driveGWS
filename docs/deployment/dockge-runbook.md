@@ -123,6 +123,8 @@ Dos modos, elegí uno en `.env` → `GIT_REFRESH_MODE`:
 - **webhook** (recomendado en prod): GitHub Actions empuja una imagen a GHCR, un webhook le avisa a la plataforma y hace `docker pull` + `docker compose up -d` del stack. Cero downtime visible.
 - **bind_mount**: desde la UI (o con `docker exec`) corrés `scripts/refresh.sh` → `git pull` en `/app` + reinstalación de deps + alembic. Después reiniciá el stack desde Dockge.
 
+Para **actualización manual por SSH** (pull, build y migraciones), usá [ssh-actualizacion-repo.md](ssh-actualizacion-repo.md).
+
 ## 11) Troubleshooting rápido
 
 | Síntoma                                         | Chequeo                                                                          |

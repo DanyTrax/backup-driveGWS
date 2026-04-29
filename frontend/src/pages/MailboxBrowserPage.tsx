@@ -37,8 +37,9 @@ export default function MailboxBrowserPage() {
 
       <p className="text-sm text-slate-500 dark:text-slate-400 max-w-3xl">
         Lectura directa del Maildir en el servidor (mismos datos que importan a Dovecot). Requiere permiso{' '}
-        <code className="text-xs">accounts.view</code>. No sustituye Roundcube; sirve para revisar el respaldo desde el
-        panel.
+        <code className="text-xs">mailbox.view_all</code> o delegación explícita con{' '}
+        <code className="text-xs">mailbox.view_delegated</code>. No sustituye Roundcube; sirve para revisar el
+        respaldo desde el panel.
       </p>
 
       {foldersQ.isError && (

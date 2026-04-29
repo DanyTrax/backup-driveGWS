@@ -44,6 +44,32 @@ export function useProfile() {
   })
 }
 
+export function useMailboxDelegations(userId: string | null) {
+  return useQuery({
+    queryKey: ['user-mailbox-delegations', userId],
+    enabled: !!userId,
+    queryFn: async () =>
+      (await api.get<string[]>(`/users/${userId as string}/mailbox-delegations`)).data,
+  })
+}
+
+export function usePutMailboxDelegations() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (payload: { userId: string; accountIds: string[] }) =>
+      (
+        await api.put<string[]>(`/users/${payload.userId}/mailbox-delegations`, {
+          account_ids: payload.accountIds,
+        })
+      ).data,
+    onSuccess: (_data, payload) => {
+      void qc.invalidateQueries({ queryKey: ['user-mailbox-delegations', payload.userId] })
+      void qc.invalidateQueries({ queryKey: ['profile'] })
+      void qc.invalidateQueries({ queryKey: ['accounts'] })
+    },
+  })
+}
+
 export function useBranding() {
   return useQuery({
     queryKey: ['branding'],
