@@ -1,12 +1,14 @@
-import { ReactNode } from 'react'
+import { ReactNode, useEffect, useState } from 'react'
 import { Link, NavLink, Outlet, useNavigate } from 'react-router-dom'
-import { Avatar, Dropdown, Sidebar } from 'flowbite-react'
+import { Avatar, Dropdown } from 'flowbite-react'
+import clsx from 'clsx'
 import {
   HiChartPie,
   HiCog,
   HiCube,
   HiDocumentSearch,
   HiMail,
+  HiMenu,
   HiOutlineLogout,
   HiRefresh,
   HiShieldCheck,
@@ -16,6 +18,8 @@ import { useProfile } from '../api/hooks'
 import api from '../api/client'
 import { useAuthStore } from '../stores/auth'
 
+const SIDEBAR_STORAGE_KEY = 'msa-sidebar-expanded'
+
 interface NavItem {
   to: string
   label: string
@@ -24,20 +28,37 @@ interface NavItem {
 }
 
 const NAV: NavItem[] = [
-  { to: '/dashboard', label: 'Dashboard', icon: <HiChartPie className="h-5 w-5" /> },
-  { to: '/accounts', label: 'Cuentas', icon: <HiUserGroup className="h-5 w-5" />, perm: 'accounts.view' },
-  { to: '/tasks', label: 'Tareas de backup', icon: <HiCube className="h-5 w-5" />, perm: 'tasks.view' },
-  { to: '/logs', label: 'Logs', icon: <HiDocumentSearch className="h-5 w-5" />, perm: 'logs.view' },
-  { to: '/restore', label: 'Restaurar', icon: <HiRefresh className="h-5 w-5" />, perm: 'restore.view' },
-  { to: '/webmail', label: 'Webmail', icon: <HiMail className="h-5 w-5" />, perm: 'webmail.sso_admin' },
-  { to: '/users', label: 'Usuarios', icon: <HiShieldCheck className="h-5 w-5" />, perm: 'users.view' },
-  { to: '/settings', label: 'Configuración', icon: <HiCog className="h-5 w-5" />, perm: 'settings.view' },
+  { to: '/dashboard', label: 'Dashboard', icon: <HiChartPie className="h-5 w-5 shrink-0" /> },
+  { to: '/accounts', label: 'Cuentas', icon: <HiUserGroup className="h-5 w-5 shrink-0" />, perm: 'accounts.view' },
+  { to: '/tasks', label: 'Tareas de backup', icon: <HiCube className="h-5 w-5 shrink-0" />, perm: 'tasks.view' },
+  { to: '/logs', label: 'Logs', icon: <HiDocumentSearch className="h-5 w-5 shrink-0" />, perm: 'logs.view' },
+  { to: '/restore', label: 'Restaurar', icon: <HiRefresh className="h-5 w-5 shrink-0" />, perm: 'restore.view' },
+  { to: '/webmail', label: 'Webmail', icon: <HiMail className="h-5 w-5 shrink-0" />, perm: 'webmail.sso_admin' },
+  { to: '/users', label: 'Usuarios', icon: <HiShieldCheck className="h-5 w-5 shrink-0" />, perm: 'users.view' },
+  { to: '/settings', label: 'Configuración', icon: <HiCog className="h-5 w-5 shrink-0" />, perm: 'settings.view' },
 ]
+
+function readSidebarExpanded(): boolean {
+  try {
+    return localStorage.getItem(SIDEBAR_STORAGE_KEY) === '1'
+  } catch {
+    return false
+  }
+}
 
 export default function AppLayout() {
   const { data: profile } = useProfile()
   const navigate = useNavigate()
   const { logout, refreshToken } = useAuthStore()
+  const [sidebarExpanded, setSidebarExpanded] = useState(readSidebarExpanded)
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(SIDEBAR_STORAGE_KEY, sidebarExpanded ? '1' : '0')
+    } catch {
+      /* ignore */
+    }
+  }, [sidebarExpanded])
 
   async function handleLogout() {
     try {
@@ -52,33 +73,89 @@ export default function AppLayout() {
   }
 
   const perms = new Set(profile?.permissions ?? [])
+  const visibleNav = NAV.filter((i) => !i.perm || perms.has(i.perm))
 
   return (
     <div className="flex min-h-screen bg-slate-50 dark:bg-slate-950">
-      <Sidebar aria-label="Navegación principal" className="h-screen sticky top-0">
-        <div className="flex items-center gap-2 px-2 pb-4 border-b border-slate-200 dark:border-slate-800">
-          <div className="h-8 w-8 rounded-md bg-blue-600 flex items-center justify-center text-white font-bold">
-            MSA
-          </div>
-          <span className="font-semibold text-slate-900 dark:text-white">Backup Commander</span>
+      <aside
+        aria-label="Navegación principal"
+        className={clsx(
+          'flex flex-col h-screen sticky top-0 z-30 shrink-0 border-r border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 transition-[width] duration-200 ease-out',
+          sidebarExpanded ? 'w-60' : 'w-[4.25rem]',
+        )}
+      >
+        <div
+          className={clsx(
+            'flex items-center gap-2 border-b border-slate-200 dark:border-slate-800 min-h-[3.25rem]',
+            sidebarExpanded ? 'px-3 py-2' : 'px-2 py-2 justify-center flex-col gap-1',
+          )}
+        >
+          <button
+            type="button"
+            onClick={() => setSidebarExpanded((v) => !v)}
+            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500/40"
+            aria-expanded={sidebarExpanded}
+            aria-controls="sidebar-main-nav"
+            title={sidebarExpanded ? 'Contraer menú' : 'Expandir menú'}
+          >
+            <HiMenu className="h-6 w-6" aria-hidden />
+          </button>
+          {sidebarExpanded ? (
+            <div className="flex min-w-0 flex-1 items-center gap-2">
+              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-blue-600 text-sm font-bold text-white">
+                MSA
+              </div>
+              <span className="truncate text-sm font-semibold text-slate-900 dark:text-white">
+                Backup Commander
+              </span>
+            </div>
+          ) : (
+            <div
+              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-blue-600 text-xs font-bold text-white"
+              title="MSA Backup Commander"
+            >
+              MSA
+            </div>
+          )}
         </div>
-        <Sidebar.Items>
-          <Sidebar.ItemGroup>
-            {NAV.filter((i) => !i.perm || perms.has(i.perm)).map((item) => (
-              <NavLink key={item.to} to={item.to}>
-                {({ isActive }) => (
-                  <Sidebar.Item icon={() => item.icon} active={isActive}>
+        <nav id="sidebar-main-nav" className="flex-1 overflow-y-auto overflow-x-hidden py-3 px-2">
+          <ul className="space-y-1">
+            {visibleNav.map((item) => (
+              <li key={item.to}>
+                <NavLink
+                  to={item.to}
+                  title={item.label}
+                  className={({ isActive }) =>
+                    clsx(
+                      'flex items-center rounded-lg text-sm font-medium transition-colors',
+                      sidebarExpanded ? 'gap-3 px-3 py-2.5' : 'justify-center px-0 py-2.5',
+                      isActive
+                        ? 'bg-blue-50 text-blue-700 dark:bg-blue-950/50 dark:text-blue-300'
+                        : 'text-slate-600 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-800',
+                    )
+                  }
+                >
+                  {item.icon}
+                  <span
+                    className={clsx(
+                      'truncate transition-opacity duration-200',
+                      sidebarExpanded ? 'opacity-100 w-auto' : 'sr-only',
+                    )}
+                  >
                     {item.label}
-                  </Sidebar.Item>
-                )}
-              </NavLink>
+                  </span>
+                </NavLink>
+              </li>
             ))}
-          </Sidebar.ItemGroup>
-        </Sidebar.Items>
-      </Sidebar>
-      <div className="flex-1 flex flex-col">
-        <header className="h-14 flex items-center justify-between px-6 border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900">
-          <Link to="/dashboard" className="text-slate-700 dark:text-slate-200 font-medium">
+          </ul>
+        </nav>
+      </aside>
+      <div className="flex min-w-0 flex-1 flex-col">
+        <header className="flex h-14 shrink-0 items-center justify-between border-b border-slate-200 bg-white px-4 dark:border-slate-800 dark:bg-slate-900 md:px-6">
+          <Link
+            to="/dashboard"
+            className="truncate text-sm font-medium text-slate-700 dark:text-slate-200 md:text-base"
+          >
             MSA Backup Commander
           </Link>
           <Dropdown
@@ -87,7 +164,7 @@ export default function AppLayout() {
             label={
               <div className="flex items-center gap-2">
                 <Avatar rounded size="sm" />
-                <div className="text-left hidden md:block">
+                <div className="hidden text-left md:block">
                   <div className="text-sm font-medium text-slate-800 dark:text-slate-100">
                     {profile?.full_name}
                   </div>
@@ -106,7 +183,7 @@ export default function AppLayout() {
             </Dropdown.Item>
           </Dropdown>
         </header>
-        <main className="flex-1 p-6">
+        <main className="flex-1 p-4 md:p-6">
           <Outlet />
         </main>
       </div>
