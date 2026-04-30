@@ -4,6 +4,7 @@ from __future__ import annotations
 import base64
 import email
 import re
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from email.header import decode_header, make_header
 from email.parser import BytesParser
@@ -182,6 +183,42 @@ def _maildir_matches_query(subject: str, from_addr: str, q_lower: str) -> bool:
     return q_lower in subject.lower() or q_lower in from_addr.lower()
 
 
+# Una fila para ordenar por Date: (sort_key, mtime_ns, path, subject, from, date_raw).
+MaildirHeaderRow = tuple[float, int, Path, str, str, str | None]
+
+
+def _maildir_header_row(mtime_ns: int, p: Path) -> MaildirHeaderRow | None:
+    try:
+        subject, from_, date_hdr = _headers_from_file(p)
+    except OSError:
+        return None
+    ep = _parsed_epoch_from_date_header(date_hdr)
+    sort_key = ep if ep is not None else (mtime_ns / 1e9)
+    return (sort_key, mtime_ns, p, subject or "", from_ or "", date_hdr)
+
+
+def _collect_header_rows_parallel(raw: list[tuple[int, Path]]) -> list[MaildirHeaderRow]:
+    """Lee cabeceras de todos los ficheros; en paralelo si hay bastantes (carpetas grandes)."""
+    if not raw:
+        return []
+    if len(raw) < 48:
+        out: list[MaildirHeaderRow] = []
+        for mtime_ns, p in raw:
+            row = _maildir_header_row(mtime_ns, p)
+            if row:
+                out.append(row)
+        return out
+    workers = min(32, max(4, len(raw) // 80))
+    out_parallel: list[MaildirHeaderRow] = []
+    with ThreadPoolExecutor(max_workers=workers) as ex:
+        futures = [ex.submit(_maildir_header_row, mt, p) for mt, p in raw]
+        for fut in as_completed(futures):
+            row = fut.result()
+            if row:
+                out_parallel.append(row)
+    return out_parallel
+
+
 def list_messages(
     maildir_root: Path,
     *,
@@ -223,21 +260,15 @@ def list_messages(
     use_header_sort = (sort_by or "").strip().lower() == "header_date"
     asc = (sort_order or "").strip().lower() == "asc"
 
+    header_meta: dict[Path, tuple[str, str, str | None]] = {}
     if use_header_sort:
-        scored: list[tuple[float, int, Path]] = []
-        for mtime_ns, p in raw:
-            try:
-                _subj, _from, date_hdr = _headers_from_file(p)
-            except OSError:
-                continue
-            ep = _parsed_epoch_from_date_header(date_hdr)
-            sort_key = ep if ep is not None else (mtime_ns / 1e9)
-            scored.append((sort_key, mtime_ns, p))
+        rows = _collect_header_rows_parallel(raw)
         if asc:
-            scored.sort(key=lambda x: (x[0], x[1]))
+            rows.sort(key=lambda r: (r[0], r[1]))
         else:
-            scored.sort(key=lambda x: (-x[0], -x[1]))
-        ordered: list[tuple[int, Path]] = [(t[1], t[2]) for t in scored]
+            rows.sort(key=lambda r: (-r[0], -r[1]))
+        ordered = [(r[1], r[2]) for r in rows]
+        header_meta = {r[2]: (r[3], r[4], r[5]) for r in rows}
     else:
         if asc:
             raw.sort(key=lambda x: x[0])
@@ -250,10 +281,13 @@ def list_messages(
     else:
         matches: list[tuple[int, Path]] = []
         for mtime_ns, p in ordered:
-            try:
-                subject, from_, _d = _headers_from_file(p)
-            except OSError:
-                continue
+            if p in header_meta:
+                subject, from_, _d = header_meta[p]
+            else:
+                try:
+                    subject, from_, _d = _headers_from_file(p)
+                except OSError:
+                    continue
             if not _maildir_matches_query(subject or "", from_ or "", qn):
                 continue
             matches.append((mtime_ns, p))
@@ -261,10 +295,13 @@ def list_messages(
 
     out: list[MessageListItem] = []
     for _mt, path in slice_paths:
-        try:
-            subject, from_, date = _headers_from_file(path)
-        except OSError:
-            continue
+        if path in header_meta:
+            subject, from_, date = header_meta[path]
+        else:
+            try:
+                subject, from_, date = _headers_from_file(path)
+            except OSError:
+                continue
         out.append(
             MessageListItem(
                 key=path.name,

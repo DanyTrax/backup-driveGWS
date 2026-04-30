@@ -62,6 +62,9 @@ export interface Profile {
 
 export const MAILBOX_MESSAGE_TIMEOUT_MS = 120_000
 
+/** Listar mensajes Maildir con sort por cabecera Date puede leer miles de ficheros. */
+export const MAILBOX_LIST_TIMEOUT_MS = 300_000
+
 export interface MailboxFolder {
   id: string
   name: string

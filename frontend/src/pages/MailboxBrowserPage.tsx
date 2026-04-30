@@ -144,8 +144,9 @@ export default function MailboxBrowserPage() {
             <code className="text-xs">mailbox.view_delegated</code>.{' '}
             <strong>Exportar ZIP</strong> genera la estructura Maildir tal como está en disco. Por defecto el listado
             se ordena por la <strong>cabecera Date</strong> del correo (más reciente arriba); podés usar la fecha del
-            fichero en disco o invertir el orden (más antiguo primero). En carpetas enormes, ordenar por Date lee las
-            cabeceras de todos los mensajes y puede ser más lento.
+            fichero en disco o invertir el orden (más antiguo primero). En carpetas con miles de mensajes la primera
+            carga puede tardar (cabeceras leídas en paralelo en el servidor). Si la petición se corta, probá criterio
+            por <strong>fichero en disco</strong> o aumentá el timeout del proxy delante de la API.
           </>
         ) : (
           <>
@@ -239,9 +240,28 @@ export default function MailboxBrowserPage() {
                 </h2>
               </div>
               {msgsQ.isLoading ? (
-                <Spinner size="sm" />
+                <div className="space-y-2">
+                  <Spinner size="sm" />
+                  {maildirSort === 'header_date' ? (
+                    <p className="text-xs text-slate-500 dark:text-slate-400">
+                      Leyendo cabeceras de la carpeta para ordenar por fecha del correo… en carpetas grandes puede
+                      demorar.
+                    </p>
+                  ) : null}
+                </div>
               ) : msgsQ.isError ? (
-                <p className="text-red-600 text-sm">Error listando mensajes</p>
+                <Alert color="failure">
+                  <span className="text-sm">
+                    {(msgsQ.error as Error)?.message ?? 'Error al listar mensajes.'}
+                  </span>
+                  {maildirSort === 'header_date' ? (
+                    <p className="text-sm mt-2 mb-0">
+                      Si ves timeout o carga infinita: probá <strong>Fecha del fichero en disco</strong> en «Criterio de
+                      fecha», o subí <code className="text-xs">proxy_read_timeout</code> en Nginx (p. ej. 300s) delante
+                      del backend.
+                    </p>
+                  ) : null}
+                </Alert>
               ) : items.length === 0 ? (
                 <p className="text-slate-500 text-sm">
                   Sin mensajes en esta carpeta (o ninguno coincide con la búsqueda).

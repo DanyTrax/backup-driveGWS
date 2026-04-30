@@ -24,7 +24,7 @@ import type {
   SetupState,
   WorkspaceAccount,
 } from './types'
-import { MAILBOX_MESSAGE_TIMEOUT_MS } from './types'
+import { MAILBOX_LIST_TIMEOUT_MS, MAILBOX_MESSAGE_TIMEOUT_MS } from './types'
 
 export type TaskPayload = {
   name: string
@@ -421,10 +421,15 @@ export function useMailboxMessages(
         sort_order: sortOrder,
       }
       if (q) params.q = q
-      return (await api.get<MailboxMessagesPage>(`/accounts/${accountId}/mailbox/messages`, { params }))
-        .data
+      return (
+        await api.get<MailboxMessagesPage>(`/accounts/${accountId}/mailbox/messages`, {
+          params,
+          timeout: MAILBOX_LIST_TIMEOUT_MS,
+        })
+      ).data
     },
     enabled: Boolean(accountId),
+    retry: 1,
   })
 }
 
