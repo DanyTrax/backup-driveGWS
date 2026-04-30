@@ -195,6 +195,7 @@ export interface MaildirRebuildFromGybResult {
   mbox_files: number
   folders_touched: number
   skipped_duplicates: number
+  backup_log_id?: string | null
 }
 
 export interface PurgeAllLocalMailResult {

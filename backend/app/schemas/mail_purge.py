@@ -22,7 +22,11 @@ class MailDataInventoryOut(BaseModel):
 
 
 class AccountMailPurgeIn(BaseModel):
-    confirmation_email: str = Field(..., min_length=3, description="Debe coincidir exactamente con el correo de la cuenta.")
+    confirmation_email: str = Field(
+        ...,
+        min_length=3,
+        description="Debe coincidir exactamente con el correo de la cuenta.",
+    )
     maildir: bool = False
     gyb_workdir: bool = False
     gmail_backup_logs: bool = False
@@ -36,6 +40,7 @@ class MaildirRebuildFromGybOut(BaseModel):
     mbox_files: int
     folders_touched: int
     skipped_duplicates: int
+    backup_log_id: str | None = None
 
 
 class AccountMailPurgeOut(BaseModel):

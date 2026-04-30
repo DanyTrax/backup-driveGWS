@@ -1,8 +1,9 @@
 import { Badge, Button, Card, Modal, Select } from 'flowbite-react'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { AxiosError } from 'axios'
 import toast from 'react-hot-toast'
 import { HiDownload, HiTrash, HiX } from 'react-icons/hi'
+import { useSearchParams } from 'react-router-dom'
 import {
   useBackupLogDetail,
   useBackupLogs,
@@ -38,6 +39,22 @@ function humanBytes(n: number) {
 function describeLiveProgress(p: Record<string, unknown> | null | undefined): string {
   if (!p || typeof p !== 'object') return ''
   const stage = String(p.stage ?? '')
+  if (stage === 'maildir_rebuild_gyb') {
+    const phase = String(p.phase ?? '')
+    if (phase === 'running') {
+      return 'Reorganizando Maildir desde el trabajo GYB local (panel; no se llama a Gmail).'
+    }
+    if (phase === 'failed') {
+      const msg = typeof p.message === 'string' ? p.message : 'Error en la operación.'
+      return `Reorganización Maildir/GYB fallida: ${msg}`
+    }
+    if (phase === 'complete') {
+      const n = typeof p.messages === 'number' ? p.messages : null
+      const extra = n != null ? ` ~${n} mensajes.` : ''
+      return `Maildir actualizado desde GYB local.${extra}`
+    }
+    return typeof p.message === 'string' && p.message ? p.message : 'Operación Maildir desde GYB (panel).'
+  }
   if (stage === 'gmail_progress') {
     const phase =
       p.phase === 'gyb'
@@ -144,6 +161,7 @@ function canRetryGmailVault(log: BackupLog): boolean {
 }
 
 export default function LogsPage() {
+  const [searchParams, setSearchParams] = useSearchParams()
   const [status, setStatus] = useState<string>('')
   const { data: profile } = useProfile()
   const perms = new Set(profile?.permissions ?? [])
@@ -163,6 +181,15 @@ export default function LogsPage() {
   const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false)
   const [pdfBusy, setPdfBusy] = useState(false)
   const detailQuery = useBackupLogDetail(detailId)
+
+  useEffect(() => {
+    const logParam = searchParams.get('log')
+    if (!logParam) return
+    setDetailId(logParam)
+    const next = new URLSearchParams(searchParams)
+    next.delete('log')
+    setSearchParams(next, { replace: true })
+  }, [searchParams, setSearchParams])
 
   const deletableVisibleCount = data.filter((l) => l.status !== 'running').length
 

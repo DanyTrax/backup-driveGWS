@@ -377,6 +377,7 @@ export function useRebuildMaildirFromLocalGyb() {
       void qc.invalidateQueries({ queryKey: ['accounts'] })
       void qc.invalidateQueries({ queryKey: ['mail-data-inventory', accountId] })
       void qc.invalidateQueries({ queryKey: ['mailbox-folders', accountId] })
+      void qc.invalidateQueries({ queryKey: ['backup-logs'] })
     },
   })
 }

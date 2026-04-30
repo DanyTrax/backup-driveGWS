@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { Alert, Badge, Button, Card, Checkbox, Label, TextInput } from 'flowbite-react'
 import toast from 'react-hot-toast'
@@ -125,7 +125,23 @@ export default function AccountMailDataPage() {
     try {
       const r = await rebuild.mutateAsync(accountId)
       toast.success(
-        `Maildir reorganizado: ${r.messages} mensajes (${r.eml_files} .eml, carpetas ${r.folders_touched}).`,
+        (t) => (
+          <div className="text-sm">
+            <p className="mb-1">
+              Maildir reorganizado: {r.messages} mensajes ({r.eml_files} .eml, carpetas {r.folders_touched}).
+            </p>
+            {r.backup_log_id ? (
+              <Link
+                to={`/logs?log=${encodeURIComponent(r.backup_log_id)}`}
+                className="text-blue-600 dark:text-blue-400 underline font-medium"
+                onClick={() => toast.dismiss(t.id)}
+              >
+                Ver registro en Logs
+              </Link>
+            ) : null}
+          </div>
+        ),
+        { duration: 10000 },
       )
       void refetch()
     } catch (e) {
