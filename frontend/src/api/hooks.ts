@@ -405,16 +405,22 @@ export function useMailboxMessages(
   accountId: string | null,
   folderId: string,
   offset: number,
-  opts?: { q?: string; sortBy?: 'mtime' | 'header_date' },
+  opts?: { q?: string; sortBy?: 'mtime' | 'header_date'; sortOrder?: 'desc' | 'asc' },
 ) {
   const q = (opts?.q ?? '').trim()
-  const sortBy = opts?.sortBy ?? 'mtime'
+  const sortBy = opts?.sortBy ?? 'header_date'
+  const sortOrder = opts?.sortOrder ?? 'desc'
   return useQuery({
-    queryKey: ['mailbox-messages', accountId, folderId, offset, q, sortBy],
+    queryKey: ['mailbox-messages', accountId, folderId, offset, q, sortBy, sortOrder],
     queryFn: async () => {
-      const params: Record<string, string | number> = { folder: folderId, limit: 80, offset }
+      const params: Record<string, string | number> = {
+        folder: folderId,
+        limit: 80,
+        offset,
+        sort_by: sortBy,
+        sort_order: sortOrder,
+      }
       if (q) params.q = q
-      if (sortBy === 'header_date') params.sort_by = 'header_date'
       return (await api.get<MailboxMessagesPage>(`/accounts/${accountId}/mailbox/messages`, { params }))
         .data
     },

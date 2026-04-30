@@ -189,12 +189,18 @@ def list_messages(
     limit: int = 80,
     offset: int = 0,
     q: str | None = None,
-    sort_by: str = "mtime",
+    sort_by: str = "header_date",
+    sort_order: str = "desc",
 ) -> list[MessageListItem]:
     """Lista mensajes Maildir en ``cur`` y ``new``.
 
-    Orden por defecto: **mtime** del fichero (más reciente primero). Con ``sort_by=header_date``
-    se ordena por la cabecera ``Date`` del mensaje cuando se puede parsear; si no, por mtime.
+    Por defecto se ordena por la cabecera ``Date`` del mensaje (``sort_by=header_date``), que es lo
+    que suele coincidir con la fecha mostrada en la lista. Si no se puede parsear ``Date``, se usa
+    el mtime del fichero como clave secundaria.
+
+    Con ``sort_by=mtime`` solo se usa la fecha de modificación del fichero en disco.
+
+    ``sort_order``: ``desc`` = más reciente primero; ``asc`` = más antiguo primero.
     """
     folder = _safe_folder_path(maildir_root, folder_id)
     cur = folder / "cur"
@@ -215,6 +221,7 @@ def list_messages(
     off = max(0, offset)
     qn = (q or "").strip().lower()
     use_header_sort = (sort_by or "").strip().lower() == "header_date"
+    asc = (sort_order or "").strip().lower() == "asc"
 
     if use_header_sort:
         scored: list[tuple[float, int, Path]] = []
@@ -226,10 +233,16 @@ def list_messages(
             ep = _parsed_epoch_from_date_header(date_hdr)
             sort_key = ep if ep is not None else (mtime_ns / 1e9)
             scored.append((sort_key, mtime_ns, p))
-        scored.sort(key=lambda x: (-x[0], -x[1]))
+        if asc:
+            scored.sort(key=lambda x: (x[0], x[1]))
+        else:
+            scored.sort(key=lambda x: (-x[0], -x[1]))
         ordered: list[tuple[int, Path]] = [(t[1], t[2]) for t in scored]
     else:
-        raw.sort(key=lambda x: -x[0])
+        if asc:
+            raw.sort(key=lambda x: x[0])
+        else:
+            raw.sort(key=lambda x: -x[0])
         ordered = raw
 
     if not qn:

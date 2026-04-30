@@ -344,8 +344,12 @@ async def mailbox_list_messages(
     offset: int = Query(0, ge=0),
     q: str = Query("", max_length=400, description="Filtrar por subcadena en asunto o remitente"),
     sort_by: Literal["mtime", "header_date"] = Query(
-        "mtime",
-        description="mtime=por fecha de fichero (más reciente primero); header_date=por cabecera Date",
+        "header_date",
+        description="header_date=cabecera Date del mensaje (recomendado); mtime=fecha de fichero en disco",
+    ),
+    sort_order: Literal["desc", "asc"] = Query(
+        "desc",
+        description="desc=más reciente primero; asc=más antiguo primero",
     ),
     db: AsyncSession = Depends(get_db),
     _u: SysUser = Depends(mailbox_reader_for_path_account),
@@ -363,6 +367,7 @@ async def mailbox_list_messages(
             offset=offset,
             q=q_strip or None,
             sort_by=sort_by,
+            sort_order=sort_order,
         )
     except ValueError as exc:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
@@ -373,6 +378,7 @@ async def mailbox_list_messages(
         total_estimated=None,
         search=q_strip,
         sort_by=sort_by,
+        sort_order=sort_order,
         items=[
             MailboxMessageSummaryOut(
                 id=x.key,

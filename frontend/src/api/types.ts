@@ -82,6 +82,7 @@ export interface MailboxMessagesPage {
   total_estimated: number | null
   search?: string
   sort_by?: string
+  sort_order?: string
   items: MailboxMessageSummary[]
 }
 

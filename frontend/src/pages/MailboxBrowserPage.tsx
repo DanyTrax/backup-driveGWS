@@ -37,7 +37,8 @@ export default function MailboxBrowserPage() {
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [maildirSearchInput, setMaildirSearchInput] = useState('')
   const [maildirSearchQ, setMaildirSearchQ] = useState('')
-  const [maildirSort, setMaildirSort] = useState<'mtime' | 'header_date'>('mtime')
+  const [maildirSort, setMaildirSort] = useState<'mtime' | 'header_date'>('header_date')
+  const [maildirOrder, setMaildirOrder] = useState<'desc' | 'asc'>('desc')
 
   useEffect(() => {
     const t = window.setTimeout(() => setMaildirSearchQ(maildirSearchInput.trim()), 400)
@@ -47,10 +48,14 @@ export default function MailboxBrowserPage() {
   useEffect(() => {
     setPage(0)
     setSelectedKey(null)
-  }, [maildirSearchQ, folderId, maildirSort])
+  }, [maildirSearchQ, folderId, maildirSort, maildirOrder])
 
   const foldersQ = useMailboxFolders(id)
-  const msgsQ = useMailboxMessages(id, folderId, page * 80, { q: maildirSearchQ, sortBy: maildirSort })
+  const msgsQ = useMailboxMessages(id, folderId, page * 80, {
+    q: maildirSearchQ,
+    sortBy: maildirSort,
+    sortOrder: maildirOrder,
+  })
   const bodyQ = useMailboxMessage(id, folderId, selectedKey)
 
   const folders = foldersQ.data ?? []
@@ -137,9 +142,10 @@ export default function MailboxBrowserPage() {
             Lectura directa del Maildir en el servidor (mismos datos que importan a Dovecot). Requiere permiso{' '}
             <code className="text-xs">mailbox.view_all</code> o delegación explícita con{' '}
             <code className="text-xs">mailbox.view_delegated</code>.{' '}
-            <strong>Exportar ZIP</strong> genera la estructura Maildir tal como está en disco. Orden por defecto: más
-            reciente primero según la <strong>fecha del fichero</strong> en disco; podés cambiar a la cabecera{' '}
-            <code className="text-xs">Date</code> del mensaje (puede ser más lento en carpetas muy grandes).
+            <strong>Exportar ZIP</strong> genera la estructura Maildir tal como está en disco. Por defecto el listado
+            se ordena por la <strong>cabecera Date</strong> del correo (más reciente arriba); podés usar la fecha del
+            fichero en disco o invertir el orden (más antiguo primero). En carpetas enormes, ordenar por Date lee las
+            cabeceras de todos los mensajes y puede ser más lento.
           </>
         ) : (
           <>
@@ -163,15 +169,26 @@ export default function MailboxBrowserPage() {
                 onChange={(e) => setMaildirSearchInput(e.target.value)}
               />
             </div>
-            <div className="min-w-[240px]">
-              <Label htmlFor="maildir-sort" value="Ordenar por" className="mb-1" />
+            <div className="min-w-[260px]">
+              <Label htmlFor="maildir-sort" value="Criterio de fecha" className="mb-1" />
               <Select
                 id="maildir-sort"
                 value={maildirSort}
                 onChange={(e) => setMaildirSort(e.target.value as 'mtime' | 'header_date')}
               >
-                <option value="mtime">Más reciente (fecha de fichero)</option>
-                <option value="header_date">Fecha cabecera Date</option>
+                <option value="header_date">Fecha del correo (cabecera Date)</option>
+                <option value="mtime">Fecha del fichero en disco</option>
+              </Select>
+            </div>
+            <div className="min-w-[220px]">
+              <Label htmlFor="maildir-order" value="Orden" className="mb-1" />
+              <Select
+                id="maildir-order"
+                value={maildirOrder}
+                onChange={(e) => setMaildirOrder(e.target.value as 'desc' | 'asc')}
+              >
+                <option value="desc">Más recientes primero</option>
+                <option value="asc">Más antiguos primero</option>
               </Select>
             </div>
           </div>

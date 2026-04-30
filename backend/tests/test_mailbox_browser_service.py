@@ -151,6 +151,29 @@ def test_pdf_attachment_and_leaf_download(tmp_path: Path) -> None:
     assert fn == "doc.pdf"
 
 
+def test_list_messages_sort_by_header_date_desc_and_asc(tmp_path: Path) -> None:
+    root = tmp_path / "Maildir"
+    cur = root / "cur"
+    _write_msg(
+        cur,
+        "older.host:2,S",
+        b"Subject: Old\nFrom: a@b.com\nDate: Fri, 10 Apr 2026 14:00:00 +0000\n\nx\n",
+    )
+    _write_msg(
+        cur,
+        "newer.host:2,S",
+        b"Subject: New\nFrom: a@b.com\nDate: Wed, 29 Apr 2026 12:00:00 +0000\n\ny\n",
+    )
+    (root / "new").mkdir()
+    (root / "tmp").mkdir()
+
+    desc = list_messages(root, folder_id="INBOX", limit=10, offset=0, sort_by="header_date", sort_order="desc")
+    assert [m.subject for m in desc] == ["New", "Old"]
+
+    asc = list_messages(root, folder_id="INBOX", limit=10, offset=0, sort_by="header_date", sort_order="asc")
+    assert [m.subject for m in asc] == ["Old", "New"]
+
+
 def test_rejects_path_traversal(tmp_path: Path) -> None:
     root = tmp_path / "Maildir"
     (root / "cur").mkdir(parents=True)
