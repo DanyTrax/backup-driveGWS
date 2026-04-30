@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
-import { Alert, Badge, Button, Card, Spinner } from 'flowbite-react'
+import { Alert, Badge, Button, Card, Spinner, TextInput } from 'flowbite-react'
 import toast from 'react-hot-toast'
-import { HiArrowLeft, HiMenu, HiX } from 'react-icons/hi'
+import { HiArrowLeft, HiMenu, HiSearch, HiX } from 'react-icons/hi'
 import { downloadGybWorkAttachment } from '../api/gybWorkAttachment'
 import { useGybWorkAccounts, useGybWorkFolders, useGybWorkMessage, useGybWorkMessages } from '../api/hooks'
 
@@ -25,24 +25,42 @@ export default function GybWorkBrowserPage() {
   const { accountId } = useParams<{ accountId?: string }>()
   const navigate = useNavigate()
   const id = accountId ?? null
+  const [viewMode, setViewMode] = useState<'disk' | 'labels'>('disk')
   const [folderId, setFolderId] = useState('')
+  const [labelId, setLabelId] = useState('')
   const [page, setPage] = useState(0)
   const [selectedKey, setSelectedKey] = useState<string | null>(null)
   const [sidebarOpen, setSidebarOpen] = useState(true)
+  const [searchInput, setSearchInput] = useState('')
+  const [searchCommitted, setSearchCommitted] = useState('')
+
+  useEffect(() => {
+    const t = window.setTimeout(() => setSearchCommitted(searchInput.trim()), 400)
+    return () => window.clearTimeout(t)
+  }, [searchInput])
 
   const accountsQ = useGybWorkAccounts()
-  const foldersQ = useGybWorkFolders(id)
-  const msgsQ = useGybWorkMessages(id, folderId, page * 80)
+  const foldersQ = useGybWorkFolders(id, viewMode)
+  const msgsQ = useGybWorkMessages(id, {
+    view: viewMode,
+    folderId,
+    labelId,
+    q: searchCommitted,
+    offset: page * 80,
+  })
   const bodyQ = useGybWorkMessage(id, selectedKey)
 
   const accounts = accountsQ.data ?? []
   const folders = foldersQ.data ?? []
   const items = msgsQ.data?.items ?? []
 
-  const folderLabel = useMemo(
-    () => folders.find((f) => f.id === folderId)?.name ?? (folderId ? folderId : '(raíz)'),
-    [folders, folderId],
-  )
+  const selectionLabel = useMemo(() => {
+    if (viewMode === 'labels') {
+      const name = folders.find((f) => f.id === labelId)?.name
+      return name ?? (labelId ? labelId : '—')
+    }
+    return folders.find((f) => f.id === folderId)?.name ?? (folderId ? folderId : '(raíz)')
+  }, [folders, folderId, labelId, viewMode])
 
   const iframeSrcDoc = useMemo(
     () => (bodyQ.data?.text_html ? wrapMailHtmlFragment(bodyQ.data.text_html) : ''),
@@ -50,18 +68,32 @@ export default function GybWorkBrowserPage() {
   )
 
   const currentAccountEmail = useMemo(() => accounts.find((a) => a.id === id)?.email, [accounts, id])
-
-  useEffect(() => {
-    if (!foldersQ.data?.length) return
-    setFolderId((prev) =>
-      foldersQ.data!.some((f) => f.id === prev) ? prev : (foldersQ.data![0]?.id ?? ''),
-    )
-  }, [foldersQ.data])
+  const currentHasMsgDb = useMemo(() => accounts.find((a) => a.id === id)?.has_msg_db ?? false, [accounts, id])
 
   useEffect(() => {
     setPage(0)
     setSelectedKey(null)
-  }, [id, folderId])
+    setFolderId('')
+    setLabelId('')
+  }, [viewMode])
+
+  useEffect(() => {
+    if (!foldersQ.data?.length) return
+    if (viewMode === 'disk') {
+      setFolderId((prev) =>
+        foldersQ.data!.some((f) => f.id === prev) ? prev : (foldersQ.data![0]?.id ?? ''),
+      )
+    } else {
+      setLabelId((prev) =>
+        foldersQ.data!.some((f) => f.id === prev) ? prev : (foldersQ.data![0]?.id ?? ''),
+      )
+    }
+  }, [foldersQ.data, viewMode])
+
+  useEffect(() => {
+    setPage(0)
+    setSelectedKey(null)
+  }, [id, folderId, labelId, searchCommitted])
 
   if (!id) {
     return (
@@ -113,34 +145,72 @@ export default function GybWorkBrowserPage() {
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-center gap-3">
+      <div className="flex flex-wrap items-center gap-2 md:gap-3">
         <Button color="light" size="sm" onClick={() => navigate('/gyb-work')}>
           <HiArrowLeft className="h-4 w-4 mr-2" /> Otra cuenta
         </Button>
         <h1 className="text-xl font-semibold">Mensajes GYB · carpeta de trabajo</h1>
         <Badge color="info">{currentAccountEmail ?? id}</Badge>
+        <div className="flex rounded-lg border border-slate-200 dark:border-slate-600 overflow-hidden text-sm">
+          <button
+            type="button"
+            className={`px-3 py-1.5 ${viewMode === 'disk' ? 'bg-blue-600 text-white' : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200'}`}
+            onClick={() => setViewMode('disk')}
+          >
+            Carpetas en disco
+          </button>
+          <button
+            type="button"
+            className={`px-3 py-1.5 border-l border-slate-200 dark:border-slate-600 ${viewMode === 'labels' ? 'bg-blue-600 text-white' : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200'}`}
+            onClick={() => setViewMode('labels')}
+          >
+            Etiquetas Gmail
+          </button>
+        </div>
         <Button color="light" size="sm" onClick={() => setSidebarOpen((v) => !v)}>
           {sidebarOpen ? (
             <>
-              <HiX className="h-4 w-4 mr-2" /> Ocultar carpetas
+              <HiX className="h-4 w-4 mr-2" /> Ocultar panel
             </>
           ) : (
             <>
-              <HiMenu className="h-4 w-4 mr-2" /> Mostrar carpetas
+              <HiMenu className="h-4 w-4 mr-2" /> Mostrar panel
             </>
           )}
         </Button>
       </div>
 
       <p className="text-sm text-slate-500 dark:text-slate-400 max-w-3xl">
-        Las carpetas coinciden con los directorios bajo el trabajo GYB donde hay ficheros{' '}
-        <code className="text-xs">.eml</code> (etiquetas/rutas que crea la exportación). En cada carpeta solo se listan
-        los mensajes de ese nivel (no subcarpetas). Para Maildir/Dovecot usá el{' '}
+        {viewMode === 'disk' ? (
+          <>
+            Carpetas según el árbol de directorios del export (p. ej. fechas). Solo <code className="text-xs">.eml</code>{' '}
+            en ese nivel.
+          </>
+        ) : (
+          <>
+            Etiquetas desde <code className="text-xs">msg-db.sqlite</code> (como al importar a Maildir). Requiere ese
+            fichero en la carpeta de trabajo.
+            {!currentHasMsgDb ? (
+              <span className="text-amber-700 dark:text-amber-400"> Esta cuenta no reporta msg-db en el inventario.</span>
+            ) : null}
+          </>
+        )}{' '}
+        Usá el buscador para filtrar por asunto o remitente. Para Dovecot/Maildir:{' '}
         <Link to={`/accounts/${id}/mailbox`} className="underline">
           visor Maildir
         </Link>
         .
       </p>
+
+      <div className="max-w-xl">
+        <TextInput
+          icon={HiSearch}
+          type="search"
+          placeholder="Buscar en asunto o remitente…"
+          value={searchInput}
+          onChange={(e) => setSearchInput(e.target.value)}
+        />
+      </div>
 
       {msgsQ.isError && (
         <Alert color="failure">
@@ -150,29 +220,38 @@ export default function GybWorkBrowserPage() {
       )}
 
       {foldersQ.isError && (
-        <Alert color="failure">{(foldersQ.error as Error)?.message ?? 'Error cargando carpetas'}</Alert>
+        <Alert color="failure">{(foldersQ.error as Error)?.message ?? 'Error cargando carpetas/etiquetas'}</Alert>
       )}
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-12">
         {sidebarOpen ? (
           <Card className="lg:col-span-3">
-            <h2 className="text-sm font-medium mb-2">Carpetas (work GYB)</h2>
+            <h2 className="text-sm font-medium mb-2">
+              {viewMode === 'labels' ? 'Etiquetas Gmail' : 'Carpetas en disco'}
+            </h2>
             {foldersQ.isLoading ? (
               <Spinner size="sm" />
             ) : folders.length === 0 ? (
-              <p className="text-slate-500 text-xs">Sin carpetas con .eml (¿solo .mbox?)</p>
+              <p className="text-slate-500 text-xs">
+                {viewMode === 'labels'
+                  ? 'Sin etiquetas en msg-db (¿falta msg-db.sqlite o backup incompleto?). Probá “Carpetas en disco”.'
+                  : 'Sin carpetas con .eml (¿solo .mbox?).'}
+              </p>
             ) : (
               <ul className="space-y-1 text-sm max-h-[70vh] overflow-y-auto">
-                {folders.map((f) => (
-                  <li key={f.id === '' ? '__root__' : f.id}>
+                {folders.map((f, idx) => (
+                  <li key={f.id === '' ? '__root__' : `${idx}-${f.id.slice(0, 80)}`}>
                     <button
                       type="button"
                       className={`w-full text-left px-2 py-1 rounded ${
-                        folderId === f.id ? 'bg-blue-100 dark:bg-blue-900 font-medium' : 'hover:bg-slate-100 dark:hover:bg-slate-800'
+                        (viewMode === 'disk' ? folderId === f.id : labelId === f.id)
+                          ? 'bg-blue-100 dark:bg-blue-900 font-medium'
+                          : 'hover:bg-slate-100 dark:hover:bg-slate-800'
                       }`}
                       title={f.id || '(raíz)'}
                       onClick={() => {
-                        setFolderId(f.id)
+                        if (viewMode === 'disk') setFolderId(f.id)
+                        else setLabelId(f.id)
                         setPage(0)
                         setSelectedKey(null)
                       }}
@@ -187,9 +266,9 @@ export default function GybWorkBrowserPage() {
         ) : null}
 
         <Card className={sidebarOpen ? 'lg:col-span-3' : 'lg:col-span-4'}>
-          <div className="flex items-center justify-between mb-2">
-            <h2 className="text-sm font-medium truncate" title={folderLabel}>
-              Mensajes · {folderLabel}
+          <div className="flex items-center justify-between mb-2 gap-2">
+            <h2 className="text-sm font-medium truncate" title={selectionLabel}>
+              Mensajes · {selectionLabel}
             </h2>
           </div>
           {msgsQ.isLoading ? (
@@ -197,7 +276,11 @@ export default function GybWorkBrowserPage() {
           ) : msgsQ.isError ? (
             <p className="text-red-600 text-sm">No se pudo listar</p>
           ) : items.length === 0 ? (
-            <p className="text-slate-500 text-sm">No hay ficheros .eml visibles (puede haber solo .mbox).</p>
+            <p className="text-slate-500 text-sm">
+              {viewMode === 'labels' && !labelId
+                ? 'Elegí una etiqueta en el panel.'
+                : 'Sin resultados (probá otra carpeta, etiqueta o término de búsqueda).'}
+            </p>
           ) : (
             <ul className="space-y-1 max-h-[70vh] overflow-y-auto text-sm">
               {items.map((m) => (

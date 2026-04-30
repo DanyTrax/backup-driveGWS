@@ -435,22 +435,40 @@ export function useGybWorkAccounts() {
   })
 }
 
-export function useGybWorkFolders(accountId: string | null) {
+export function useGybWorkFolders(accountId: string | null, view: 'disk' | 'labels') {
   return useQuery({
-    queryKey: ['gyb-work-folders', accountId],
+    queryKey: ['gyb-work-folders', accountId, view],
     queryFn: async () =>
-      (await api.get<MailboxFolder[]>(`/accounts/${accountId}/gyb-work/folders`)).data,
+      (await api.get<MailboxFolder[]>(`/accounts/${accountId}/gyb-work/folders`, { params: { view } }))
+        .data,
     enabled: Boolean(accountId),
   })
 }
 
-export function useGybWorkMessages(accountId: string | null, folderId: string, offset: number) {
+export function useGybWorkMessages(
+  accountId: string | null,
+  params: {
+    view: 'disk' | 'labels'
+    folderId: string
+    labelId: string
+    q: string
+    offset: number
+  },
+) {
+  const { view, folderId, labelId, q, offset } = params
   return useQuery({
-    queryKey: ['gyb-work-messages', accountId, folderId, offset],
+    queryKey: ['gyb-work-messages', accountId, view, folderId, labelId, q, offset],
     queryFn: async () => {
-      const params = { folder: folderId, limit: 80, offset }
+      const reqParams: Record<string, string | number> = {
+        view,
+        limit: 80,
+        offset,
+      }
+      if (view === 'disk') reqParams.folder = folderId
+      else reqParams.label = labelId
+      if (q) reqParams.q = q
       return (
-        await api.get<GybWorkMessagesPage>(`/accounts/${accountId}/gyb-work/messages`, { params })
+        await api.get<GybWorkMessagesPage>(`/accounts/${accountId}/gyb-work/messages`, { params: reqParams })
       ).data
     },
     enabled: Boolean(accountId),

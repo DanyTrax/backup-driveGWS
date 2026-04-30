@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import base64
 import email
+import sqlite3
 from dataclasses import dataclass
 from email.header import decode_header, make_header
 from email.parser import BytesParser
@@ -14,6 +15,7 @@ from app.services.mailbox_browser_service import (
     _decode_mime_header,
     _extract_body_and_attachments,
 )
+from app.services.maildir_service import _normalize_gyb_relative_path
 
 
 def resolve_gyb_list_folder(work_root: Path, folder_id: str) -> Path:
@@ -35,7 +37,7 @@ def resolve_gyb_list_folder(work_root: Path, folder_id: str) -> Path:
 
 @dataclass
 class GybWorkFolder:
-    """Carpeta con al menos un ``.eml`` directamente dentro."""
+    """Entrada de panel lateral: carpeta en disco o etiqueta Gmail."""
 
     folder_id: str
     display_name: str
@@ -70,6 +72,60 @@ def list_gyb_work_folders(work_root: Path) -> list[GybWorkFolder]:
         name = "(raíz)" if fid == "" else fid.replace("/", " / ")
         out.append(GybWorkFolder(folder_id=fid, display_name=name))
     return out
+
+
+def _gyb_sqlite_uri(work_root: Path) -> str | None:
+    db = (work_root / "msg-db.sqlite").resolve()
+    if not db.is_file():
+        return None
+    return f"file:{db.as_posix()}?mode=ro"
+
+
+def list_gyb_gmail_label_folders(work_root: Path) -> list[GybWorkFolder]:
+    """Etiquetas distintas en ``msg-db.sqlite`` (mismo origen que la importación a Maildir)."""
+    uri = _gyb_sqlite_uri(work_root)
+    if uri is None:
+        return []
+    conn = sqlite3.connect(uri, uri=True)
+    try:
+        cur = conn.execute(
+            """
+            SELECT DISTINCT label FROM labels
+            WHERE label IS NOT NULL AND trim(label) != ''
+            ORDER BY label COLLATE NOCASE
+            """
+        )
+        rows = [r[0] for r in cur.fetchall() if r[0]]
+    finally:
+        conn.close()
+    return [GybWorkFolder(folder_id=lab, display_name=lab) for lab in rows]
+
+
+def _relpaths_for_gmail_label(work_root: Path, label: str) -> list[str]:
+    uri = _gyb_sqlite_uri(work_root)
+    if uri is None:
+        return []
+    conn = sqlite3.connect(uri, uri=True)
+    try:
+        cur = conn.execute(
+            """
+            SELECT DISTINCT m.message_filename
+            FROM messages AS m
+            INNER JOIN labels AS l ON l.message_num = m.message_num
+            WHERE l.label = ?
+            """,
+            (label,),
+        )
+        ordered: list[str] = []
+        seen: set[str] = set()
+        for (fn,) in cur.fetchall():
+            nk = _normalize_gyb_relative_path(fn or "")
+            if nk and nk not in seen:
+                seen.add(nk)
+                ordered.append(nk)
+        return ordered
+    finally:
+        conn.close()
 
 
 def encode_eml_rel_key(rel: Path) -> str:
@@ -111,6 +167,35 @@ def _headers_from_eml(path: Path, max_bytes: int = 96_000) -> tuple[str, str, st
     return subject, from_, date
 
 
+def _summary_matches_query(subject: str, from_addr: str, q_lower: str) -> bool:
+    if not q_lower:
+        return True
+    return q_lower in subject.lower() or q_lower in from_addr.lower()
+
+
+def _path_to_summary(path: Path, wr: Path) -> GybEmlSummary | None:
+    try:
+        rel = path.resolve().relative_to(wr)
+    except ValueError:
+        return None
+    k = encode_eml_rel_key(rel)
+    try:
+        subj, from_, date = _headers_from_eml(path)
+    except OSError:
+        return None
+    try:
+        sz = path.stat().st_size
+    except OSError:
+        sz = 0
+    return GybEmlSummary(
+        key=k,
+        subject=subj,
+        from_addr=from_,
+        date_display=date,
+        size=sz,
+    )
+
+
 @dataclass
 class GybEmlSummary:
     key: str
@@ -126,6 +211,7 @@ def list_gyb_eml_summaries(
     folder_id: str = "",
     limit: int = 80,
     offset: int = 0,
+    q: str | None = None,
 ) -> list[GybEmlSummary]:
     if not work_root.is_dir():
         return []
@@ -133,6 +219,7 @@ def list_gyb_eml_summaries(
     if not folder.is_dir():
         return []
     wr = work_root.resolve()
+    qn = (q or "").strip().lower()
     files: list[tuple[int, Path]] = []
     try:
         for p in folder.glob("*.eml"):
@@ -146,32 +233,112 @@ def list_gyb_eml_summaries(
         return []
     files.sort(key=lambda x: -x[0])
     lim = max(1, min(limit, 200))
-    slice_ = files[offset : offset + lim]
-    out: list[GybEmlSummary] = []
-    for _mt, path in slice_:
-        try:
-            rel = path.resolve().relative_to(wr)
-        except ValueError:
-            continue
-        k = encode_eml_rel_key(rel)
+    off = max(0, offset)
+
+    if not qn:
+        slice_ = files[off : off + lim]
+        out: list[GybEmlSummary] = []
+        for _mt, path in slice_:
+            s = _path_to_summary(path, wr)
+            if s:
+                out.append(s)
+        return out
+
+    matches: list[GybEmlSummary] = []
+    for _mt, path in files:
         try:
             subj, from_, date = _headers_from_eml(path)
         except OSError:
+            continue
+        if not _summary_matches_query(subj, from_, qn):
             continue
         try:
             sz = path.stat().st_size
         except OSError:
             sz = 0
-        out.append(
+        try:
+            rel = path.resolve().relative_to(wr)
+        except ValueError:
+            continue
+        matches.append(
             GybEmlSummary(
-                key=k,
+                key=encode_eml_rel_key(rel),
                 subject=subj,
                 from_addr=from_,
                 date_display=date,
                 size=sz,
             )
         )
-    return out
+    return matches[off : off + lim]
+
+
+def list_gyb_eml_summaries_for_label(
+    work_root: Path,
+    *,
+    label: str,
+    limit: int = 80,
+    offset: int = 0,
+    q: str | None = None,
+) -> list[GybEmlSummary]:
+    lab = (label or "").strip()
+    if not lab or not work_root.is_dir():
+        return []
+    wr = work_root.resolve()
+    qn = (q or "").strip().lower()
+    relpaths = _relpaths_for_gmail_label(work_root, lab)
+    files: list[tuple[int, Path]] = []
+    for rel in relpaths:
+        p = (wr / rel).resolve()
+        try:
+            p.relative_to(wr)
+        except ValueError:
+            continue
+        if not p.is_file() or p.suffix.lower() != ".eml":
+            continue
+        try:
+            st = p.stat()
+            files.append((st.st_mtime_ns, p))
+        except OSError:
+            continue
+    files.sort(key=lambda x: -x[0])
+    lim = max(1, min(limit, 200))
+    off = max(0, offset)
+
+    if not qn:
+        slice_ = files[off : off + lim]
+        out: list[GybEmlSummary] = []
+        for _mt, path in slice_:
+            s = _path_to_summary(path, wr)
+            if s:
+                out.append(s)
+        return out
+
+    matches: list[GybEmlSummary] = []
+    for _mt, path in files:
+        try:
+            subj, from_, date = _headers_from_eml(path)
+        except OSError:
+            continue
+        if not _summary_matches_query(subj, from_, qn):
+            continue
+        try:
+            sz = path.stat().st_size
+        except OSError:
+            sz = 0
+        try:
+            rel = path.resolve().relative_to(wr)
+        except ValueError:
+            continue
+        matches.append(
+            GybEmlSummary(
+                key=encode_eml_rel_key(rel),
+                subject=subj,
+                from_addr=from_,
+                date_display=date,
+                size=sz,
+            )
+        )
+    return matches[off : off + lim]
 
 
 def read_gyb_eml_message(work_root: Path, *, key: str) -> MessageBody:

@@ -5,6 +5,7 @@ import asyncio
 import re
 import uuid
 from pathlib import Path
+from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import FileResponse, Response
@@ -38,6 +39,8 @@ from app.services.audit_service import record_audit
 from app.services.gyb_work_browser_service import (
     decode_eml_path,
     list_gyb_eml_summaries,
+    list_gyb_eml_summaries_for_label,
+    list_gyb_gmail_label_folders,
     list_gyb_work_folders,
     read_gyb_eml_leaf_bytes,
     read_gyb_eml_message,
@@ -101,10 +104,14 @@ async def gyb_work_list_accounts(
 @router.get(
     "/{account_id}/gyb-work/folders",
     response_model=list[MailboxFolderOut],
-    summary="Carpetas bajo el trabajo GYB que contienen ficheros .eml",
+    summary="Carpetas de trabajo GYB: disco o etiquetas Gmail (msg-db.sqlite)",
 )
 async def gyb_work_list_folders(
     account_id: uuid.UUID,
+    view: Literal["disk", "labels"] = Query(
+        "disk",
+        description="disk=rutas de directorios con .eml; labels=etiquetas desde msg-db.sqlite",
+    ),
     db: AsyncSession = Depends(get_db),
     _u: SysUser = Depends(mailbox_reader_for_path_account),
 ) -> list[MailboxFolderOut]:
@@ -112,22 +119,38 @@ async def gyb_work_list_folders(
     gyb = gyb_work_root_for_email(acc.email)
     if not gyb_workdir_has_eml_or_mbox(gyb):
         raise HTTPException(status.HTTP_409_CONFLICT, "gyb_work_no_export")
-    return [
-        MailboxFolderOut(id=f.folder_id, name=f.display_name) for f in list_gyb_work_folders(gyb)
-    ]
+    if view == "labels":
+        folders = list_gyb_gmail_label_folders(gyb)
+    else:
+        folders = list_gyb_work_folders(gyb)
+    return [MailboxFolderOut(id=f.folder_id, name=f.display_name) for f in folders]
 
 
 @router.get(
     "/{account_id}/gyb-work/messages",
     response_model=GybWorkMessagesPageOut,
-    summary="Listar mensajes .eml en una subcarpeta del trabajo GYB (reciente primero)",
+    summary="Listar .eml por carpeta en disco o por etiqueta Gmail, con búsqueda opcional",
 )
 async def gyb_work_list_messages(
     account_id: uuid.UUID,
+    view: Literal["disk", "labels"] = Query(
+        "disk",
+        description="disk=param folder; labels=param label (msg-db.sqlite)",
+    ),
     folder: str = Query(
         "",
         max_length=2048,
-        description="Ruta relativa desde la raíz GYB (vacío = raíz). Solo .eml en ese directorio.",
+        description="Ruta relativa bajo la raíz GYB (solo vista disk).",
+    ),
+    label: str = Query(
+        "",
+        max_length=512,
+        description="Nombre de etiqueta Gmail exacto (solo vista labels).",
+    ),
+    q: str = Query(
+        "",
+        max_length=200,
+        description="Filtrar por texto en asunto o remitente (insensible a mayúsculas).",
     ),
     limit: int = Query(80, ge=1, le=200),
     offset: int = Query(0, ge=0),
@@ -138,13 +161,42 @@ async def gyb_work_list_messages(
     gyb = gyb_work_root_for_email(acc.email)
     if not gyb_workdir_has_eml_or_mbox(gyb):
         raise HTTPException(status.HTTP_409_CONFLICT, "gyb_work_no_export")
-    try:
-        summaries = list_gyb_eml_summaries(gyb, folder_id=folder, limit=limit, offset=offset)
-    except ValueError as exc:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "invalid_folder") from exc
-    fid = folder.strip()
+    q_clean = q.strip()
+    if view == "labels":
+        lab = label.strip()
+        if not lab:
+            return GybWorkMessagesPageOut(
+                view=view,
+                folder_id="",
+                label="",
+                search=q_clean,
+                offset=offset,
+                limit=limit,
+                items=[],
+            )
+        summaries = list_gyb_eml_summaries_for_label(
+            gyb, label=lab, limit=limit, offset=offset, q=q_clean or None
+        )
+        fid = ""
+        lab_out = lab
+    else:
+        try:
+            summaries = list_gyb_eml_summaries(
+                gyb,
+                folder_id=folder,
+                limit=limit,
+                offset=offset,
+                q=q_clean or None,
+            )
+        except ValueError as exc:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "invalid_folder") from exc
+        fid = folder.strip()
+        lab_out = ""
     return GybWorkMessagesPageOut(
+        view=view,
         folder_id=fid,
+        label=lab_out,
+        search=q_clean,
         offset=offset,
         limit=limit,
         items=[

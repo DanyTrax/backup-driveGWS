@@ -60,9 +60,12 @@ class GybWorkAccountOut(BaseModel):
 
 
 class GybWorkMessagesPageOut(BaseModel):
-    """Mensajes ``.eml`` solo en la carpeta indicada (sin recursión en subcarpetas)."""
+    """Mensajes ``.eml`` en carpeta de disco o bajo una etiqueta Gmail (vía ``msg-db.sqlite``)."""
 
-    folder_id: str
+    view: str = "disk"
+    folder_id: str = ""
+    label: str = ""
+    search: str = ""
     offset: int
     limit: int
     items: list[MailboxMessageSummaryOut]

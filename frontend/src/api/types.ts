@@ -112,7 +112,10 @@ export interface GybWorkAccount {
 
 /** GET /accounts/{id}/gyb-work/messages */
 export interface GybWorkMessagesPage {
+  view: string
   folder_id: string
+  label: string
+  search: string
   offset: number
   limit: number
   items: MailboxMessageSummary[]
