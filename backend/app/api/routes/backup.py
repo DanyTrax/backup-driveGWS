@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import logging
 import uuid
-from pathlib import Path
 from typing import Any
 
 from datetime import datetime, timezone
@@ -32,7 +31,6 @@ from app.services.backup_concurrency_service import active_backup_log_id
 from app.services.backup_engine import (
     cancel_backup,
     gmail_log_vault_retry_reason,
-    gyb_workdir_has_export,
 )
 from app.services.progress_bus import last_event, subscribe
 
@@ -383,12 +381,6 @@ async def retry_gmail_vault(
     if reason:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail={"error": reason})
 
-    work_root = Path(f"/var/msa/work/gmail/{account.email}")
-    if not gyb_workdir_has_export(work_root):
-        raise HTTPException(
-            status.HTTP_400_BAD_REQUEST,
-            detail={"error": "gyb_workdir_empty"},
-        )
     if not (account.drive_vault_folder_id or "").strip():
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST,

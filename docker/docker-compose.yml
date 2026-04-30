@@ -38,6 +38,8 @@ services:
       - secrets:/app/secrets:ro
       - maildirs:/var/mail/vhosts          # backups gmail convertidos a Maildir
       - platform_backups:/platform_backups
+      # Export GYB (.eml): mismo path en app y worker (reintento vault; sin esto la API no ve los archivos del worker).
+      - gyb_work_gmail:/var/msa/work/gmail
     depends_on:
       postgres:
         condition: service_healthy
@@ -77,6 +79,7 @@ services:
       - secrets:/app/secrets:ro
       - maildirs:/var/mail/vhosts
       - platform_backups:/platform_backups
+      - gyb_work_gmail:/var/msa/work/gmail
     depends_on:
       postgres:
         condition: service_healthy
@@ -257,3 +260,4 @@ volumes:
   maildirs:
   secrets:
   platform_backups:
+  gyb_work_gmail:

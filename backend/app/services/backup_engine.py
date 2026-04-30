@@ -277,10 +277,6 @@ async def retry_gmail_vault_push(
     if reason:
         raise ValueError(reason)
 
-    work_root = Path(f"/var/msa/work/gmail/{account.email}")
-    if not gyb_workdir_has_export(work_root):
-        raise ValueError("gyb_workdir_empty")
-
     vault_id = (account.drive_vault_folder_id or "").strip()
     if not vault_id:
         raise ValueError("missing_vault_folder")
@@ -294,6 +290,7 @@ async def retry_gmail_vault_push(
     if dup is not None and dup != log.id:
         raise ValueError("active_gmail_backup_exists")
 
+    work_root = Path(f"/var/msa/work/gmail/{account.email}")
     log.status = BackupStatus.RUNNING.value
     log.finished_at = None
     log.error_summary = None
@@ -302,6 +299,27 @@ async def retry_gmail_vault_push(
     await db.refresh(log)
 
     log_id_str = str(log.id)
+    if not gyb_workdir_has_export(work_root):
+        detail = (
+            "No hay export GYB local (.eml o .mbox) para subir al vault. "
+            f"El worker comprobó: {work_root}. "
+            "Causas frecuentes: volumen /var/msa/work/gmail no compartido entre app y worker o no persistente "
+            "(se pierde al recrear contenedores), carpeta de trabajo vaciada, o backup cancelado antes de que GYB "
+            "terminara de escribir. Montá el volumen indicado en docker-compose o ejecutá de nuevo un backup Gmail completo."
+        )
+        await _finalise_log(db, log, status=BackupStatus.FAILED, error_summary=detail)
+        await publish(
+            log_id_str,
+            {
+                "stage": "failed",
+                "scope": "vault_push",
+                "error": "gyb_workdir_empty",
+                "retry": True,
+            },
+        )
+        await db.commit()
+        return log
+
     await publish(
         log_id_str,
         {"stage": "vault_push_retry", "scope": "gmail", "account": account.email},

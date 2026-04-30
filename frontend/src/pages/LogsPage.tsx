@@ -576,8 +576,36 @@ export default function LogsPage() {
                   try {
                     const r = await retryGmailVault.mutateAsync(detailQuery.data!.id)
                     toast.success(`Reintento encolado (Celery ${r.celery_id.slice(0, 8)}…)`)
-                  } catch {
-                    toast.error('No se pudo encolar el reintento (¿workdir GYB vacío u otro backup activo?)')
+                  } catch (e) {
+                    const ax = e as AxiosError<{ detail?: unknown }>
+                    const d = ax.response?.data?.detail
+                    const code =
+                      d && typeof d === 'object' && d !== null && 'error' in d
+                        ? String((d as { error: string }).error)
+                        : null
+                    if (code === 'active_gmail_backup_exists') {
+                      toast.error(
+                        'Hay otro backup Gmail en curso para esta cuenta. Cancelalo o esperá a que termine.',
+                      )
+                    } else if (code === 'missing_vault_folder') {
+                      toast.error('La cuenta no tiene carpeta vault en Drive configurada.')
+                    } else if (code === 'vault_push_disabled' || code === 'vault_already_done') {
+                      toast.error(
+                        code === 'vault_already_done'
+                          ? 'La subida al vault ya consta como completada.'
+                          : 'Esta tarea tiene desactivado el push al vault (1-GMAIL).',
+                      )
+                    } else if (code === 'invalid_status') {
+                      toast.error('El estado del log no permite reintento (solo fallido o cancelado con Maildir listo).')
+                    } else if (typeof d === 'string') {
+                      toast.error(d)
+                    } else if (ax.response?.status === 409) {
+                      toast.error('Conflicto al encolar (¿otro backup activo?).')
+                    } else {
+                      toast.error(
+                        'No se pudo encolar el reintento. Revisá red o permisos; si el export GYB ya no está en el servidor, ejecutá un backup Gmail de nuevo (volumen /var/msa/work/gmail).',
+                      )
+                    }
                   }
                 })()
               }}
