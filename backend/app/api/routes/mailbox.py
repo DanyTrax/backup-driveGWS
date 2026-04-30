@@ -342,6 +342,11 @@ async def mailbox_list_messages(
     folder: str = Query("INBOX", description="Id de carpeta (INBOX o .Nombre)"),
     limit: int = Query(80, ge=1, le=200),
     offset: int = Query(0, ge=0),
+    q: str = Query("", max_length=400, description="Filtrar por subcadena en asunto o remitente"),
+    sort_by: Literal["mtime", "header_date"] = Query(
+        "mtime",
+        description="mtime=por fecha de fichero (más reciente primero); header_date=por cabecera Date",
+    ),
     db: AsyncSession = Depends(get_db),
     _u: SysUser = Depends(mailbox_reader_for_path_account),
 ) -> MailboxMessagesPageOut:
@@ -349,8 +354,16 @@ async def mailbox_list_messages(
     root = maildir_root_for_account(acc)
     if not _maildir_ready(root):
         raise HTTPException(status.HTTP_409_CONFLICT, "maildir_not_ready")
+    q_strip = q.strip()
     try:
-        items = list_messages(root, folder_id=folder, limit=limit, offset=offset)
+        items = list_messages(
+            root,
+            folder_id=folder,
+            limit=limit,
+            offset=offset,
+            q=q_strip or None,
+            sort_by=sort_by,
+        )
     except ValueError as exc:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
     return MailboxMessagesPageOut(
@@ -358,6 +371,8 @@ async def mailbox_list_messages(
         offset=offset,
         limit=limit,
         total_estimated=None,
+        search=q_strip,
+        sort_by=sort_by,
         items=[
             MailboxMessageSummaryOut(
                 id=x.key,

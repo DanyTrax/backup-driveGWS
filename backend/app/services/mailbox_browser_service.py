@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from email.header import decode_header, make_header
 from email.parser import BytesParser
 from email.policy import compat32
+from email.utils import parsedate_to_datetime
 from pathlib import Path
 
 from app.services.maildir_service import ensure_maildir_subfolder
@@ -163,17 +164,42 @@ def _headers_from_file(path: Path, max_bytes: int = 96_000) -> tuple[str, str, s
     return subject, from_, date
 
 
+def _parsed_epoch_from_date_header(date_raw: str | None) -> float | None:
+    if not date_raw or not str(date_raw).strip():
+        return None
+    try:
+        dt = parsedate_to_datetime(str(date_raw).strip())
+        if dt is None:
+            return None
+        return dt.timestamp()
+    except (TypeError, ValueError, OverflowError):
+        return None
+
+
+def _maildir_matches_query(subject: str, from_addr: str, q_lower: str) -> bool:
+    if not q_lower:
+        return True
+    return q_lower in subject.lower() or q_lower in from_addr.lower()
+
+
 def list_messages(
     maildir_root: Path,
     *,
     folder_id: str,
     limit: int = 80,
     offset: int = 0,
+    q: str | None = None,
+    sort_by: str = "mtime",
 ) -> list[MessageListItem]:
+    """Lista mensajes Maildir en ``cur`` y ``new``.
+
+    Orden por defecto: **mtime** del fichero (más reciente primero). Con ``sort_by=header_date``
+    se ordena por la cabecera ``Date`` del mensaje cuando se puede parsear; si no, por mtime.
+    """
     folder = _safe_folder_path(maildir_root, folder_id)
     cur = folder / "cur"
     new = folder / "new"
-    files: list[tuple[float, Path]] = []
+    raw: list[tuple[int, Path]] = []
     for d in (cur, new):
         if not d.is_dir():
             continue
@@ -181,13 +207,47 @@ def list_messages(
             if p.is_file():
                 try:
                     st = p.stat()
-                    files.append((st.st_mtime_ns, p))
+                    raw.append((st.st_mtime_ns, p))
                 except OSError:
                     continue
-    files.sort(key=lambda x: -x[0])
-    slice_ = files[offset : offset + max(1, min(limit, 500))]
+
+    lim = max(1, min(limit, 500))
+    off = max(0, offset)
+    qn = (q or "").strip().lower()
+    use_header_sort = (sort_by or "").strip().lower() == "header_date"
+
+    if use_header_sort:
+        scored: list[tuple[float, int, Path]] = []
+        for mtime_ns, p in raw:
+            try:
+                _subj, _from, date_hdr = _headers_from_file(p)
+            except OSError:
+                continue
+            ep = _parsed_epoch_from_date_header(date_hdr)
+            sort_key = ep if ep is not None else (mtime_ns / 1e9)
+            scored.append((sort_key, mtime_ns, p))
+        scored.sort(key=lambda x: (-x[0], -x[1]))
+        ordered: list[tuple[int, Path]] = [(t[1], t[2]) for t in scored]
+    else:
+        raw.sort(key=lambda x: -x[0])
+        ordered = raw
+
+    if not qn:
+        slice_paths = ordered[off : off + lim]
+    else:
+        matches: list[tuple[int, Path]] = []
+        for mtime_ns, p in ordered:
+            try:
+                subject, from_, _d = _headers_from_file(p)
+            except OSError:
+                continue
+            if not _maildir_matches_query(subject or "", from_ or "", qn):
+                continue
+            matches.append((mtime_ns, p))
+        slice_paths = matches[off : off + lim]
+
     out: list[MessageListItem] = []
-    for _mt, path in slice_:
+    for _mt, path in slice_paths:
         try:
             subject, from_, date = _headers_from_file(path)
         except OSError:

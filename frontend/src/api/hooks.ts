@@ -401,11 +401,20 @@ export function useMailboxFolders(accountId: string | null) {
   })
 }
 
-export function useMailboxMessages(accountId: string | null, folderId: string, offset: number) {
+export function useMailboxMessages(
+  accountId: string | null,
+  folderId: string,
+  offset: number,
+  opts?: { q?: string; sortBy?: 'mtime' | 'header_date' },
+) {
+  const q = (opts?.q ?? '').trim()
+  const sortBy = opts?.sortBy ?? 'mtime'
   return useQuery({
-    queryKey: ['mailbox-messages', accountId, folderId, offset],
+    queryKey: ['mailbox-messages', accountId, folderId, offset, q, sortBy],
     queryFn: async () => {
-      const params = { folder: folderId, limit: 80, offset }
+      const params: Record<string, string | number> = { folder: folderId, limit: 80, offset }
+      if (q) params.q = q
+      if (sortBy === 'header_date') params.sort_by = 'header_date'
       return (await api.get<MailboxMessagesPage>(`/accounts/${accountId}/mailbox/messages`, { params }))
         .data
     },

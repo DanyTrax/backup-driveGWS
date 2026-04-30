@@ -1,0 +1,387 @@
+import { useEffect, useMemo, useState } from 'react'
+import { Link, useNavigate } from 'react-router-dom'
+import { Alert, Badge, Button, Card, Spinner, TextInput } from 'flowbite-react'
+import toast from 'react-hot-toast'
+import { HiArrowLeft, HiMenu, HiSearch, HiX } from 'react-icons/hi'
+import { downloadGybWorkAttachment } from '../api/gybWorkAttachment'
+import { useGybWorkAccounts, useGybWorkFolders, useGybWorkMessage, useGybWorkMessages } from '../api/hooks'
+
+function formatBytes(n: number): string {
+  if (n < 1024) return `${n} B`
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`
+  return `${(n / (1024 * 1024)).toFixed(1)} MB`
+}
+
+function wrapMailHtmlFragment(html: string): string {
+  const safe = html.replace(/<\/script/gi, '<\\/script').replace(/<\/iframe/gi, '<\\/iframe')
+  return `<!DOCTYPE html><html><head><meta charset="utf-8"/><base target="_blank" rel="noopener noreferrer"/><style>
+body{font-family:system-ui,-apple-system,sans-serif;margin:0;padding:12px;word-wrap:break-word;color:rgb(30 41 59);}
+@media (prefers-color-scheme:dark){body{color:rgb(226 232 240);background:#0f172a;}}
+img,video{max-width:100%;height:auto;}pre{white-space:pre-wrap;}table{max-width:100%;}
+</style></head><body>${safe}</body></html>`
+}
+
+export type GybWorkAccountViewerVariant = 'standalone' | 'embedded'
+
+export type GybWorkAccountViewerProps = {
+  accountId: string
+  variant: GybWorkAccountViewerVariant
+}
+
+export default function GybWorkAccountViewer({ accountId: id, variant }: GybWorkAccountViewerProps) {
+  const navigate = useNavigate()
+  const [viewMode, setViewMode] = useState<'disk' | 'labels'>('disk')
+  const [folderId, setFolderId] = useState('')
+  const [labelId, setLabelId] = useState('')
+  const [page, setPage] = useState(0)
+  const [selectedKey, setSelectedKey] = useState<string | null>(null)
+  const [sidebarOpen, setSidebarOpen] = useState(true)
+  const [searchInput, setSearchInput] = useState('')
+  const [searchCommitted, setSearchCommitted] = useState('')
+
+  useEffect(() => {
+    const t = window.setTimeout(() => setSearchCommitted(searchInput.trim()), 400)
+    return () => window.clearTimeout(t)
+  }, [searchInput])
+
+  const accountsQ = useGybWorkAccounts()
+  const foldersQ = useGybWorkFolders(id, viewMode)
+  const msgsQ = useGybWorkMessages(id, {
+    view: viewMode,
+    folderId,
+    labelId,
+    q: searchCommitted,
+    offset: page * 80,
+  })
+  const bodyQ = useGybWorkMessage(id, selectedKey)
+
+  const folders = foldersQ.data ?? []
+  const items = msgsQ.data?.items ?? []
+
+  const selectionLabel = useMemo(() => {
+    if (viewMode === 'labels') {
+      const name = folders.find((f) => f.id === labelId)?.name
+      return name ?? (labelId ? labelId : '—')
+    }
+    return folders.find((f) => f.id === folderId)?.name ?? (folderId ? folderId : '(raíz)')
+  }, [folders, folderId, labelId, viewMode])
+
+  const iframeSrcDoc = useMemo(
+    () => (bodyQ.data?.text_html ? wrapMailHtmlFragment(bodyQ.data.text_html) : ''),
+    [bodyQ.data?.text_html],
+  )
+
+  const currentAccountEmail = useMemo(() => accountsQ.data?.find((a) => a.id === id)?.email, [accountsQ.data, id])
+  const currentHasMsgDb = useMemo(
+    () => accountsQ.data?.find((a) => a.id === id)?.has_msg_db ?? false,
+    [accountsQ.data, id],
+  )
+
+  useEffect(() => {
+    setPage(0)
+    setSelectedKey(null)
+    setFolderId('')
+    setLabelId('')
+  }, [viewMode])
+
+  useEffect(() => {
+    if (!foldersQ.data?.length) return
+    if (viewMode === 'disk') {
+      setFolderId((prev) =>
+        foldersQ.data!.some((f) => f.id === prev) ? prev : (foldersQ.data![0]?.id ?? ''),
+      )
+    } else {
+      setLabelId((prev) =>
+        foldersQ.data!.some((f) => f.id === prev) ? prev : (foldersQ.data![0]?.id ?? ''),
+      )
+    }
+  }, [foldersQ.data, viewMode])
+
+  useEffect(() => {
+    setPage(0)
+    setSelectedKey(null)
+  }, [id, folderId, labelId, searchCommitted])
+
+  const standalone = variant === 'standalone'
+
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-center gap-2 md:gap-3">
+        {standalone ? (
+          <Button color="light" size="sm" onClick={() => navigate('/gyb-work')}>
+            <HiArrowLeft className="h-4 w-4 mr-2" /> Otra cuenta
+          </Button>
+        ) : (
+          <Button color="light" size="sm" onClick={() => navigate(`/gyb-work/${id}`)}>
+            Abrir vista GYB completa
+          </Button>
+        )}
+        <h1 className="text-xl font-semibold">
+          {standalone ? 'Mensajes GYB · carpeta de trabajo' : 'Bandeja de trabajo GYB'}
+        </h1>
+        <Badge color="info">{currentAccountEmail ?? id}</Badge>
+        <div className="flex rounded-lg border border-slate-200 dark:border-slate-600 overflow-hidden text-sm">
+          <button
+            type="button"
+            className={`px-3 py-1.5 ${viewMode === 'disk' ? 'bg-blue-600 text-white' : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200'}`}
+            onClick={() => setViewMode('disk')}
+          >
+            Carpetas en disco
+          </button>
+          <button
+            type="button"
+            className={`px-3 py-1.5 border-l border-slate-200 dark:border-slate-600 ${viewMode === 'labels' ? 'bg-blue-600 text-white' : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200'}`}
+            onClick={() => setViewMode('labels')}
+          >
+            Etiquetas Gmail
+          </button>
+        </div>
+        <Button color="light" size="sm" onClick={() => setSidebarOpen((v) => !v)}>
+          {sidebarOpen ? (
+            <>
+              <HiX className="h-4 w-4 mr-2" /> Ocultar panel
+            </>
+          ) : (
+            <>
+              <HiMenu className="h-4 w-4 mr-2" /> Mostrar panel
+            </>
+          )}
+        </Button>
+      </div>
+
+      <p className="text-sm text-slate-500 dark:text-slate-400 max-w-3xl">
+        {viewMode === 'disk' ? (
+          <>
+            Carpetas según el árbol de directorios del export (p. ej. fechas). Solo{' '}
+            <code className="text-xs">.eml</code> en ese nivel.
+          </>
+        ) : (
+          <>
+            Etiquetas desde <code className="text-xs">msg-db.sqlite</code> (como al importar a Maildir). Requiere
+            ese fichero en la carpeta de trabajo.
+            {!currentHasMsgDb ? (
+              <span className="text-amber-700 dark:text-amber-400">
+                {' '}
+                Esta cuenta no reporta msg-db en el inventario.
+              </span>
+            ) : null}
+          </>
+        )}{' '}
+        Usá el buscador para filtrar por asunto o remitente.
+        {standalone ? (
+          <>
+            {' '}
+            Para Dovecot/Maildir:{' '}
+            <Link to={`/accounts/${id}/mailbox`} className="underline">
+              visor Maildir
+            </Link>
+            .
+          </>
+        ) : (
+          <>
+            {' '}
+            Esta vista usa el volcado GYB local (no el Maildir de Dovecot); cambiá a la pestaña “Maildir” arriba
+            para ver el buzón en disco del servidor.
+          </>
+        )}
+      </p>
+
+      <div className="max-w-xl">
+        <TextInput
+          icon={HiSearch}
+          type="search"
+          placeholder="Buscar en asunto o remitente…"
+          value={searchInput}
+          onChange={(e) => setSearchInput(e.target.value)}
+        />
+      </div>
+
+      {msgsQ.isError && (
+        <Alert color="failure">
+          {(msgsQ.error as Error)?.message ?? 'Error'}. Si ves <code>gyb_work_no_export</code>, esta cuenta no
+          tiene export en la carpeta de trabajo.
+        </Alert>
+      )}
+
+      {foldersQ.isError && (
+        <Alert color="failure">{(foldersQ.error as Error)?.message ?? 'Error cargando carpetas/etiquetas'}</Alert>
+      )}
+
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-12">
+        {sidebarOpen ? (
+          <Card className="lg:col-span-3">
+            <h2 className="text-sm font-medium mb-2">
+              {viewMode === 'labels' ? 'Etiquetas Gmail' : 'Carpetas en disco'}
+            </h2>
+            {foldersQ.isLoading ? (
+              <Spinner size="sm" />
+            ) : folders.length === 0 ? (
+              <p className="text-slate-500 text-xs">
+                {viewMode === 'labels'
+                  ? 'Sin etiquetas en msg-db (¿falta msg-db.sqlite o backup incompleto?). Probá “Carpetas en disco”.'
+                  : 'Sin carpetas con .eml (¿solo .mbox?).'}
+              </p>
+            ) : (
+              <ul className="space-y-1 text-sm max-h-[70vh] overflow-y-auto">
+                {folders.map((f, idx) => (
+                  <li key={f.id === '' ? '__root__' : `${idx}-${f.id.slice(0, 80)}`}>
+                    <button
+                      type="button"
+                      className={`w-full text-left px-2 py-1 rounded ${
+                        (viewMode === 'disk' ? folderId === f.id : labelId === f.id)
+                          ? 'bg-blue-100 dark:bg-blue-900 font-medium'
+                          : 'hover:bg-slate-100 dark:hover:bg-slate-800'
+                      }`}
+                      title={f.id || '(raíz)'}
+                      onClick={() => {
+                        if (viewMode === 'disk') setFolderId(f.id)
+                        else setLabelId(f.id)
+                        setPage(0)
+                        setSelectedKey(null)
+                      }}
+                    >
+                      {f.name}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </Card>
+        ) : null}
+
+        <Card className={sidebarOpen ? 'lg:col-span-3' : 'lg:col-span-4'}>
+          <div className="flex items-center justify-between mb-2 gap-2">
+            <h2 className="text-sm font-medium truncate" title={selectionLabel}>
+              Mensajes · {selectionLabel}
+            </h2>
+          </div>
+          {msgsQ.isLoading ? (
+            <Spinner size="sm" />
+          ) : msgsQ.isError ? (
+            <p className="text-red-600 text-sm">No se pudo listar</p>
+          ) : items.length === 0 ? (
+            <p className="text-slate-500 text-sm">
+              {viewMode === 'labels' && !labelId
+                ? 'Elegí una etiqueta en el panel.'
+                : 'Sin resultados (probá otra carpeta, etiqueta o término de búsqueda).'}
+            </p>
+          ) : (
+            <ul className="space-y-1 max-h-[70vh] overflow-y-auto text-sm">
+              {items.map((m) => (
+                <li key={m.id}>
+                  <button
+                    type="button"
+                    className={`w-full text-left px-2 py-1.5 rounded border border-transparent ${
+                      selectedKey === m.id
+                        ? 'bg-slate-200 dark:bg-slate-700 border-slate-300'
+                        : 'hover:bg-slate-50 dark:hover:bg-slate-800'
+                    }`}
+                    onClick={() => setSelectedKey(m.id)}
+                  >
+                    <div className="font-medium line-clamp-2">{m.subject}</div>
+                    <div className="text-xs text-slate-500 truncate">{m.from}</div>
+                    <div className="text-[10px] text-slate-400">{m.date ?? ''}</div>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+          <div className="flex gap-2 mt-3">
+            <Button
+              size="xs"
+              color="light"
+              disabled={page === 0}
+              onClick={() => setPage((p) => Math.max(0, p - 1))}
+            >
+              Anterior
+            </Button>
+            <Button size="xs" color="light" disabled={items.length < 80} onClick={() => setPage((p) => p + 1)}>
+              Siguiente
+            </Button>
+          </div>
+        </Card>
+
+        <Card className={sidebarOpen ? 'lg:col-span-6' : 'lg:col-span-8'}>
+          <h2 className="text-sm font-medium mb-2">Contenido</h2>
+          {!selectedKey ? (
+            <p className="text-slate-500 text-sm">Seleccioná un mensaje</p>
+          ) : bodyQ.isLoading ? (
+            <Spinner />
+          ) : bodyQ.isError ? (
+            <p className="text-red-600 text-sm">No se pudo cargar el mensaje</p>
+          ) : bodyQ.data ? (
+            <div className="space-y-3 max-h-[75vh] overflow-y-auto">
+              <div>
+                <div className="font-semibold">{bodyQ.data.subject}</div>
+                <div className="text-sm text-slate-600 dark:text-slate-300">De: {bodyQ.data.from}</div>
+                <div className="text-xs text-slate-400">{bodyQ.data.date ?? ''}</div>
+              </div>
+              {(bodyQ.data.attachments ?? []).length > 0 ? (
+                <div className="rounded-lg border border-slate-200 dark:border-slate-600 p-2 text-sm">
+                  <div className="font-medium text-slate-700 dark:text-slate-200 mb-1">Adjuntos</div>
+                  <ul className="space-y-1">
+                    {(bodyQ.data.attachments ?? []).map((a) => (
+                      <li
+                        key={`${a.leaf_index}-${a.filename ?? a.content_type}`}
+                        className="flex flex-wrap items-center gap-2"
+                      >
+                        <span
+                          className="text-slate-600 dark:text-slate-300 truncate max-w-[60%]"
+                          title={a.filename ?? undefined}
+                        >
+                          {a.filename ?? '(sin nombre)'}
+                        </span>
+                        <span className="text-xs text-slate-400">{formatBytes(a.size)}</span>
+                        <Button
+                          size="xs"
+                          color="light"
+                          onClick={() => {
+                            downloadGybWorkAttachment(id, {
+                              key: selectedKey,
+                              leafIndex: a.leaf_index,
+                              filename: a.filename,
+                            }).catch(() => toast.error('No se pudo descargar el adjunto'))
+                          }}
+                        >
+                          Descargar
+                        </Button>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
+              {bodyQ.data.text_html ? (
+                <div className="border border-slate-200 dark:border-slate-700 rounded overflow-hidden bg-white dark:bg-slate-800">
+                  <p className="text-xs text-slate-500 px-2 py-1 bg-slate-100 dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700">
+                    Vista HTML
+                  </p>
+                  <iframe
+                    title="html"
+                    className="w-full min-h-[min(70vh,520px)] bg-white dark:bg-slate-900"
+                    sandbox="allow-popups allow-downloads"
+                    srcDoc={iframeSrcDoc}
+                  />
+                </div>
+              ) : null}
+              {bodyQ.data.text_plain ? (
+                <details className="rounded-lg border border-slate-200 dark:border-slate-700 overflow-hidden group">
+                  <summary className="cursor-pointer select-none text-sm font-medium px-3 py-2 bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-200 list-none flex items-center justify-between [&::-webkit-details-marker]:hidden">
+                    <span>Texto plano</span>
+                    <span className="text-xs text-slate-400 group-open:hidden">Mostrar</span>
+                    <span className="text-xs text-slate-400 hidden group-open:inline">Ocultar</span>
+                  </summary>
+                  <pre className="whitespace-pre-wrap text-sm bg-slate-50 dark:bg-slate-900 p-3 border-t border-slate-200 dark:border-slate-700 max-h-[40vh] overflow-auto m-0">
+                    {bodyQ.data.text_plain}
+                  </pre>
+                </details>
+              ) : null}
+              {!bodyQ.data.text_plain && !bodyQ.data.text_html ? (
+                <p className="text-slate-500 text-sm">(Sin cuerpo de texto/HTML legible)</p>
+              ) : null}
+            </div>
+          ) : null}
+        </Card>
+      </div>
+    </div>
+  )
+}

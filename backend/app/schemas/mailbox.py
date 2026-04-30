@@ -24,6 +24,8 @@ class MailboxMessagesPageOut(BaseModel):
     offset: int
     limit: int
     total_estimated: int | None = None
+    search: str = ""
+    sort_by: str = "mtime"
     items: list[MailboxMessageSummaryOut]
 
 

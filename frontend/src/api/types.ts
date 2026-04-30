@@ -80,6 +80,8 @@ export interface MailboxMessagesPage {
   offset: number
   limit: number
   total_estimated: number | null
+  search?: string
+  sort_by?: string
   items: MailboxMessageSummary[]
 }
 
