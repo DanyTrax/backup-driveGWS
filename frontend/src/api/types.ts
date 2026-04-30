@@ -102,6 +102,21 @@ export interface MailboxMessageBody {
   attachments: MailboxAttachment[]
 }
 
+/** GET /accounts/gyb-work/accounts */
+export interface GybWorkAccount {
+  id: string
+  email: string
+  work_size_bytes: number | null
+  has_msg_db: boolean
+}
+
+/** GET /accounts/{id}/gyb-work/messages */
+export interface GybWorkMessagesPage {
+  offset: number
+  limit: number
+  items: MailboxMessageSummary[]
+}
+
 export interface AccountAccessCheck {
   account_id: string
   email: string

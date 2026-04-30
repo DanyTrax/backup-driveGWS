@@ -8,37 +8,218 @@ from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import FileResponse, Response
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.background import BackgroundTask
 
-from app.api.deps import get_client_ip, get_db, get_user_agent, mailbox_reader_for_path_account
-from app.core.config import get_settings
-from app.models.enums import AuditAction
-from app.models.users import SysUser
-from app.services.audit_service import record_audit
-from app.services.maildir_export_service import (
-    MaildirExportTooLarge,
-    build_maildir_zip_file,
-    safe_maildir_zip_stem,
+from app.api.deps import (
+    get_client_ip,
+    get_db,
+    get_user_agent,
+    get_user_permissions,
+    mailbox_reader_for_path_account,
+    require_any_permission,
 )
+from app.core.config import get_settings
+from app.models.accounts import GwAccount
+from app.models.enums import AuditAction
+from app.models.mailbox_delegation import SysUserMailboxDelegation
+from app.models.users import SysUser
 from app.schemas.mailbox import (
+    GybWorkAccountOut,
+    GybWorkMessagesPageOut,
     MailboxAttachmentOut,
     MailboxFolderOut,
     MailboxMessageBodyOut,
     MailboxMessagesPageOut,
     MailboxMessageSummaryOut,
 )
+from app.services.audit_service import record_audit
+from app.services.gyb_work_browser_service import (
+    decode_eml_path,
+    list_gyb_eml_summaries,
+    read_gyb_eml_leaf_bytes,
+    read_gyb_eml_message,
+)
+from app.services.mail_purge_service import _dir_size, gyb_work_root_for_email
 from app.services.mailbox_browser_service import (
     list_maildir_folders,
     list_messages,
     read_message,
     read_message_leaf_bytes,
 )
+from app.services.maildir_export_service import (
+    MaildirExportTooLarge,
+    build_maildir_zip_file,
+    safe_maildir_zip_stem,
+)
 from app.services.maildir_paths import maildir_root_for_account
+from app.services.maildir_service import gyb_workdir_has_eml_or_mbox
 
 from .accounts import _load, _maildir_ready
 
 router = APIRouter()
+
+
+@router.get(
+    "/gyb-work/accounts",
+    response_model=list[GybWorkAccountOut],
+    summary="Cuentas con export GYB en carpeta de trabajo (solo .eml/.mbox local)",
+)
+async def gyb_work_list_accounts(
+    db: AsyncSession = Depends(get_db),
+    current: SysUser = Depends(require_any_permission("mailbox.view_all", "mailbox.view_delegated")),
+) -> list[GybWorkAccountOut]:
+    stmt = select(GwAccount).order_by(GwAccount.email.asc())
+    perms = get_user_permissions(current)
+    if "mailbox.view_delegated" in perms and "mailbox.view_all" not in perms:
+        stmt = stmt.where(
+            GwAccount.id.in_(
+                select(SysUserMailboxDelegation.gw_account_id).where(
+                    SysUserMailboxDelegation.sys_user_id == current.id
+                )
+            )
+        )
+    rows = (await db.execute(stmt)).scalars().all()
+    out: list[GybWorkAccountOut] = []
+    for a in rows:
+        gyb = gyb_work_root_for_email(a.email)
+        if not gyb_workdir_has_eml_or_mbox(gyb):
+            continue
+        out.append(
+            GybWorkAccountOut(
+                id=str(a.id),
+                email=a.email,
+                work_size_bytes=_dir_size(gyb) if gyb.is_dir() else None,
+                has_msg_db=(gyb / "msg-db.sqlite").is_file(),
+            )
+        )
+    return out
+
+
+@router.get(
+    "/{account_id}/gyb-work/messages",
+    response_model=GybWorkMessagesPageOut,
+    summary="Listar mensajes .eml en la carpeta de trabajo GYB (reciente primero)",
+)
+async def gyb_work_list_messages(
+    account_id: uuid.UUID,
+    limit: int = Query(80, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+    db: AsyncSession = Depends(get_db),
+    _u: SysUser = Depends(mailbox_reader_for_path_account),
+) -> GybWorkMessagesPageOut:
+    acc = await _load(db, account_id)
+    gyb = gyb_work_root_for_email(acc.email)
+    if not gyb_workdir_has_eml_or_mbox(gyb):
+        raise HTTPException(status.HTTP_409_CONFLICT, "gyb_work_no_export")
+    summaries = list_gyb_eml_summaries(gyb, limit=limit, offset=offset)
+    return GybWorkMessagesPageOut(
+        offset=offset,
+        limit=limit,
+        items=[
+            MailboxMessageSummaryOut(
+                id=x.key,
+                subject=x.subject,
+                from_=x.from_addr,
+                date=x.date_display,
+                size=x.size,
+            )
+            for x in summaries
+        ],
+    )
+
+
+@router.get(
+    "/{account_id}/gyb-work/message",
+    response_model=MailboxMessageBodyOut,
+    summary="Leer un .eml de la carpeta de trabajo GYB",
+)
+async def gyb_work_get_message(
+    account_id: uuid.UUID,
+    key: str = Query(
+        ...,
+        min_length=1,
+        max_length=4096,
+        description="Clave opaca del listado de mensajes",
+    ),
+    db: AsyncSession = Depends(get_db),
+    _u: SysUser = Depends(mailbox_reader_for_path_account),
+) -> MailboxMessageBodyOut:
+    acc = await _load(db, account_id)
+    gyb = gyb_work_root_for_email(acc.email)
+    if not gyb_workdir_has_eml_or_mbox(gyb):
+        raise HTTPException(status.HTTP_409_CONFLICT, "gyb_work_no_export")
+    try:
+        body = read_gyb_eml_message(gyb, key=key)
+    except ValueError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+    except FileNotFoundError as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "message_not_found") from exc
+    return MailboxMessageBodyOut(
+        id=body.key,
+        subject=body.subject,
+        from_=body.from_addr,
+        date=body.date_display,
+        text_plain=body.text_plain,
+        text_html=body.text_html,
+        attachments=[
+            MailboxAttachmentOut(
+                leaf_index=a.leaf_index,
+                filename=a.filename,
+                content_type=a.content_type,
+                size=a.size,
+                disposition=a.disposition,
+                content_id=a.content_id,
+            )
+            for a in body.attachments
+        ],
+    )
+
+
+@router.get(
+    "/{account_id}/gyb-work/attachment",
+    summary="Descargar parte MIME de un .eml de carpeta GYB (adjunto)",
+    response_class=Response,
+)
+async def gyb_work_get_attachment_part(
+    account_id: uuid.UUID,
+    key: str = Query(..., min_length=1, max_length=4096),
+    leaf_index: int = Query(..., ge=0, description="Índice de hoja en attachments[].leaf_index"),
+    db: AsyncSession = Depends(get_db),
+    _u: SysUser = Depends(mailbox_reader_for_path_account),
+) -> Response:
+    acc = await _load(db, account_id)
+    gyb = gyb_work_root_for_email(acc.email).resolve()
+    if not gyb_workdir_has_eml_or_mbox(gyb):
+        raise HTTPException(status.HTTP_409_CONFLICT, "gyb_work_no_export")
+    try:
+        path = decode_eml_path(gyb, key)
+    except ValueError as exc:
+        code = str(exc)
+        if code in ("invalid_key", "not_eml"):
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, code) from exc
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+    except FileNotFoundError as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "message_not_found") from exc
+    try:
+        data, filename, content_type = read_gyb_eml_leaf_bytes(path, leaf_index=leaf_index)
+    except ValueError as exc:
+        code = str(exc)
+        if code in ("invalid_leaf_index", "part_decode_error"):
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, code) from exc
+        if code == "leaf_index_out_of_range":
+            raise HTTPException(status.HTTP_404_NOT_FOUND, code) from exc
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+
+    safe = _content_disposition_filename(filename)
+    cd = f'attachment; filename="{safe}"'
+    return Response(
+        content=data,
+        media_type=content_type or "application/octet-stream",
+        headers={"Content-Disposition": cd},
+    )
+
 
 _ATTACHMENT_FILENAME_SAFE = re.compile(r"[^\w.\- ()\[\]]+")
 
@@ -160,7 +341,11 @@ async def mailbox_get_attachment_part(
     account_id: uuid.UUID,
     folder: str = Query("INBOX"),
     key: str = Query(..., min_length=1, max_length=512),
-    leaf_index: int = Query(..., ge=0, description="Índice de parte hoja devuelto en attachments[].leaf_index"),
+    leaf_index: int = Query(
+        ...,
+        ge=0,
+        description="Índice de parte hoja (attachments[].leaf_index)",
+    ),
     db: AsyncSession = Depends(get_db),
     _u: SysUser = Depends(mailbox_reader_for_path_account),
 ) -> Response:

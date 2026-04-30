@@ -48,3 +48,18 @@ class MailboxMessageBodyOut(BaseModel):
     text_plain: str | None = None
     text_html: str | None = None
     attachments: list[MailboxAttachmentOut] = Field(default_factory=list)
+
+
+class GybWorkAccountOut(BaseModel):
+    """Cuenta con export ``.eml``/``.mbox`` en la carpeta de trabajo GYB local."""
+
+    id: str
+    email: str
+    work_size_bytes: int | None = None
+    has_msg_db: bool = False
+
+
+class GybWorkMessagesPageOut(BaseModel):
+    offset: int
+    limit: int
+    items: list[MailboxMessageSummaryOut]

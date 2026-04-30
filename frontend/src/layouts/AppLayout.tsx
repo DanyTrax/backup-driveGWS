@@ -7,6 +7,7 @@ import {
   HiCog,
   HiCube,
   HiDocumentSearch,
+  HiFolderOpen,
   HiMail,
   HiMenu,
   HiOutlineLogout,
@@ -26,10 +27,18 @@ interface NavItem {
   label: string
   icon: ReactNode
   perm?: string
+  /** Si se define, basta con tener uno de estos permisos (además de ``perm`` si existiera). */
+  permAny?: string[]
 }
 
 const NAV: NavItem[] = [
   { to: '/dashboard', label: 'Dashboard', icon: <HiChartPie className="h-5 w-5 shrink-0" /> },
+  {
+    to: '/gyb-work',
+    label: 'GYB trabajo',
+    icon: <HiFolderOpen className="h-5 w-5 shrink-0" />,
+    permAny: ['mailbox.view_all', 'mailbox.view_delegated'],
+  },
   { to: '/accounts', label: 'Cuentas', icon: <HiUserGroup className="h-5 w-5 shrink-0" />, perm: 'accounts.view' },
   { to: '/tasks', label: 'Tareas de backup', icon: <HiCube className="h-5 w-5 shrink-0" />, perm: 'tasks.view' },
   { to: '/logs', label: 'Logs', icon: <HiDocumentSearch className="h-5 w-5 shrink-0" />, perm: 'logs.view' },
@@ -85,7 +94,14 @@ export default function AppLayout() {
   }
 
   const perms = new Set(profile?.permissions ?? [])
-  const visibleNav = NAV.filter((i) => !i.perm || perms.has(i.perm))
+  const visibleNav = NAV.filter((i) => {
+    if (i.permAny?.length) {
+      const okAny = i.permAny.some((p) => perms.has(p))
+      if (!okAny) return false
+    }
+    if (i.perm && !perms.has(i.perm)) return false
+    return true
+  })
   const showHeaderLogo = Boolean(brand.logo_url && !brandLogoFailed)
 
   return (

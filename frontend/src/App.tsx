@@ -14,6 +14,7 @@ import ProfilePage from './pages/ProfilePage'
 import WebmailPage from './pages/WebmailPage'
 import WebmailAssignPasswordPage from './pages/WebmailAssignPasswordPage'
 import MailboxBrowserPage from './pages/MailboxBrowserPage'
+import GybWorkBrowserPage from './pages/GybWorkBrowserPage'
 import AccountMailDataPage from './pages/AccountMailDataPage'
 
 export default function App() {
@@ -31,6 +32,8 @@ export default function App() {
         <Route path="/dashboard" element={<DashboardPage />} />
         <Route path="/accounts" element={<AccountsPage />} />
         <Route path="/accounts/:accountId/mailbox" element={<MailboxBrowserPage />} />
+        <Route path="/gyb-work" element={<GybWorkBrowserPage />} />
+        <Route path="/gyb-work/:accountId" element={<GybWorkBrowserPage />} />
         <Route path="/accounts/:accountId/mail-data" element={<AccountMailDataPage />} />
         <Route path="/tasks" element={<TasksPage />} />
         <Route path="/logs" element={<LogsPage />} />

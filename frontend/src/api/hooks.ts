@@ -9,6 +9,8 @@ import type {
   BrandingConfig,
   BrandingPublic,
   GitRefreshResult,
+  GybWorkAccount,
+  GybWorkMessagesPage,
   MailboxFolder,
   MailboxMessageBody,
   MailboxMessagesPage,
@@ -422,6 +424,40 @@ export function useMailboxMessage(accountId: string | null, folderId: string, me
         })
       ).data
     },
+    enabled: Boolean(accountId && messageKey),
+  })
+}
+
+export function useGybWorkAccounts() {
+  return useQuery({
+    queryKey: ['gyb-work-accounts'],
+    queryFn: async () => (await api.get<GybWorkAccount[]>('/accounts/gyb-work/accounts')).data,
+  })
+}
+
+export function useGybWorkMessages(accountId: string | null, offset: number) {
+  return useQuery({
+    queryKey: ['gyb-work-messages', accountId, offset],
+    queryFn: async () => {
+      const params = { limit: 80, offset }
+      return (
+        await api.get<GybWorkMessagesPage>(`/accounts/${accountId}/gyb-work/messages`, { params })
+      ).data
+    },
+    enabled: Boolean(accountId),
+  })
+}
+
+export function useGybWorkMessage(accountId: string | null, messageKey: string | null) {
+  return useQuery({
+    queryKey: ['gyb-work-message', accountId, messageKey],
+    queryFn: async () =>
+      (
+        await api.get<MailboxMessageBody>(`/accounts/${accountId}/gyb-work/message`, {
+          params: { key: messageKey! },
+          timeout: MAILBOX_MESSAGE_TIMEOUT_MS,
+        })
+      ).data,
     enabled: Boolean(accountId && messageKey),
   })
 }
