@@ -112,6 +112,7 @@ export interface GybWorkAccount {
 
 /** GET /accounts/{id}/gyb-work/messages */
 export interface GybWorkMessagesPage {
+  folder_id: string
   offset: number
   limit: number
   items: MailboxMessageSummary[]

@@ -38,6 +38,7 @@ from app.services.audit_service import record_audit
 from app.services.gyb_work_browser_service import (
     decode_eml_path,
     list_gyb_eml_summaries,
+    list_gyb_work_folders,
     read_gyb_eml_leaf_bytes,
     read_gyb_eml_message,
 )
@@ -98,12 +99,36 @@ async def gyb_work_list_accounts(
 
 
 @router.get(
+    "/{account_id}/gyb-work/folders",
+    response_model=list[MailboxFolderOut],
+    summary="Carpetas bajo el trabajo GYB que contienen ficheros .eml",
+)
+async def gyb_work_list_folders(
+    account_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _u: SysUser = Depends(mailbox_reader_for_path_account),
+) -> list[MailboxFolderOut]:
+    acc = await _load(db, account_id)
+    gyb = gyb_work_root_for_email(acc.email)
+    if not gyb_workdir_has_eml_or_mbox(gyb):
+        raise HTTPException(status.HTTP_409_CONFLICT, "gyb_work_no_export")
+    return [
+        MailboxFolderOut(id=f.folder_id, name=f.display_name) for f in list_gyb_work_folders(gyb)
+    ]
+
+
+@router.get(
     "/{account_id}/gyb-work/messages",
     response_model=GybWorkMessagesPageOut,
-    summary="Listar mensajes .eml en la carpeta de trabajo GYB (reciente primero)",
+    summary="Listar mensajes .eml en una subcarpeta del trabajo GYB (reciente primero)",
 )
 async def gyb_work_list_messages(
     account_id: uuid.UUID,
+    folder: str = Query(
+        "",
+        max_length=2048,
+        description="Ruta relativa desde la raíz GYB (vacío = raíz). Solo .eml en ese directorio.",
+    ),
     limit: int = Query(80, ge=1, le=200),
     offset: int = Query(0, ge=0),
     db: AsyncSession = Depends(get_db),
@@ -113,8 +138,13 @@ async def gyb_work_list_messages(
     gyb = gyb_work_root_for_email(acc.email)
     if not gyb_workdir_has_eml_or_mbox(gyb):
         raise HTTPException(status.HTTP_409_CONFLICT, "gyb_work_no_export")
-    summaries = list_gyb_eml_summaries(gyb, limit=limit, offset=offset)
+    try:
+        summaries = list_gyb_eml_summaries(gyb, folder_id=folder, limit=limit, offset=offset)
+    except ValueError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "invalid_folder") from exc
+    fid = folder.strip()
     return GybWorkMessagesPageOut(
+        folder_id=fid,
         offset=offset,
         limit=limit,
         items=[

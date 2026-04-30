@@ -2,9 +2,9 @@ import { useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { Alert, Badge, Button, Card, Spinner } from 'flowbite-react'
 import toast from 'react-hot-toast'
-import { HiArrowLeft } from 'react-icons/hi'
+import { HiArrowLeft, HiMenu, HiX } from 'react-icons/hi'
 import { downloadGybWorkAttachment } from '../api/gybWorkAttachment'
-import { useGybWorkAccounts, useGybWorkMessage, useGybWorkMessages } from '../api/hooks'
+import { useGybWorkAccounts, useGybWorkFolders, useGybWorkMessage, useGybWorkMessages } from '../api/hooks'
 
 function formatBytes(n: number): string {
   if (n < 1024) return `${n} B`
@@ -25,15 +25,24 @@ export default function GybWorkBrowserPage() {
   const { accountId } = useParams<{ accountId?: string }>()
   const navigate = useNavigate()
   const id = accountId ?? null
+  const [folderId, setFolderId] = useState('')
   const [page, setPage] = useState(0)
   const [selectedKey, setSelectedKey] = useState<string | null>(null)
+  const [sidebarOpen, setSidebarOpen] = useState(true)
 
   const accountsQ = useGybWorkAccounts()
-  const msgsQ = useGybWorkMessages(id, page * 80)
+  const foldersQ = useGybWorkFolders(id)
+  const msgsQ = useGybWorkMessages(id, folderId, page * 80)
   const bodyQ = useGybWorkMessage(id, selectedKey)
 
   const accounts = accountsQ.data ?? []
+  const folders = foldersQ.data ?? []
   const items = msgsQ.data?.items ?? []
+
+  const folderLabel = useMemo(
+    () => folders.find((f) => f.id === folderId)?.name ?? (folderId ? folderId : '(raíz)'),
+    [folders, folderId],
+  )
 
   const iframeSrcDoc = useMemo(
     () => (bodyQ.data?.text_html ? wrapMailHtmlFragment(bodyQ.data.text_html) : ''),
@@ -43,9 +52,16 @@ export default function GybWorkBrowserPage() {
   const currentAccountEmail = useMemo(() => accounts.find((a) => a.id === id)?.email, [accounts, id])
 
   useEffect(() => {
+    if (!foldersQ.data?.length) return
+    setFolderId((prev) =>
+      foldersQ.data!.some((f) => f.id === prev) ? prev : (foldersQ.data![0]?.id ?? ''),
+    )
+  }, [foldersQ.data])
+
+  useEffect(() => {
     setPage(0)
     setSelectedKey(null)
-  }, [id])
+  }, [id, folderId])
 
   if (!id) {
     return (
@@ -103,11 +119,23 @@ export default function GybWorkBrowserPage() {
         </Button>
         <h1 className="text-xl font-semibold">Mensajes GYB · carpeta de trabajo</h1>
         <Badge color="info">{currentAccountEmail ?? id}</Badge>
+        <Button color="light" size="sm" onClick={() => setSidebarOpen((v) => !v)}>
+          {sidebarOpen ? (
+            <>
+              <HiX className="h-4 w-4 mr-2" /> Ocultar carpetas
+            </>
+          ) : (
+            <>
+              <HiMenu className="h-4 w-4 mr-2" /> Mostrar carpetas
+            </>
+          )}
+        </Button>
       </div>
 
       <p className="text-sm text-slate-500 dark:text-slate-400 max-w-3xl">
-        Lista de ficheros <code className="text-xs">.eml</code> bajo la carpeta de trabajo (orden por fecha de fichero,
-        más reciente primero). Para Maildir/Dovecot usá el{' '}
+        Las carpetas coinciden con los directorios bajo el trabajo GYB donde hay ficheros{' '}
+        <code className="text-xs">.eml</code> (etiquetas/rutas que crea la exportación). En cada carpeta solo se listan
+        los mensajes de ese nivel (no subcarpetas). Para Maildir/Dovecot usá el{' '}
         <Link to={`/accounts/${id}/mailbox`} className="underline">
           visor Maildir
         </Link>
@@ -121,9 +149,49 @@ export default function GybWorkBrowserPage() {
         </Alert>
       )}
 
+      {foldersQ.isError && (
+        <Alert color="failure">{(foldersQ.error as Error)?.message ?? 'Error cargando carpetas'}</Alert>
+      )}
+
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-12">
-        <Card className="lg:col-span-4">
-          <h2 className="text-sm font-medium mb-2">Mensajes .eml</h2>
+        {sidebarOpen ? (
+          <Card className="lg:col-span-3">
+            <h2 className="text-sm font-medium mb-2">Carpetas (work GYB)</h2>
+            {foldersQ.isLoading ? (
+              <Spinner size="sm" />
+            ) : folders.length === 0 ? (
+              <p className="text-slate-500 text-xs">Sin carpetas con .eml (¿solo .mbox?)</p>
+            ) : (
+              <ul className="space-y-1 text-sm max-h-[70vh] overflow-y-auto">
+                {folders.map((f) => (
+                  <li key={f.id === '' ? '__root__' : f.id}>
+                    <button
+                      type="button"
+                      className={`w-full text-left px-2 py-1 rounded ${
+                        folderId === f.id ? 'bg-blue-100 dark:bg-blue-900 font-medium' : 'hover:bg-slate-100 dark:hover:bg-slate-800'
+                      }`}
+                      title={f.id || '(raíz)'}
+                      onClick={() => {
+                        setFolderId(f.id)
+                        setPage(0)
+                        setSelectedKey(null)
+                      }}
+                    >
+                      {f.name}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </Card>
+        ) : null}
+
+        <Card className={sidebarOpen ? 'lg:col-span-3' : 'lg:col-span-4'}>
+          <div className="flex items-center justify-between mb-2">
+            <h2 className="text-sm font-medium truncate" title={folderLabel}>
+              Mensajes · {folderLabel}
+            </h2>
+          </div>
           {msgsQ.isLoading ? (
             <Spinner size="sm" />
           ) : msgsQ.isError ? (
@@ -166,7 +234,7 @@ export default function GybWorkBrowserPage() {
           </div>
         </Card>
 
-        <Card className="lg:col-span-8">
+        <Card className={sidebarOpen ? 'lg:col-span-6' : 'lg:col-span-8'}>
           <h2 className="text-sm font-medium mb-2">Contenido</h2>
           {!selectedKey ? (
             <p className="text-slate-500 text-sm">Seleccioná un mensaje</p>

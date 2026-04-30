@@ -60,6 +60,9 @@ class GybWorkAccountOut(BaseModel):
 
 
 class GybWorkMessagesPageOut(BaseModel):
+    """Mensajes ``.eml`` solo en la carpeta indicada (sin recursión en subcarpetas)."""
+
+    folder_id: str
     offset: int
     limit: int
     items: list[MailboxMessageSummaryOut]

@@ -435,11 +435,20 @@ export function useGybWorkAccounts() {
   })
 }
 
-export function useGybWorkMessages(accountId: string | null, offset: number) {
+export function useGybWorkFolders(accountId: string | null) {
   return useQuery({
-    queryKey: ['gyb-work-messages', accountId, offset],
+    queryKey: ['gyb-work-folders', accountId],
+    queryFn: async () =>
+      (await api.get<MailboxFolder[]>(`/accounts/${accountId}/gyb-work/folders`)).data,
+    enabled: Boolean(accountId),
+  })
+}
+
+export function useGybWorkMessages(accountId: string | null, folderId: string, offset: number) {
+  return useQuery({
+    queryKey: ['gyb-work-messages', accountId, folderId, offset],
     queryFn: async () => {
-      const params = { limit: 80, offset }
+      const params = { folder: folderId, limit: 80, offset }
       return (
         await api.get<GybWorkMessagesPage>(`/accounts/${accountId}/gyb-work/messages`, { params })
       ).data

@@ -16,6 +16,62 @@ from app.services.mailbox_browser_service import (
 )
 
 
+def resolve_gyb_list_folder(work_root: Path, folder_id: str) -> Path:
+    """Resuelve ``folder_id`` (ruta relativa bajo work root) a directorio.
+
+    ``folder_id`` vacío = raíz del trabajo GYB.
+    """
+    wr = work_root.resolve()
+    raw = (folder_id or "").strip().replace("\\", "/").strip("/")
+    if ".." in raw.split("/"):
+        raise ValueError("invalid_folder")
+    target = wr if not raw else (wr / raw).resolve()
+    try:
+        target.relative_to(wr)
+    except ValueError as exc:
+        raise ValueError("invalid_folder") from exc
+    return target
+
+
+@dataclass
+class GybWorkFolder:
+    """Carpeta con al menos un ``.eml`` directamente dentro."""
+
+    folder_id: str
+    display_name: str
+
+
+def list_gyb_work_folders(work_root: Path) -> list[GybWorkFolder]:
+    if not work_root.is_dir():
+        return []
+    wr = work_root.resolve()
+    seen: set[str] = set()
+    try:
+        for p in work_root.rglob("*.eml"):
+            if not p.is_file():
+                continue
+            parent = p.parent.resolve()
+            if parent == wr:
+                seen.add("")
+            else:
+                try:
+                    rel = parent.relative_to(wr)
+                except ValueError:
+                    continue
+                seen.add(rel.as_posix())
+    except OSError:
+        return []
+
+    def sort_key(fid: str) -> tuple[int, str]:
+        return (0 if fid == "" else 1, fid.lower())
+
+    out: list[GybWorkFolder] = []
+    for fid in sorted(seen, key=sort_key):
+        name = "(raíz)" if fid == "" else fid.replace("/", " / ")
+        out.append(GybWorkFolder(folder_id=fid, display_name=name))
+    return out
+
+
 def encode_eml_rel_key(rel: Path) -> str:
     raw = rel.as_posix().encode("utf-8")
     return base64.urlsafe_b64encode(raw).decode("ascii").rstrip("=")
@@ -67,15 +123,19 @@ class GybEmlSummary:
 def list_gyb_eml_summaries(
     work_root: Path,
     *,
+    folder_id: str = "",
     limit: int = 80,
     offset: int = 0,
 ) -> list[GybEmlSummary]:
     if not work_root.is_dir():
         return []
+    folder = resolve_gyb_list_folder(work_root, folder_id)
+    if not folder.is_dir():
+        return []
     wr = work_root.resolve()
     files: list[tuple[int, Path]] = []
     try:
-        for p in work_root.rglob("*.eml"):
+        for p in folder.glob("*.eml"):
             if p.is_file():
                 try:
                     st = p.stat()
