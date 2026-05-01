@@ -57,6 +57,43 @@ function readSidebarExpanded(): boolean {
   }
 }
 
+function SystemTimeFooter() {
+  const [now, setNow] = useState(() => new Date())
+
+  useEffect(() => {
+    const tick = () => setNow(new Date())
+    tick()
+    const id = window.setInterval(tick, 60_000)
+    const onVis = () => {
+      if (document.visibilityState === 'visible') tick()
+    }
+    document.addEventListener('visibilitychange', onVis)
+    return () => {
+      window.clearInterval(id)
+      document.removeEventListener('visibilitychange', onVis)
+    }
+  }, [])
+
+  const label = now.toLocaleString('es', {
+    weekday: 'short',
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
+
+  return (
+    <footer className="shrink-0 border-t border-slate-200/60 bg-white px-4 py-1.5 dark:border-slate-800/60 dark:bg-slate-900 md:px-6">
+      <p className="text-center text-[10px] leading-none tracking-wide text-slate-400 dark:text-slate-500">
+        <time dateTime={now.toISOString()} title="Hora del navegador (sistema local)">
+          {label}
+        </time>
+      </p>
+    </footer>
+  )
+}
+
 export default function AppLayout() {
   const { data: profile } = useProfile()
   const { data: brandRaw } = useBranding()
@@ -245,6 +282,7 @@ export default function AppLayout() {
         <main className="flex-1 p-4 md:p-6">
           <Outlet />
         </main>
+        <SystemTimeFooter />
       </div>
     </div>
   )
