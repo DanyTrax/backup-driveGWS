@@ -25,6 +25,7 @@ from app.models.accounts import GwAccount
 from app.models.enums import BackupScope, BackupStatus
 from app.models.tasks import BackupLog, BackupTask
 from app.services import drive_retention, gyb_service, maildir_service, rclone_service, vault_layout
+from app.services.drive_incremental_plan import plan_next_dated_backup
 from app.services.google import drive as google_drive_api
 from app.services.backup_batch_registry import is_batch_cancelled, set_log_cancelled
 from app.services.backup_concurrency_service import (
@@ -541,8 +542,43 @@ async def run_drive_backup(
             bwlimit = get_settings().rclone_bwlimit or None
 
             filters = task.filters_json or {}
+            retention_pol = task.retention_policy_json or {}
+            keep_snaps = int(retention_pol.get("keep_drive_snapshots") or 0)
+
+            dated_chain_run: str | None = None
+            compare_dest_remotes: list[str] | None = None
+
+            if (
+                filters.get("drive_layout") == "dated_run"
+                and vault_layout.drive_dated_incremental_chain_enabled(filters)
+            ):
+                snap_children = await drive_retention.list_dated_run_snapshot_children(
+                    db, account=account, filters=filters
+                )
+                kind, compare_name = plan_next_dated_backup(snap_children, keep=keep_snaps)
+                dated_chain_run = kind
+                if kind == "incremental" and compare_name:
+                    cmp_path = vault_layout.dated_run_snapshot_dest_subpath(
+                        filters, compare_name, backup_scope=task.scope
+                    )
+                    compare_dest_remotes = [
+                        f"{cfg.remote_dest.rstrip(':')}:{cmp_path.lstrip('/')}",
+                    ]
+                await publish(
+                    log_id,
+                    {
+                        "stage": "drive_dated_plan",
+                        "chain_run": dated_chain_run,
+                        "compare_folder": compare_name,
+                        "dated_snapshots_existing": len(snap_children),
+                    },
+                )
+
             dest_subpath = vault_layout.drive_dest_subpath_for_task(
-                filters, tz_name=task.timezone or None, backup_scope=task.scope
+                filters,
+                tz_name=task.timezone or None,
+                backup_scope=task.scope,
+                dated_chain_run=dated_chain_run,
             )
             # Layout: ``2-DRIVE/_sync`` (Mi unidad) o ``2-DRIVE/_computadoras`` (copias del PC);
             # dated_run añade ``.../computadoras`` bajo el sello cuando scope es drive_computadoras.
@@ -554,6 +590,7 @@ async def run_drive_backup(
                 dest_subpath=dest_subpath,
                 bwlimit=bwlimit,
                 dry_run=task.dry_run,
+                compare_dest_remotes=compare_dest_remotes,
             )
 
             def _on_line(line: str) -> None:

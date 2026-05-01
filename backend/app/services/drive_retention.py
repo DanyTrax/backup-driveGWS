@@ -15,6 +15,37 @@ if TYPE_CHECKING:
     from app.models.tasks import BackupTask
 
 
+async def list_dated_run_snapshot_children(
+    db: AsyncSession,
+    *,
+    account: "GwAccount",
+    filters: dict,
+) -> list[dict[str, str]]:
+    """Subcarpetas bajo ``MSA_Runs`` (o ``2-DRIVE/MSA_Runs``), cada una con ``id`` y ``name``."""
+    if filters.get("drive_layout") != "dated_run":
+        return []
+    vault_id = account.drive_vault_folder_id
+    if not vault_id:
+        return []
+    drive_id = await get_value(db, KEY_VAULT_SHARED_DRIVE_ID)
+    prefix = str(filters.get("dated_run_prefix", "MSA_Runs")).strip("/") or "MSA_Runs"
+
+    parent_id = vault_id
+    if use_separated_vault_layout(filters):
+        two_drive = await get_folder_by_name(
+            db, name=VAULT_DIR_DRIVE, parent_id=vault_id, drive_id=drive_id
+        )
+        if not two_drive:
+            return []
+        parent_id = two_drive["id"]
+
+    runs = await get_folder_by_name(db, name=prefix, parent_id=parent_id, drive_id=drive_id)
+    if not runs:
+        return []
+    children = await list_child_folders(db, parent_id=runs["id"], drive_id=drive_id)
+    return [{"id": str(c.get("id", "")), "name": str(c.get("name", ""))} for c in children]
+
+
 async def prune_after_drive_backup(
     db: AsyncSession,
     *,

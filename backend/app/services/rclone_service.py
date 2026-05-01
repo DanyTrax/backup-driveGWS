@@ -300,6 +300,7 @@ def build_rclone_argv(
     bwlimit: str | None = None,
     dry_run: bool = False,
     extra_flags: Iterable[str] = (),
+    compare_dest_remotes: list[str] | None = None,
 ) -> list[str]:
     """Compose an `argv` list that never touches the shell."""
     if mode not in {"copy", "sync", "check"}:
@@ -331,6 +332,11 @@ def build_rclone_argv(
         argv.append("--dry-run")
     if bwlimit:
         argv += ["--bwlimit", bwlimit]
+    if compare_dest_remotes:
+        for cr in compare_dest_remotes:
+            s = (cr or "").strip()
+            if s:
+                argv.extend(["--compare-dest", s])
     argv += list(extra_flags)
     return argv
 

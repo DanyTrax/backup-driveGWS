@@ -169,6 +169,7 @@ export default function TasksPage() {
   const [editing, setEditing] = useState<BackupTask | null>(null)
   const [form, setForm] = useState<TaskPayload>(emptyPayload)
   const [datedRun, setDatedRun] = useState(false)
+  const [driveIncrementalChain, setDriveIncrementalChain] = useState(false)
   const [runAfterSave, setRunAfterSave] = useState(false)
 
   useEffect(() => {
@@ -195,9 +196,11 @@ export default function TasksPage() {
         account_ids: [...editing.account_ids],
       })
       setDatedRun(f?.drive_layout === 'dated_run')
+      setDriveIncrementalChain(f?.drive_dated_incremental_chain === true)
     } else {
       setForm(emptyPayload())
       setDatedRun(false)
+      setDriveIncrementalChain(false)
     }
   }, [editing, modalOpen])
 
@@ -228,6 +231,15 @@ export default function TasksPage() {
       filters.drive_layout = 'dated_run'
     } else {
       delete filters.drive_layout
+    }
+    if (
+      datedRun &&
+      driveIncrementalChain &&
+      (form.scope === 'drive_root' || form.scope === 'drive_computadoras' || form.scope === 'full')
+    ) {
+      filters.drive_dated_incremental_chain = true
+    } else {
+      delete filters.drive_dated_incremental_chain
     }
 
     let freshEnabled: WorkspaceAccount[] = enabledAccounts
@@ -478,9 +490,26 @@ export default function TasksPage() {
               <Checkbox
                 id="dated"
                 checked={datedRun}
-                onChange={(e) => setDatedRun(e.target.checked)}
+                onChange={(e) => {
+                  const on = e.target.checked
+                  setDatedRun(on)
+                  if (!on) setDriveIncrementalChain(false)
+                }}
               />
               <Label htmlFor="dated" value="Vault: subcarpeta por ejecución (MSA_Runs/AAAA-MM-DDTHH-MM/)" />
+            </div>
+          )}
+          {datedRun && driveScope && (
+            <div className="flex items-center gap-2">
+              <Checkbox
+                id="drive-inc-chain"
+                checked={driveIncrementalChain}
+                onChange={(e) => setDriveIncrementalChain(e.target.checked)}
+              />
+              <Label
+                htmlFor="drive-inc-chain"
+                value="Cadena incremental (TOTAL + diario INC): solo sube cambios vs la corrida más reciente; nueva TOTAL si la retención borra la copia más antigua"
+              />
             </div>
           )}
           {datedRun && driveScope && (
@@ -514,10 +543,12 @@ export default function TasksPage() {
             </div>
           )}
           <p className="text-xs text-slate-500">
-            Modo incremental en un solo árbol: dejá desmarcado lo anterior. La opción fechada guarda
-            cada corrida bajo una carpeta nueva en el vault (árbol completo de esa ejecución). Delta
-            archivo-a-archivo vs la corrida anterior se puede añadir después con compare-dest en
-            rclone.
+            Sin «cadena incremental», cada carpeta fechada es una copia completa desde Drive. Con la
+            cadena, rclone usa la corrida más reciente como referencia: las carpetas{' '}
+            <code className="text-xs">(INC)</code> pueden contener solo ficheros nuevos o modificados
+            respecto a esa referencia (restauración puede requerir combinar con copias anteriores).
+            Poned <strong>retención N &gt; 0</strong> para que, al podar la más vieja, la siguiente
+            corrida sea <code className="text-xs">(TOTAL)</code> de nuevo.
           </p>
           <div>
             <Label value="Cuentas (solo con backup activo)" />

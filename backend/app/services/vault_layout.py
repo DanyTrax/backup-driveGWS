@@ -84,12 +84,41 @@ def drive_vault_base_prefix(filters: dict[str, Any] | None) -> str:
     return ""
 
 
+def drive_dated_incremental_chain_enabled(filters: dict[str, Any] | None) -> bool:
+    """Cadena TOTAL + INC con ``rclone --compare-dest`` respecto a la corrida más reciente."""
+    if not filters:
+        return False
+    return filters.get("drive_dated_incremental_chain") is True
+
+
+def dated_run_snapshot_dest_subpath(
+    filters: dict[str, Any] | None,
+    folder_name: str,
+    *,
+    backup_scope: str | None = None,
+) -> str:
+    """Ruta bajo ``dest:`` (sin prefijo remoto) hasta la carpeta de una corrida (p. ej. compare-dest)."""
+    filters = filters or {}
+    is_comp = (backup_scope or "").strip() == "drive_computadoras"
+    prefix = str(filters.get("dated_run_prefix", "MSA_Runs")).strip("/") or "MSA_Runs"
+    fn = folder_name.strip("/")
+    if use_separated_vault_layout(filters):
+        base = VAULT_DIR_DRIVE
+        path = f"{base}/{prefix}/{fn}".strip("/")
+    else:
+        path = f"{prefix}/{fn}".strip("/")
+    if is_comp:
+        path = f"{path}/computadoras"
+    return path
+
+
 def drive_dest_subpath_for_task(
     filters: dict[str, Any] | None,
     *,
     now: datetime | None = None,
     tz_name: str | None = None,
     backup_scope: str | None = None,
+    dated_chain_run: str | None = None,
 ) -> str | None:
     """Subpath bajo el remoto dest (vault de la cuenta) para rclone (sin leading slash).
 
@@ -108,7 +137,13 @@ def drive_dest_subpath_for_task(
         if filters.get("drive_layout") == "dated_run":
             stamp = now.strftime("%Y-%m-%dT%H-%M")
             prefix = str(filters.get("dated_run_prefix", "MSA_Runs")).strip("/") or "MSA_Runs"
-            path = f"{prefix}/{stamp}"
+            if dated_chain_run == "full":
+                folder = f"{stamp} (TOTAL)"
+            elif dated_chain_run == "incremental":
+                folder = f"{stamp} (INC)"
+            else:
+                folder = stamp
+            path = f"{prefix}/{folder}"
             if is_comp:
                 path = f"{path}/computadoras"
             return path
@@ -117,12 +152,17 @@ def drive_dest_subpath_for_task(
     if filters.get("drive_layout") == "dated_run":
         stamp = now.strftime("%Y-%m-%dT%H-%M")
         prefix = str(filters.get("dated_run_prefix", "MSA_Runs")).strip("/") or "MSA_Runs"
-        kind = filters.get("drive_run_kind")
-        if kind in ("TOTAL", "SNAPSHOT", "total", "snapshot"):
-            k = str(kind).upper()
-            folder = f"{stamp} ({k})"
+        if dated_chain_run == "full":
+            folder = f"{stamp} (TOTAL)"
+        elif dated_chain_run == "incremental":
+            folder = f"{stamp} (INC)"
         else:
-            folder = stamp
+            kind = filters.get("drive_run_kind")
+            if kind in ("TOTAL", "SNAPSHOT", "total", "snapshot"):
+                k = str(kind).upper()
+                folder = f"{stamp} ({k})"
+            else:
+                folder = stamp
         path = f"{base}/{prefix}/{folder}"
         if is_comp:
             path = f"{path}/computadoras"

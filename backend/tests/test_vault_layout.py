@@ -26,6 +26,24 @@ def test_vault_dir_reports_constants() -> None:
     assert vault_layout.VAULT_REPORTS_SUBDIR_LOGS == "logs"
 
 
+def test_dated_chain_run_incremental_folder_name() -> None:
+    d = datetime(2025, 4, 23, 10, 0, tzinfo=timezone.utc)
+    s = vault_layout.drive_dest_subpath_for_task(
+        {"drive_layout": "dated_run"},
+        now=d,
+        dated_chain_run="incremental",
+    )
+    assert s == "2-DRIVE/MSA_Runs/2025-04-23T10-00 (INC)"
+
+
+def test_dated_snapshot_dest_subpath_compare() -> None:
+    p = vault_layout.dated_run_snapshot_dest_subpath(
+        {"drive_layout": "dated_run"},
+        "2025-04-22T09-00 (TOTAL)",
+    )
+    assert p == "2-DRIVE/MSA_Runs/2025-04-22T09-00 (TOTAL)"
+
+
 def test_drive_dest_continuous() -> None:
     d = datetime(2025, 4, 23, 10, 0, tzinfo=timezone.utc)
     s = vault_layout.drive_dest_subpath_for_task({}, now=d)
