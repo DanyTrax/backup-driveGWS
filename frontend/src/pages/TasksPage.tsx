@@ -547,8 +547,10 @@ export default function TasksPage() {
             cadena, rclone usa la corrida más reciente como referencia: las carpetas{' '}
             <code className="text-xs">(INC)</code> pueden contener solo ficheros nuevos o modificados
             respecto a esa referencia (restauración puede requerir combinar con copias anteriores).
-            Poned <strong>retención N &gt; 0</strong> para que, al podar la más vieja, la siguiente
-            corrida sea <code className="text-xs">(TOTAL)</code> de nuevo.
+            Poned <strong>retención N &gt; 0</strong> para podar copias viejas; cuando la poda quite
+            una carpeta <code className="text-xs">(TOTAL)</code>, la siguiente corrida genera otra{' '}
+            <code className="text-xs">(TOTAL)</code> (nuevo ancla). Si solo caen{' '}
+            <code className="text-xs">(INC)</code>, siguen los incrementales diarios.
           </p>
           <div>
             <Label value="Cuentas (solo con backup activo)" />

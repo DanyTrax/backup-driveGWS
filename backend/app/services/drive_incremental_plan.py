@@ -25,12 +25,13 @@ def plan_next_dated_backup(
 
     Reglas:
         * Sin snapshots → copia **full** (primera ejecución).
-        * Tras esta corrida se añadirá una carpeta nueva; si ``keep > 0`` y hay que podar, las
-          ``prune_n`` más antiguas se eliminarían. Si entre ellas está la **más antigua** de todo el
-          set, la próxima corrida debe ser **full** de nuevo (nuevo ancla), alineado con retención.
-        * Si no queda ninguna carpeta marcada como TOTAL/SNAPSHOT **y** hay al menos una carpeta,
-          igualmente se permite incremental respecto a la más reciente (migración desde nombres
-          viejos sin sufijo).
+        * Tras esta corrida habrá ``n+1`` carpetas; si ``keep > 0``, se podarían las más antiguas.
+          Si **alguna** carpeta a podar está marcada como ``(TOTAL)`` o ``(SNAPSHOT)``, esta corrida
+          debe ser **full** para crear un nuevo ancla (la retención borró el tope de la cadena).
+        * En régimen estable (solo se pisan ``(INC)`` viejos), esta corrida es **incremental** respecto
+          a la carpeta **más reciente** por nombre.
+        * Carpeta sin sufijos (migración): la poda no ve ``TOTAL`` en el nombre; no se fuerza full por
+          retención salvo que borres manualmente un ancla renombrado.
     """
     sorted_asc = sorted(snapshot_children, key=lambda x: x["name"])
     sorted_desc = list(reversed(sorted_asc))
@@ -40,11 +41,12 @@ def plan_next_dated_backup(
 
     prune_n = max(0, n + 1 - keep) if keep > 0 else 0
     would_remove = sorted_asc[:prune_n] if prune_n else []
-    oldest = sorted_asc[0]
-    oldest_id = oldest.get("id")
-    drops_oldest = bool(would_remove) and any(x.get("id") == oldest_id for x in would_remove)
+    # Solo nueva copia TOTAL si la poda tocaría un ancla explícito; si solo caen (INC), sigue la cadena.
+    drops_total_anchor = bool(would_remove) and any(
+        is_full_snapshot_folder_name(x["name"]) for x in would_remove
+    )
 
-    if drops_oldest:
+    if drops_total_anchor:
         return "full", None
 
     newest_name = sorted_desc[0]["name"]

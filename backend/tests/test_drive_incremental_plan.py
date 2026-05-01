@@ -26,11 +26,20 @@ def test_plan_incremental_when_keep_room() -> None:
     assert c == "2025-01-02T01-00 (INC)"
 
 
-def test_plan_full_when_prune_would_drop_oldest() -> None:
-    ch = [{"id": str(i), "name": f"2025-01-{i:02d}T01-00"} for i in range(1, 31)]
+def test_plan_full_when_prune_would_remove_total_anchor() -> None:
+    ch = [{"id": "0", "name": "2025-01-01T01-00 (TOTAL)"}]
+    for i in range(2, 31):
+        ch.append({"id": str(i), "name": f"2025-01-{i:02d}T01-00 (INC)"})
     k, c = plan_next_dated_backup(ch, keep=30)
     assert k == "full"
     assert c is None
+
+
+def test_plan_incremental_when_prune_only_inc_folders() -> None:
+    ch = [{"id": str(i), "name": f"2025-01-{i:02d}T01-00 (INC)"} for i in range(1, 31)]
+    k, c = plan_next_dated_backup(ch, keep=30)
+    assert k == "incremental"
+    assert c == "2025-01-30T01-00 (INC)"
 
 
 def test_plan_incremental_when_keep_zero_never_prune_oldest() -> None:
