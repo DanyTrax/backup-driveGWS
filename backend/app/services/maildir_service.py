@@ -5,9 +5,11 @@ from __future__ import annotations
 import email
 import hashlib
 import mailbox
+import os
 import re
 import shutil
 import sqlite3
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from email.message import Message
 from pathlib import Path, PurePosixPath
@@ -204,6 +206,55 @@ def _message_digest(raw: bytes) -> str:
     return hashlib.sha1(raw).hexdigest()
 
 
+def _iter_maildir_message_files(maildir_root: Path):
+    """Itera ficheros de mensajes bajo ``cur/`` y ``new/`` (no ``tmp``)."""
+    if not maildir_root.is_dir():
+        return
+    for dirpath, _dirnames, filenames in os.walk(maildir_root, topdown=True):
+        base = Path(dirpath)
+        if base.name not in ("cur", "new"):
+            continue
+        for fn in filenames:
+            yield base / fn
+
+
+def _digest_maildir_file(path: Path) -> str | None:
+    try:
+        raw = path.read_bytes()
+    except OSError:
+        return None
+    if not raw.strip():
+        return None
+    return _message_digest(raw)
+
+
+def collect_message_digests_existing_in_maildir(maildir_root: Path) -> set[str]:
+    """SHA-1 del cuerpo RFC822 ya presente en Maildir (todas las carpetas).
+
+    Sirve para no volver a insertar los mismos mensajes en backups GYB incrementales:
+    GYB deja histórico de ``.eml`` en disco y cada import re-leería todo sin esto.
+    """
+    paths = list(_iter_maildir_message_files(maildir_root))
+    if not paths:
+        return set()
+    if len(paths) < 96:
+        out: set[str] = set()
+        for p in paths:
+            d = _digest_maildir_file(p)
+            if d:
+                out.add(d)
+        return out
+    workers = min(32, max(4, len(paths) // 120))
+    out_p: set[str] = set()
+    with ThreadPoolExecutor(max_workers=workers) as ex:
+        futures = [ex.submit(_digest_maildir_file, p) for p in paths]
+        for fut in as_completed(futures):
+            d = fut.result()
+            if d:
+                out_p.add(d)
+    return out_p
+
+
 def _add_rfc822_to_maildirs(
     msg: Message,
     raw: bytes,
@@ -231,6 +282,11 @@ def _add_rfc822_to_maildirs(
     stats.messages += 1
 
 
+def count_maildir_message_files(maildir_root: Path) -> int:
+    """Número de ficheros de mensaje bajo ``cur/`` y ``new/`` (todas las carpetas)."""
+    return sum(1 for _ in _iter_maildir_message_files(maildir_root))
+
+
 def import_mbox_tree_to_maildir(
     *,
     mbox_root: Path,
@@ -243,10 +299,16 @@ def import_mbox_tree_to_maildir(
 
     Las etiquetas se toman de ``msg-db.sqlite`` (ruta normalizada + UID del ``.eml``)
     mezclado con cabeceras ``X-Gmail-Labels`` cuando existan.
+
+    Idempotencia: antes de importar se indexan los digest SHA-1 de los mensajes ya
+    guardados en Maildir; los ``.eml`` cuyo cuerpo coincida no se vuelven a añadir.
+    Así los backups GYB incrementales (histórico de ``.eml`` en work) no duplican
+    el buzón local. Si cambian solo etiquetas en Gmail sin cambiar el fichero ``.eml``,
+    puede hacer falta **Reconstruir Maildir desde GYB** en la UI para refrescar carpetas.
     """
     stats = MaildirImportStats()
-    seen: set[str] = set()
     maildir_root.mkdir(parents=True, exist_ok=True)
+    seen = collect_message_digests_existing_in_maildir(maildir_root)
     default = _maildir(maildir_root)
     mbox_resolved = mbox_root.resolve()
     sqlite_bundle = _load_gyb_sqlite_label_index(mbox_resolved)

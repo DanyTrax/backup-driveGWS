@@ -65,6 +65,9 @@ export const MAILBOX_MESSAGE_TIMEOUT_MS = 120_000
 /** Listar mensajes Maildir con sort por cabecera Date puede leer miles de ficheros. */
 export const MAILBOX_LIST_TIMEOUT_MS = 300_000
 
+/** Inventario mail-data recorre Maildir/GYB en disco; puede ser lento en cuentas muy grandes. */
+export const MAILDATA_INVENTORY_TIMEOUT_MS = 180_000
+
 export interface MailboxFolder {
   id: string
   name: string

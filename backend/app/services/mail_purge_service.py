@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import asyncio
 import shutil
 import uuid
 from dataclasses import dataclass
@@ -72,21 +73,41 @@ async def count_webmail_tokens_for_account(db: AsyncSession, account_id: uuid.UU
     return int(q.scalar_one() or 0)
 
 
+def _inventory_disk_sizes(
+    root: Path,
+    gyb: Path,
+    *,
+    maildir_has_layout: bool,
+    gyb_is_dir: bool,
+) -> tuple[int | None, int | None]:
+    maildir_sz = _dir_size(root) if maildir_has_layout else None
+    gyb_sz = _dir_size(gyb) if gyb_is_dir else None
+    return maildir_sz, gyb_sz
+
+
 async def build_mail_inventory(db: AsyncSession, account: GwAccount) -> dict:
     root = maildir_root_for_account(account)
     gyb = gyb_work_root_for_email(account.email)
     on_disk = _maildir_has_layout(root)
     has_msg_db = (gyb / "msg-db.sqlite").is_file()
     has_eml = gyb_workdir_has_eml_or_mbox(gyb)
+    gyb_exists = gyb.is_dir()
+    maildir_size_bytes, gyb_work_size_bytes = await asyncio.to_thread(
+        _inventory_disk_sizes,
+        root,
+        gyb,
+        maildir_has_layout=on_disk,
+        gyb_is_dir=gyb_exists,
+    )
     return {
         "account_id": str(account.id),
         "email": account.email,
         "maildir_root": str(root),
         "maildir_on_disk": on_disk,
-        "maildir_size_bytes": _dir_size(root) if on_disk else None,
+        "maildir_size_bytes": maildir_size_bytes,
         "gyb_work_path": str(gyb),
-        "gyb_work_has_content": gyb.is_dir() and any(gyb.iterdir()),
-        "gyb_work_size_bytes": _dir_size(gyb) if gyb.is_dir() else None,
+        "gyb_work_has_content": gyb_exists and any(gyb.iterdir()),
+        "gyb_work_size_bytes": gyb_work_size_bytes,
         "gyb_work_has_msg_db": has_msg_db,
         "gyb_work_has_eml_export": has_eml,
         "gmail_backup_logs_count": await count_gmail_logs_for_account(db, account.id),

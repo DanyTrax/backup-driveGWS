@@ -24,7 +24,7 @@ import type {
   SetupState,
   WorkspaceAccount,
 } from './types'
-import { MAILBOX_LIST_TIMEOUT_MS, MAILBOX_MESSAGE_TIMEOUT_MS } from './types'
+import { MAILBOX_LIST_TIMEOUT_MS, MAILBOX_MESSAGE_TIMEOUT_MS, MAILDATA_INVENTORY_TIMEOUT_MS } from './types'
 
 export type TaskPayload = {
   name: string
@@ -342,8 +342,13 @@ export function useMailDataInventory(accountId: string | null, enabled = true) {
   return useQuery({
     queryKey: ['mail-data-inventory', accountId],
     queryFn: async () =>
-      (await api.get<MailDataInventory>(`/accounts/${accountId}/mail-data-inventory`)).data,
+      (
+        await api.get<MailDataInventory>(`/accounts/${accountId}/mail-data-inventory`, {
+          timeout: MAILDATA_INVENTORY_TIMEOUT_MS,
+        })
+      ).data,
     enabled: Boolean(accountId) && enabled,
+    retry: 1,
   })
 }
 

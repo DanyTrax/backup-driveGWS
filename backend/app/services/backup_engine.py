@@ -754,7 +754,10 @@ async def run_gmail_backup(
             log.gmail_maildir_ready_at = datetime.now(UTC)
             log.messages_count = stats.messages
             account.imap_enabled = True
-            account.total_messages_cache = stats.messages
+            account.total_messages_cache = await asyncio.to_thread(
+                maildir_service.count_maildir_message_files,
+                maildir_target,
+            )
             account.maildir_user_cleared_at = None
             await db.commit()
             await db.refresh(log)

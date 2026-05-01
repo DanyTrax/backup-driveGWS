@@ -42,6 +42,20 @@ def _write_gyb_with_sqlite(tmp: Path) -> tuple[Path, Path]:
     return root, mdir
 
 
+def test_incremental_import_skips_messages_already_in_maildir(tmp_path: Path) -> None:
+    from app.services.maildir_service import _iter_maildir_message_files
+
+    gyb, mdir = _write_gyb_with_sqlite(tmp_path)
+    s1 = import_mbox_tree_to_maildir(mbox_root=gyb, maildir_root=mdir)
+    assert s1.messages >= 1
+    n1 = sum(1 for _ in _iter_maildir_message_files(mdir))
+    s2 = import_mbox_tree_to_maildir(mbox_root=gyb, maildir_root=mdir)
+    assert s2.messages == 0
+    assert s2.skipped_duplicates >= 1
+    n2 = sum(1 for _ in _iter_maildir_message_files(mdir))
+    assert n2 == n1
+
+
 def test_gyb_sqlite_creates_maildir_subfolders(tmp_path: Path) -> None:
     gyb, mdir = _write_gyb_with_sqlite(tmp_path)
     stats = import_mbox_tree_to_maildir(mbox_root=gyb, maildir_root=mdir)
