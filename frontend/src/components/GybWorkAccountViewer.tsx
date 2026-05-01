@@ -19,6 +19,7 @@ import { downloadGybWorkAttachment } from '../api/gybWorkAttachment'
 import { useGybWorkAccounts, useGybWorkFolders, useGybWorkMessage, useGybWorkMessages } from '../api/hooks'
 import type { MailboxMessageBody, MailboxMessageSummary } from '../api/types'
 import { MAILBOX_MESSAGE_TIMEOUT_MS } from '../api/types'
+import { wrapMailHtmlFragment } from '../utils/mailHtmlWrap'
 
 function formatBytes(n: number): string {
   if (n < 1024) return `${n} B`
@@ -36,15 +37,6 @@ function noteStorageKey(accountId: string, messageKey: string) {
 
 function csvCell(s: string): string {
   return `"${s.replace(/"/g, '""')}"`
-}
-
-function wrapMailHtmlFragment(html: string): string {
-  const safe = html.replace(/<\/script/gi, '<\\/script').replace(/<\/iframe/gi, '<\\/iframe')
-  return `<!DOCTYPE html><html><head><meta charset="utf-8"/><base target="_blank" rel="noopener noreferrer"/><style>
-body{font-family:system-ui,-apple-system,sans-serif;margin:0;padding:12px;word-wrap:break-word;color:rgb(30 41 59);}
-@media (prefers-color-scheme:dark){body{color:rgb(226 232 240);background:#0f172a;}}
-img,video{max-width:100%;height:auto;}pre{white-space:pre-wrap;}table{max-width:100%;}
-</style></head><body>${safe}</body></html>`
 }
 
 const GYB_SORT_PRESETS = [

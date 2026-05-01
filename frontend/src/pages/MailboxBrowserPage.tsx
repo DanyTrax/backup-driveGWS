@@ -7,6 +7,7 @@ import GybWorkAccountViewer from '../components/GybWorkAccountViewer'
 import { downloadMaildirExportZip, maildirExportErrorMessage } from '../api/maildirExport'
 import { downloadMailboxAttachment } from '../api/mailboxAttachment'
 import { useMailboxFolders, useMailboxMessage, useMailboxMessages } from '../api/hooks'
+import { wrapMailHtmlFragment } from '../utils/mailHtmlWrap'
 
 type ViewerTab = 'maildir' | 'gyb'
 
@@ -14,15 +15,6 @@ function formatBytes(n: number): string {
   if (n < 1024) return `${n} B`
   if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`
   return `${(n / (1024 * 1024)).toFixed(1)} MB`
-}
-
-function wrapMailHtmlFragment(html: string): string {
-  const safe = html.replace(/<\/script/gi, '<\\/script').replace(/<\/iframe/gi, '<\\/iframe')
-  return `<!DOCTYPE html><html><head><meta charset="utf-8"/><base target="_blank" rel="noopener noreferrer"/><style>
-body{font-family:system-ui,-apple-system,sans-serif;margin:0;padding:12px;word-wrap:break-word;color:rgb(30 41 59);}
-@media (prefers-color-scheme:dark){body{color:rgb(226 232 240);background:#0f172a;}}
-img,video{max-width:100%;height:auto;}pre{white-space:pre-wrap;}table{max-width:100%;}
-</style></head><body>${safe}</body></html>`
 }
 
 export default function MailboxBrowserPage() {
