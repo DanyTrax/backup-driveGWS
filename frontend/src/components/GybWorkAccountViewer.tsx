@@ -1,15 +1,39 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { Alert, Badge, Button, Card, Spinner, TextInput } from 'flowbite-react'
+import {
+  Alert,
+  Badge,
+  Button,
+  Card,
+  Checkbox,
+  Label,
+  Select,
+  Spinner,
+  Textarea,
+  TextInput,
+} from 'flowbite-react'
 import toast from 'react-hot-toast'
 import { HiArrowLeft, HiMenu, HiSearch, HiX } from 'react-icons/hi'
 import { downloadGybWorkAttachment } from '../api/gybWorkAttachment'
 import { useGybWorkAccounts, useGybWorkFolders, useGybWorkMessage, useGybWorkMessages } from '../api/hooks'
+import type { MailboxMessageSummary } from '../api/types'
 
 function formatBytes(n: number): string {
   if (n < 1024) return `${n} B`
   if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`
   return `${(n / (1024 * 1024)).toFixed(1)} MB`
+}
+
+function reviewedStorageKey(accountId: string) {
+  return `msa-gyb-reviewed-${accountId}`
+}
+
+function noteStorageKey(accountId: string, messageKey: string) {
+  return `msa-gyb-note-${accountId}-${messageKey}`
+}
+
+function csvCell(s: string): string {
+  return `"${s.replace(/"/g, '""')}"`
 }
 
 function wrapMailHtmlFragment(html: string): string {
@@ -30,7 +54,7 @@ export type GybWorkAccountViewerProps = {
 
 export default function GybWorkAccountViewer({ accountId: id, variant }: GybWorkAccountViewerProps) {
   const navigate = useNavigate()
-  const [viewMode, setViewMode] = useState<'disk' | 'labels'>('disk')
+  const [viewMode, setViewMode] = useState<'disk' | 'labels'>('labels')
   const [folderId, setFolderId] = useState('')
   const [labelId, setLabelId] = useState('')
   const [page, setPage] = useState(0)
@@ -38,11 +62,52 @@ export default function GybWorkAccountViewer({ accountId: id, variant }: GybWork
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [searchInput, setSearchInput] = useState('')
   const [searchCommitted, setSearchCommitted] = useState('')
+  const [listScope, setListScope] = useState<'folder' | 'all'>('folder')
+  const [sortBy, setSortBy] = useState<'header_date' | 'mtime'>('header_date')
+  const [sortOrder, setSortOrder] = useState<'desc' | 'asc'>('desc')
+  const [reviewedIds, setReviewedIds] = useState<Set<string>>(() => new Set())
+  const [noteDraft, setNoteDraft] = useState('')
 
   useEffect(() => {
     const t = window.setTimeout(() => setSearchCommitted(searchInput.trim()), 400)
     return () => window.clearTimeout(t)
   }, [searchInput])
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(reviewedStorageKey(id))
+      setReviewedIds(new Set(raw ? (JSON.parse(raw) as string[]) : []))
+    } catch {
+      setReviewedIds(new Set())
+    }
+  }, [id])
+
+  useEffect(() => {
+    if (!selectedKey) {
+      setNoteDraft('')
+      return
+    }
+    setNoteDraft(localStorage.getItem(noteStorageKey(id, selectedKey)) ?? '')
+  }, [id, selectedKey])
+
+  const toggleReviewed = useCallback(
+    (key: string | null) => {
+      if (!key) return
+      setReviewedIds((prev) => {
+        const next = new Set(prev)
+        if (next.has(key)) next.delete(key)
+        else next.add(key)
+        try {
+          localStorage.setItem(reviewedStorageKey(id), JSON.stringify([...next]))
+        } catch {
+          toast.error('No se pudo guardar “revisado” (almacenamiento lleno?)')
+          return prev
+        }
+        return next
+      })
+    },
+    [id],
+  )
 
   const accountsQ = useGybWorkAccounts()
   const foldersQ = useGybWorkFolders(id, viewMode)
@@ -52,19 +117,37 @@ export default function GybWorkAccountViewer({ accountId: id, variant }: GybWork
     labelId,
     q: searchCommitted,
     offset: page * 80,
+    listScope,
+    sortBy,
+    sortOrder,
   })
   const bodyQ = useGybWorkMessage(id, selectedKey)
 
   const folders = foldersQ.data ?? []
   const items = msgsQ.data?.items ?? []
 
+  const pageRange = useMemo(() => {
+    const total = msgsQ.data?.total_matches
+    const start = items.length === 0 ? 0 : page * 80 + 1
+    const end = page * 80 + items.length
+    return {
+      start,
+      end,
+      total: total ?? null,
+      hasMore: msgsQ.data?.has_more ?? false,
+    }
+  }, [msgsQ.data?.total_matches, msgsQ.data?.has_more, items.length, page])
+
   const selectionLabel = useMemo(() => {
+    if (listScope === 'all') {
+      return viewMode === 'labels' ? 'Todas las etiquetas (msg-db)' : 'Todo el export en disco'
+    }
     if (viewMode === 'labels') {
       const name = folders.find((f) => f.id === labelId)?.name
       return name ?? (labelId ? labelId : '—')
     }
     return folders.find((f) => f.id === folderId)?.name ?? (folderId ? folderId : '(raíz)')
-  }, [folders, folderId, labelId, viewMode])
+  }, [folders, folderId, labelId, viewMode, listScope])
 
   const iframeSrcDoc = useMemo(
     () => (bodyQ.data?.text_html ? wrapMailHtmlFragment(bodyQ.data.text_html) : ''),
@@ -82,10 +165,12 @@ export default function GybWorkAccountViewer({ accountId: id, variant }: GybWork
     setSelectedKey(null)
     setFolderId('')
     setLabelId('')
+    setListScope('folder')
   }, [viewMode])
 
   useEffect(() => {
     if (!foldersQ.data?.length) return
+    if (listScope === 'all') return
     if (viewMode === 'disk') {
       setFolderId((prev) =>
         foldersQ.data!.some((f) => f.id === prev) ? prev : (foldersQ.data![0]?.id ?? ''),
@@ -95,12 +180,80 @@ export default function GybWorkAccountViewer({ accountId: id, variant }: GybWork
         foldersQ.data!.some((f) => f.id === prev) ? prev : (foldersQ.data![0]?.id ?? ''),
       )
     }
-  }, [foldersQ.data, viewMode])
+  }, [foldersQ.data, viewMode, listScope])
 
   useEffect(() => {
     setPage(0)
     setSelectedKey(null)
-  }, [id, folderId, labelId, searchCommitted])
+  }, [id, folderId, labelId, searchCommitted, listScope, sortBy, sortOrder])
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const t = e.target
+      if (
+        t instanceof HTMLInputElement ||
+        t instanceof HTMLTextAreaElement ||
+        t instanceof HTMLSelectElement ||
+        (t instanceof HTMLElement && t.isContentEditable)
+      ) {
+        return
+      }
+      if (items.length === 0) return
+
+      if (e.key === 'j' || e.key === 'ArrowDown') {
+        e.preventDefault()
+        const idx = items.findIndex((x) => x.id === selectedKey)
+        const next = idx < 0 ? 0 : Math.min(items.length - 1, idx + 1)
+        setSelectedKey(items[next]!.id)
+        return
+      }
+      if (e.key === 'k' || e.key === 'ArrowUp') {
+        e.preventDefault()
+        const idx = items.findIndex((x) => x.id === selectedKey)
+        const next = idx <= 0 ? 0 : idx - 1
+        setSelectedKey(items[next]!.id)
+        return
+      }
+      if (e.key === 'r' || e.key === 'R') {
+        e.preventDefault()
+        toggleReviewed(selectedKey ?? items[0]?.id ?? null)
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [items, selectedKey, toggleReviewed])
+
+  function downloadCurrentPageCsv() {
+    if (items.length === 0) {
+      toast.error('No hay filas para exportar en esta página')
+      return
+    }
+    const header = ['subject', 'from', 'date', 'size', 'labels', 'reviewed', 'id']
+    const lines = [
+      header.join(','),
+      ...items.map((m) => {
+        const labs = (m.labels ?? []).join('; ')
+        const rev = m.id && reviewedIds.has(m.id) ? 'yes' : 'no'
+        return [
+          csvCell(m.subject),
+          csvCell(m.from),
+          csvCell(m.date ?? ''),
+          String(m.size),
+          csvCell(labs),
+          rev,
+          csvCell(m.id),
+        ].join(',')
+      }),
+    ]
+    const blob = new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `gyb-mensajes-${id.slice(0, 8)}-p${page + 1}.csv`
+    a.click()
+    URL.revokeObjectURL(url)
+    toast.success('CSV descargado (solo esta página)')
+  }
 
   const standalone = variant === 'standalone'
 
@@ -167,7 +320,10 @@ export default function GybWorkAccountViewer({ accountId: id, variant }: GybWork
             ) : null}
           </>
         )}{' '}
-        Usá el buscador para filtrar por asunto o remitente.
+        El buscador cubre asunto, remitente, destinatarios (To/Cc), Message-ID, nombres de adjuntos y un extracto del
+        cuerpo texto. Podés listar solo la carpeta activa o todo el export. Con etiquetas y{' '}
+        <code className="text-xs">message_internaldate</code> en msg-db, el orden por fecha de correo evita leer todas las
+        cabeceras cuando hay fecha en la base.
         {standalone ? (
           <>
             {' '}
@@ -186,14 +342,62 @@ export default function GybWorkAccountViewer({ accountId: id, variant }: GybWork
         )}
       </p>
 
-      <div className="max-w-xl">
+      <div className="max-w-3xl space-y-3">
         <TextInput
           icon={HiSearch}
           type="search"
-          placeholder="Buscar en asunto o remitente…"
+          placeholder="Buscar (asunto, de, para, cc, cuerpo texto, adjuntos…)"
           value={searchInput}
           onChange={(e) => setSearchInput(e.target.value)}
         />
+        <div className="flex flex-wrap items-end gap-4">
+          <div className="flex items-center gap-2 pb-2">
+            <Checkbox
+              id="gyb-list-all"
+              checked={listScope === 'all'}
+              onChange={(e) => setListScope(e.target.checked ? 'all' : 'folder')}
+            />
+            <Label htmlFor="gyb-list-all" className="cursor-pointer text-sm">
+              Todo el export (todas las carpetas o etiquetas)
+            </Label>
+          </div>
+          <div className="min-w-[12rem]">
+            <Label htmlFor="gyb-sort-by" value="Ordenar por" className="mb-1" />
+            <Select
+              id="gyb-sort-by"
+              value={sortBy}
+              onChange={(e) => setSortBy(e.target.value as 'header_date' | 'mtime')}
+            >
+              <option value="header_date">Fecha del correo (cabecera)</option>
+              <option value="mtime">Fecha del archivo en disco</option>
+            </Select>
+          </div>
+          <div className="min-w-[11rem]">
+            <Label htmlFor="gyb-sort-ord" value="Orden" className="mb-1" />
+            <Select
+              id="gyb-sort-ord"
+              value={sortOrder}
+              onChange={(e) => setSortOrder(e.target.value as 'desc' | 'asc')}
+            >
+              <option value="desc">Más reciente primero</option>
+              <option value="asc">Más antiguo primero</option>
+            </Select>
+          </div>
+          <Button size="xs" color="light" className="mb-0.5" onClick={downloadCurrentPageCsv} disabled={items.length === 0}>
+            CSV (esta página)
+          </Button>
+        </div>
+        <p className="text-xs text-slate-500 dark:text-slate-400">
+          Atajos con foco fuera de campos: <kbd className="px-1 rounded bg-slate-200 dark:bg-slate-700">j</kbd> /{' '}
+          <kbd className="px-1 rounded bg-slate-200 dark:bg-slate-700">k</kbd> mensaje siguiente/anterior;{' '}
+          <kbd className="px-1 rounded bg-slate-200 dark:bg-slate-700">r</kbd> marcar revisado (solo este navegador).
+        </p>
+        {listScope === 'all' ? (
+          <p className="text-xs text-amber-800 dark:text-amber-200/90">
+            Vista global: puede tardar en buzones muy grandes. En «Etiquetas Gmail» se usa{' '}
+            <code className="text-[10px]">msg-db.sqlite</code>; sin ese archivo la API devuelve error.
+          </p>
+        ) : null}
       </div>
 
       {msgsQ.isError && (
@@ -213,6 +417,11 @@ export default function GybWorkAccountViewer({ accountId: id, variant }: GybWork
             <h2 className="text-sm font-medium mb-2">
               {viewMode === 'labels' ? 'Etiquetas Gmail' : 'Carpetas en disco'}
             </h2>
+            {listScope === 'all' ? (
+              <p className="text-xs text-slate-500 dark:text-slate-400 mb-2">
+                Modo global: el listado no se limita a la fila seleccionada.
+              </p>
+            ) : null}
             {foldersQ.isLoading ? (
               <Spinner size="sm" />
             ) : folders.length === 0 ? (
@@ -261,13 +470,13 @@ export default function GybWorkAccountViewer({ accountId: id, variant }: GybWork
             <p className="text-red-600 text-sm">No se pudo listar</p>
           ) : items.length === 0 ? (
             <p className="text-slate-500 text-sm">
-              {viewMode === 'labels' && !labelId
+              {viewMode === 'labels' && listScope === 'folder' && !labelId
                 ? 'Elegí una etiqueta en el panel.'
                 : 'Sin resultados (probá otra carpeta, etiqueta o término de búsqueda).'}
             </p>
           ) : (
-            <ul className="space-y-1 max-h-[70vh] overflow-y-auto text-sm">
-              {items.map((m) => (
+            <ul className="space-y-1 max-h-[70vh] overflow-y-auto text-sm" aria-label="Lista de mensajes">
+              {items.map((m: MailboxMessageSummary) => (
                 <li key={m.id}>
                   <button
                     type="button"
@@ -278,26 +487,57 @@ export default function GybWorkAccountViewer({ accountId: id, variant }: GybWork
                     }`}
                     onClick={() => setSelectedKey(m.id)}
                   >
-                    <div className="font-medium line-clamp-2">{m.subject}</div>
+                    <div className="flex items-start gap-1">
+                      {reviewedIds.has(m.id) ? (
+                        <span className="text-emerald-600 dark:text-emerald-400 shrink-0" title="Revisado">
+                          ✓
+                        </span>
+                      ) : null}
+                      <span className="font-medium line-clamp-2">{m.subject}</span>
+                    </div>
                     <div className="text-xs text-slate-500 truncate">{m.from}</div>
                     <div className="text-[10px] text-slate-400">{m.date ?? ''}</div>
+                    {viewMode === 'labels' && m.labels && m.labels.length > 0 ? (
+                      <div className="flex flex-wrap gap-0.5 mt-1">
+                        {m.labels.slice(0, 5).map((lb) => (
+                          <Badge key={lb} color="gray" className="text-[9px] py-0 px-1">
+                            {lb}
+                          </Badge>
+                        ))}
+                        {m.labels.length > 5 ? (
+                          <span className="text-[9px] text-slate-400">+{m.labels.length - 5}</span>
+                        ) : null}
+                      </div>
+                    ) : null}
                   </button>
                 </li>
               ))}
             </ul>
           )}
-          <div className="flex gap-2 mt-3">
-            <Button
-              size="xs"
-              color="light"
-              disabled={page === 0}
-              onClick={() => setPage((p) => Math.max(0, p - 1))}
-            >
-              Anterior
-            </Button>
-            <Button size="xs" color="light" disabled={items.length < 80} onClick={() => setPage((p) => p + 1)}>
-              Siguiente
-            </Button>
+          <div className="flex flex-wrap items-center justify-between gap-2 mt-3">
+            <div className="flex gap-2">
+              <Button
+                size="xs"
+                color="light"
+                disabled={page === 0}
+                onClick={() => setPage((p) => Math.max(0, p - 1))}
+              >
+                Anterior
+              </Button>
+              <Button size="xs" color="light" disabled={!pageRange.hasMore} onClick={() => setPage((p) => p + 1)}>
+                Siguiente
+              </Button>
+            </div>
+            {items.length > 0 && pageRange.total != null ? (
+              <span className="text-xs text-slate-500">
+                {pageRange.start}–{pageRange.end} de {pageRange.total}
+              </span>
+            ) : items.length > 0 ? (
+              <span className="text-xs text-slate-500">
+                Página {page + 1}
+                {pageRange.hasMore ? ' · hay más' : ''}
+              </span>
+            ) : null}
           </div>
         </Card>
 
@@ -311,10 +551,44 @@ export default function GybWorkAccountViewer({ accountId: id, variant }: GybWork
             <p className="text-red-600 text-sm">No se pudo cargar el mensaje</p>
           ) : bodyQ.data ? (
             <div className="space-y-3 max-h-[75vh] overflow-y-auto">
+              <div className="flex flex-wrap items-start gap-2">
+                <div className="flex-1 min-w-0">
+                  <div className="font-semibold">{bodyQ.data.subject}</div>
+                  <div className="text-sm text-slate-600 dark:text-slate-300">De: {bodyQ.data.from}</div>
+                  <div className="text-xs text-slate-400">{bodyQ.data.date ?? ''}</div>
+                </div>
+                <label className="flex items-center gap-2 text-xs text-slate-600 dark:text-slate-300 shrink-0 cursor-pointer">
+                  <Checkbox
+                    checked={reviewedIds.has(selectedKey)}
+                    onChange={() => toggleReviewed(selectedKey)}
+                  />
+                  Revisado
+                </label>
+              </div>
               <div>
-                <div className="font-semibold">{bodyQ.data.subject}</div>
-                <div className="text-sm text-slate-600 dark:text-slate-300">De: {bodyQ.data.from}</div>
-                <div className="text-xs text-slate-400">{bodyQ.data.date ?? ''}</div>
+                <Label htmlFor="gyb-note" value="Nota de auditoría (local)" className="mb-1" />
+                <Textarea
+                  id="gyb-note"
+                  rows={2}
+                  value={noteDraft}
+                  placeholder="Solo en este navegador…"
+                  onChange={(e) => setNoteDraft(e.target.value)}
+                />
+                <Button
+                  size="xs"
+                  color="light"
+                  className="mt-1"
+                  onClick={() => {
+                    try {
+                      localStorage.setItem(noteStorageKey(id, selectedKey), noteDraft)
+                      toast.success('Nota guardada en el navegador')
+                    } catch {
+                      toast.error('No se pudo guardar la nota')
+                    }
+                  }}
+                >
+                  Guardar nota
+                </Button>
               </div>
               {(bodyQ.data.attachments ?? []).length > 0 ? (
                 <div className="rounded-lg border border-slate-200 dark:border-slate-600 p-2 text-sm">

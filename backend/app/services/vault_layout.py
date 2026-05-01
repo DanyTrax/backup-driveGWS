@@ -63,6 +63,11 @@ def use_gmail_vault_push(filters: dict[str, Any] | None) -> bool:
     return True
 
 
+def gmail_skip_maildir_import(filters: dict[str, Any] | None) -> bool:
+    """Si es True, tras GYB no se importa a Maildir: manifiesto y vault usan solo ``work_root``."""
+    return (filters or {}).get("gmail_skip_maildir_import") is True
+
+
 def gmail_purge_gyb_workdir_after_vault_verified(filters: dict[str, Any] | None) -> bool:
     """Si True: tras subir a ``1-GMAIL/gyb_mbox`` se ejecuta ``rclone check``; si pasa, se vacía
     ``/var/msa/work/gmail/<email>/`` en el VPS (no toca Maildir). Requiere push al vault; por defecto False."""

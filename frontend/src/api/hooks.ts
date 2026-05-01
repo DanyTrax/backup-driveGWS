@@ -479,16 +479,33 @@ export function useGybWorkMessages(
     labelId: string
     q: string
     offset: number
+    listScope: 'folder' | 'all'
+    sortBy: 'header_date' | 'mtime'
+    sortOrder: 'desc' | 'asc'
   },
 ) {
-  const { view, folderId, labelId, q, offset } = params
+  const { view, folderId, labelId, q, offset, listScope, sortBy, sortOrder } = params
   return useQuery({
-    queryKey: ['gyb-work-messages', accountId, view, folderId, labelId, q, offset],
+    queryKey: [
+      'gyb-work-messages',
+      accountId,
+      view,
+      folderId,
+      labelId,
+      q,
+      offset,
+      listScope,
+      sortBy,
+      sortOrder,
+    ],
     queryFn: async () => {
       const reqParams: Record<string, string | number> = {
         view,
         limit: 80,
         offset,
+        list_scope: listScope,
+        sort_by: sortBy,
+        sort_order: sortOrder,
       }
       if (view === 'disk') reqParams.folder = folderId
       else reqParams.label = labelId
@@ -497,7 +514,9 @@ export function useGybWorkMessages(
         await api.get<GybWorkMessagesPage>(`/accounts/${accountId}/gyb-work/messages`, { params: reqParams })
       ).data
     },
-    enabled: Boolean(accountId),
+    enabled:
+      Boolean(accountId) &&
+      (listScope === 'all' || view === 'disk' || Boolean(labelId)),
   })
 }
 

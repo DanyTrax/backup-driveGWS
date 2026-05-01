@@ -13,6 +13,7 @@ import {
 } from '../api/hooks'
 import type { AccountAccessCheck, WorkspaceAccount } from '../api/types'
 import { useAuthStore } from '../stores/auth'
+import { hideMaildirWebmailUi } from '../config/ui'
 
 function canOpenMailbox(
   account: WorkspaceAccount,
@@ -282,7 +283,17 @@ export default function AccountsPage() {
                           : 'en disco'}
                     </td>
                     <td>
-                      {canOpenMailbox(a, hasPermission, delegatedMailboxIds) ? (
+                      {hideMaildirWebmailUi() ? (
+                        a.is_backup_enabled ? (
+                          <Link to={`/gyb-work/${a.id}`}>
+                            <Button size="xs" color="light">
+                              Mensajes GYB
+                            </Button>
+                          </Link>
+                        ) : (
+                          <span className="text-slate-400 text-xs">—</span>
+                        )
+                      ) : canOpenMailbox(a, hasPermission, delegatedMailboxIds) ? (
                         <Link to={`/accounts/${a.id}/mailbox`}>
                           <Button size="xs" color="light">
                             Ver correo

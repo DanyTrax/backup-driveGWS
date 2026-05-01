@@ -170,6 +170,7 @@ export default function TasksPage() {
   const [form, setForm] = useState<TaskPayload>(emptyPayload)
   const [datedRun, setDatedRun] = useState(false)
   const [driveIncrementalChain, setDriveIncrementalChain] = useState(false)
+  const [gmailSkipMaildir, setGmailSkipMaildir] = useState(true)
   const [runAfterSave, setRunAfterSave] = useState(false)
 
   useEffect(() => {
@@ -197,10 +198,12 @@ export default function TasksPage() {
       })
       setDatedRun(f?.drive_layout === 'dated_run')
       setDriveIncrementalChain(f?.drive_dated_incremental_chain === true)
+      setGmailSkipMaildir(f?.gmail_skip_maildir_import === true)
     } else {
       setForm(emptyPayload())
       setDatedRun(false)
       setDriveIncrementalChain(false)
+      setGmailSkipMaildir(true)
     }
   }, [editing, modalOpen])
 
@@ -240,6 +243,12 @@ export default function TasksPage() {
       filters.drive_dated_incremental_chain = true
     } else {
       delete filters.drive_dated_incremental_chain
+    }
+
+    if (form.scope === 'gmail') {
+      filters.gmail_skip_maildir_import = gmailSkipMaildir
+    } else {
+      delete filters.gmail_skip_maildir_import
     }
 
     let freshEnabled: WorkspaceAccount[] = enabledAccounts
@@ -434,6 +443,22 @@ export default function TasksPage() {
               </Select>
             </div>
           </div>
+          {form.scope === 'gmail' ? (
+            <div className="space-y-1">
+              <div className="flex items-center gap-2">
+                <Checkbox
+                  id="gmail-skip-maildir"
+                  checked={gmailSkipMaildir}
+                  onChange={(e) => setGmailSkipMaildir(e.target.checked)}
+                />
+                <Label htmlFor="gmail-skip-maildir" value="Solo carpeta de trabajo GYB + vault (omitir Maildir)" />
+              </div>
+              <p className="text-xs text-slate-500 pl-7">
+                Recomendado: un solo directorio local y la misma copia hacia 1-GMAIL en Drive. Desmarcá si necesitás
+                importar a Dovecot/IMAP en el servidor.
+              </p>
+            </div>
+          ) : null}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div>
               <Label value="Programación" />

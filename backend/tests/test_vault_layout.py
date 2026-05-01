@@ -108,6 +108,13 @@ def test_purge_gyb_workdir_flag() -> None:
     )
 
 
+def test_gmail_skip_maildir_import_flag() -> None:
+    assert vault_layout.gmail_skip_maildir_import({}) is False
+    assert vault_layout.gmail_skip_maildir_import(None) is False
+    assert vault_layout.gmail_skip_maildir_import({"gmail_skip_maildir_import": True}) is True
+    assert vault_layout.gmail_skip_maildir_import({"gmail_skip_maildir_import": False}) is False
+
+
 def test_vault_reports_logs_base_subpath() -> None:
     assert vault_layout.vault_reports_logs_base_subpath() == "3-REPORTS/logs"
 

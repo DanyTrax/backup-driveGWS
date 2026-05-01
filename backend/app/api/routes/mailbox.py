@@ -150,7 +150,19 @@ async def gyb_work_list_messages(
     q: str = Query(
         "",
         max_length=200,
-        description="Filtrar por texto en asunto o remitente (insensible a mayúsculas).",
+        description="Filtrar por texto en asunto o remitente (insensible a mayúsculas). Con list_scope=all recorre todo el export (puede ser costoso en buzones muy grandes).",
+    ),
+    list_scope: Literal["folder", "all"] = Query(
+        "folder",
+        description="folder: solo la carpeta (disco) o etiqueta indicada; all: todos los .eml del trabajo (disco) o todas las filas de msg-db (etiquetas).",
+    ),
+    sort_by: Literal["header_date", "mtime"] = Query(
+        "header_date",
+        description="header_date: ordenar por cabecera Date del mensaje (recomendado para auditoría); mtime: fecha de modificación del archivo.",
+    ),
+    sort_order: Literal["desc", "asc"] = Query(
+        "desc",
+        description="desc: más reciente primero; asc: más antiguo primero.",
     ),
     limit: int = Query(80, ge=1, le=200),
     offset: int = Query(0, ge=0),
@@ -164,29 +176,51 @@ async def gyb_work_list_messages(
     q_clean = q.strip()
     if view == "labels":
         lab = label.strip()
-        if not lab:
+        if list_scope == "all":
+            if not (gyb / "msg-db.sqlite").is_file():
+                raise HTTPException(
+                    status.HTTP_409_CONFLICT,
+                    "gyb_msg_db_required_for_all_scope",
+                )
+        elif not lab:
             return GybWorkMessagesPageOut(
                 view=view,
                 folder_id="",
                 label="",
                 search=q_clean,
+                list_scope=list_scope,
+                sort_by=sort_by,
+                sort_order=sort_order,
                 offset=offset,
                 limit=limit,
+                has_more=False,
+                total_in_scope=0,
+                total_matches=0,
                 items=[],
             )
-        summaries = list_gyb_eml_summaries_for_label(
-            gyb, label=lab, limit=limit, offset=offset, q=q_clean or None
+        page = list_gyb_eml_summaries_for_label(
+            gyb,
+            label=lab,
+            limit=limit,
+            offset=offset,
+            q=q_clean or None,
+            list_scope=list_scope,
+            sort_by=sort_by,
+            sort_order=sort_order,
         )
         fid = ""
         lab_out = lab
     else:
         try:
-            summaries = list_gyb_eml_summaries(
+            page = list_gyb_eml_summaries(
                 gyb,
                 folder_id=folder,
                 limit=limit,
                 offset=offset,
                 q=q_clean or None,
+                list_scope=list_scope,
+                sort_by=sort_by,
+                sort_order=sort_order,
             )
         except ValueError as exc:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, "invalid_folder") from exc
@@ -197,8 +231,14 @@ async def gyb_work_list_messages(
         folder_id=fid,
         label=lab_out,
         search=q_clean,
+        list_scope=list_scope,
+        sort_by=sort_by,
+        sort_order=sort_order,
         offset=offset,
         limit=limit,
+        has_more=page.has_more,
+        total_in_scope=page.total_in_scope,
+        total_matches=page.total_matches,
         items=[
             MailboxMessageSummaryOut(
                 id=x.key,
@@ -206,8 +246,9 @@ async def gyb_work_list_messages(
                 from_=x.from_addr,
                 date=x.date_display,
                 size=x.size,
+                labels=list(x.labels) if x.labels else [],
             )
-            for x in summaries
+            for x in page.items
         ],
     )
 

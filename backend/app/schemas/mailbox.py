@@ -17,6 +17,8 @@ class MailboxMessageSummaryOut(BaseModel):
     from_: str = Field(alias="from", serialization_alias="from")
     date: str | None = None
     size: int = 0
+    """Etiquetas Gmail (msg-db) cuando el listado es vista ``labels``; vacío en Maildir/disco puro."""
+    labels: list[str] = Field(default_factory=list)
 
 
 class MailboxMessagesPageOut(BaseModel):
@@ -69,6 +71,14 @@ class GybWorkMessagesPageOut(BaseModel):
     folder_id: str = ""
     label: str = ""
     search: str = ""
+    list_scope: str = "folder"
+    sort_by: str = "header_date"
+    sort_order: str = "desc"
     offset: int
     limit: int
+    has_more: bool = False
+    """Total de mensajes en el alcance (sin filtro de búsqueda)."""
+    total_in_scope: int | None = None
+    """Total que coincide con la búsqueda (igual a ``total_in_scope`` si no hay ``q``)."""
+    total_matches: int | None = None
     items: list[MailboxMessageSummaryOut]

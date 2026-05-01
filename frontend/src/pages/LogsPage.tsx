@@ -96,9 +96,10 @@ function describeLiveProgress(p: Record<string, unknown> | null | undefined): st
   if (stage === 'retention') return 'Aplicando retención en snapshots de Drive después del backup.'
   if (stage === 'retention_warning') return 'Aviso durante retención de Drive (revisá logs del worker si persiste).'
   if (stage === 'worker_skipped') return 'Omitido: ya había otro backup activo para esta cuenta y alcance.'
-  if (stage === 'gyb_done') return 'GYB terminó la descarga; sigue la importación al buzón Maildir local.'
+  if (stage === 'gyb_done')
+    return 'GYB terminó la descarga. Continúa la consolidación local (Maildir si aplica) o el manifiesto y la subida al vault desde la carpeta de trabajo.'
   if (stage === 'maildir_ready')
-    return 'Buzón local listo: ya podés revisar correo en el visor / IMAP mientras continúa la subida al vault (si aplica).'
+    return 'Datos locales listos: manifiesto y subida al vault (1-GMAIL) si aplica; podés usar el visor GYB con msg-db / .eml en la carpeta de trabajo.'
   if (stage === 'vault_push_retry') return 'Reintentando solo la subida del export a la bóveda Google (1-GMAIL/…)…'
   if (stage === 'cancelled') return 'Cancelación registrada.'
   if (stage === 'failed') return 'El worker reportó un fallo en esta fase (ver detalle abajo si hay traza).'

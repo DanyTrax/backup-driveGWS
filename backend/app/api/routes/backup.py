@@ -368,7 +368,7 @@ async def retry_gmail_vault(
     db: AsyncSession = Depends(get_db),
     current: SysUser = Depends(require_permission("tasks.run")),
 ) -> dict[str, str | bool]:
-    """Reintenta solo la subida del export GYB a 1-GMAIL/gyb_mbox (Maildir local ya consolidado)."""
+    """Reintenta solo la subida del export GYB a 1-GMAIL/gyb_mbox (export local ya consolidado)."""
     log = await db.get(BackupLog, log_id)
     if log is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail={"error": "log_not_found"})

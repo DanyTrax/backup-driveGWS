@@ -40,6 +40,7 @@ from app.services.gmail_backup_progress import (
 from app.services.maildir_paths import maildir_home_from_email, maildir_root_for_account
 from app.services.progress_bus import publish
 from app.services.vault_report_upload import upload_backup_success_report
+from app.utils.gmail_export_counts import count_gyb_export
 
 
 def _purge_gyb_workdir_contents(work_root: Path) -> None:
@@ -245,7 +246,7 @@ def gmail_log_vault_retry_reason(log: BackupLog, task: BackupTask) -> str | None
     if log.scope != BackupScope.GMAIL.value:
         return "not_gmail_scope"
     if log.gmail_maildir_ready_at is None:
-        return "maildir_not_ready"
+        return "local_export_not_ready"
     if log.gmail_vault_completed_at is not None:
         return "vault_already_done"
     if log.status not in (
@@ -263,7 +264,7 @@ async def retry_gmail_vault_push(
     log_id: uuid.UUID,
     celery_task_id: str,
 ) -> BackupLog:
-    """Reanuda solo la subida al vault para un log Gmail con Maildir ya consolidado y vault pendiente."""
+    """Reanuda solo la subida al vault para un log Gmail con export local listo y vault pendiente."""
     stmt = select(BackupLog).where(BackupLog.id == log_id).with_for_update()
     log = (await db.execute(stmt)).scalar_one_or_none()
     if log is None:
@@ -358,8 +359,10 @@ async def retry_gmail_vault_push(
             await db.commit()
             return log
 
+        skip_maildir = vault_layout.gmail_skip_maildir_import(task.filters_json or {})
+        manifest_root = work_root if skip_maildir else maildir_target
         files, total_bytes = await asyncio.to_thread(
-            _write_manifest, maildir_target, manifest_path
+            _write_manifest, manifest_root, manifest_path
         )
         stats_messages = log.messages_count
         await _finalise_log(
@@ -373,7 +376,7 @@ async def retry_gmail_vault_push(
             },
         )
         log.sha256_manifest_path = str(manifest_path)
-        log.destination_path = str(maildir_target)
+        log.destination_path = str(manifest_root)
         log.gmail_vault_completed_at = datetime.now(UTC)
         account.last_successful_backup_at = datetime.now(UTC)
         account.total_bytes_cache = total_bytes
@@ -722,6 +725,7 @@ async def run_gmail_backup(
         account.maildir_path = maildir_home_from_email(account.email)
     maildir_target = maildir_root_for_account(account)
     manifest_path = work_root / "manifest.sha256"
+    skip_maildir = vault_layout.gmail_skip_maildir_import(task.filters_json or {})
 
     try:
         # 1) Una sola descarga GYB → work_root (sin tocar Maildir todavía).
@@ -760,12 +764,37 @@ async def run_gmail_backup(
                 "stage": "gyb_done",
                 "scope": "gmail",
                 "account": account.email,
-                "next": "maildir_import",
+                "next": "gyb_work_only" if skip_maildir else "maildir_import",
+                "gmail_skip_maildir_import": skip_maildir,
             },
         )
 
-        # 2) Bandeja local (import desde work_root → Maildir); crea cur/new/tmp vía import_mbox_tree_to_maildir.
-        if not task.dry_run:
+        # 2) Opcional: import work_root → Maildir (Dovecot/IMAP). Si se omite, solo work + vault.
+        if skip_maildir:
+            n_eml, _, _ = await asyncio.to_thread(count_gyb_export, work_root)
+            stats = maildir_service.MaildirImportStats(messages=n_eml, eml_files=n_eml)
+            if not task.dry_run:
+                await publish(
+                    log_id,
+                    {
+                        "stage": "maildir_ready",
+                        "scope": "gmail",
+                        "account": account.email,
+                        "messages": stats.messages,
+                        "next": "vault_push_or_finalize",
+                        "local_mail_ready": True,
+                        "gmail_skip_maildir_import": True,
+                    },
+                )
+                log.gmail_maildir_ready_at = datetime.now(UTC)
+                log.messages_count = stats.messages
+                account.imap_enabled = False
+                account.total_messages_cache = n_eml
+                account.maildir_user_cleared_at = None
+                await db.commit()
+                await db.refresh(log)
+                await db.refresh(account)
+        elif not task.dry_run:
             im_fin, im_tick = start_gmail_progress_ticker(
                 log.id, log_id, maildir_target, mode="import_maildir"
             )
@@ -809,7 +838,8 @@ async def run_gmail_backup(
             await db.commit()
             return log
 
-        files, total_bytes = await asyncio.to_thread(_write_manifest, maildir_target, manifest_path)
+        manifest_root = work_root if skip_maildir else maildir_target
+        files, total_bytes = await asyncio.to_thread(_write_manifest, manifest_root, manifest_path)
 
         if not task.dry_run:
             ok, verr = await run_gmail_vault_push_phase(
@@ -861,9 +891,10 @@ async def run_gmail_backup(
         },
     )
     log.sha256_manifest_path = str(manifest_path)
-    log.destination_path = str(maildir_target)
+    manifest_root = work_root if skip_maildir else maildir_target
+    log.destination_path = str(manifest_root)
     if task.dry_run:
-        account.imap_enabled = True
+        account.imap_enabled = not skip_maildir
         account.total_messages_cache = stats.messages
     account.total_bytes_cache = total_bytes
     account.last_successful_backup_at = datetime.now(UTC)

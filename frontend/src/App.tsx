@@ -1,4 +1,4 @@
-import { Routes, Route, Navigate } from 'react-router-dom'
+import { Routes, Route, Navigate, useParams } from 'react-router-dom'
 import ProtectedRoute from './layouts/ProtectedRoute'
 import AppLayout from './layouts/AppLayout'
 import LoginPage from './pages/LoginPage'
@@ -17,6 +17,23 @@ import MailboxBrowserPage from './pages/MailboxBrowserPage'
 import GybWorkBrowserPage from './pages/GybWorkBrowserPage'
 import AccountMailDataPage from './pages/AccountMailDataPage'
 
+import { hideMaildirWebmailUi } from './config/ui'
+
+function MailboxRoute() {
+  const { accountId } = useParams<{ accountId: string }>()
+  if (hideMaildirWebmailUi()) {
+    return <Navigate to={`/gyb-work/${accountId ?? ''}`} replace />
+  }
+  return <MailboxBrowserPage />
+}
+
+function WebmailRoute() {
+  if (hideMaildirWebmailUi()) {
+    return <Navigate to="/dashboard" replace />
+  }
+  return <WebmailPage />
+}
+
 export default function App() {
   return (
     <Routes>
@@ -31,14 +48,14 @@ export default function App() {
       >
         <Route path="/dashboard" element={<DashboardPage />} />
         <Route path="/accounts" element={<AccountsPage />} />
-        <Route path="/accounts/:accountId/mailbox" element={<MailboxBrowserPage />} />
+        <Route path="/accounts/:accountId/mailbox" element={<MailboxRoute />} />
         <Route path="/gyb-work" element={<GybWorkBrowserPage />} />
         <Route path="/gyb-work/:accountId" element={<GybWorkBrowserPage />} />
         <Route path="/accounts/:accountId/mail-data" element={<AccountMailDataPage />} />
         <Route path="/tasks" element={<TasksPage />} />
         <Route path="/logs" element={<LogsPage />} />
         <Route path="/restore" element={<RestorePage />} />
-        <Route path="/webmail" element={<WebmailPage />} />
+        <Route path="/webmail" element={<WebmailRoute />} />
         <Route path="/setup" element={<WizardPage />} />
         <Route path="/users" element={<UsersPage />} />
         <Route path="/settings" element={<SettingsPage />} />

@@ -79,6 +79,8 @@ export interface MailboxMessageSummary {
   from: string
   date: string | null
   size: number
+  /** Etiquetas Gmail (msg-db) en vista GYB por etiquetas */
+  labels?: string[]
 }
 
 export interface MailboxMessagesPage {
@@ -125,8 +127,14 @@ export interface GybWorkMessagesPage {
   folder_id: string
   label: string
   search: string
+  list_scope: string
+  sort_by: string
+  sort_order: string
   offset: number
   limit: number
+  has_more: boolean
+  total_in_scope: number | null
+  total_matches: number | null
   items: MailboxMessageSummary[]
 }
 

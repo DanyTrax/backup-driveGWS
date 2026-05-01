@@ -41,13 +41,13 @@ def build_success_report_text(
             lines.append(f"  {ln}")
         lines.append("")
     if log.destination_path:
-        lines.append(f"Ruta destino (servidor / Maildir): {log.destination_path}")
+        lines.append(f"Ruta base (manifiesto / datos locales en servidor): {log.destination_path}")
         lines.append("")
     if log.sha256_manifest_path:
         lines.append(f"Manifiesto SHA-256 (ruta en servidor): {log.sha256_manifest_path}")
         lines.append("")
     if log.gmail_maildir_ready_at or log.gmail_vault_completed_at:
-        lines.append(f"Gmail — Maildir listo (UTC): {log.gmail_maildir_ready_at or '—'}")
+        lines.append(f"Gmail — fase local lista — UTC: {log.gmail_maildir_ready_at or '—'}")
         lines.append(f"Gmail — Vault 1-GMAIL completado (UTC): {log.gmail_vault_completed_at or '—'}")
         lines.append("")
     if (getattr(log, "error_summary", None) or "").strip():
