@@ -24,7 +24,11 @@ import type {
   SetupState,
   WorkspaceAccount,
 } from './types'
-import { MAILBOX_LIST_TIMEOUT_MS, MAILBOX_MESSAGE_TIMEOUT_MS, MAILDATA_INVENTORY_TIMEOUT_MS } from './types'
+import {
+  MAILBOX_LIST_TIMEOUT_MS,
+  MAILBOX_MESSAGE_TIMEOUT_MS,
+  MAILDATA_INVENTORY_TIMEOUT_MS,
+} from './types'
 
 export type TaskPayload = {
   name: string
@@ -511,7 +515,10 @@ export function useGybWorkMessages(
       else reqParams.label = labelId
       if (q) reqParams.q = q
       return (
-        await api.get<GybWorkMessagesPage>(`/accounts/${accountId}/gyb-work/messages`, { params: reqParams })
+        await api.get<GybWorkMessagesPage>(`/accounts/${accountId}/gyb-work/messages`, {
+          params: reqParams,
+          timeout: MAILBOX_LIST_TIMEOUT_MS,
+        })
       ).data
     },
     enabled:

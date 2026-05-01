@@ -505,14 +505,15 @@ def list_gyb_eml_page_from_entries(
     sb = sort_by if sort_by in ("mtime", "header_date") else "header_date"
     so = sort_order if sort_order in ("asc", "desc") else "desc"
     total_in_scope = len(entries)
-    sorted_paths = _sort_entries_by_keys(entries, sb, so)
     if qn:
-        filtered = [p for p in sorted_paths if _path_matches_search(p, qn)]
-        total_matches = len(filtered)
-        slice_paths = filtered[off : off + lim]
+        matched_entries = [(p, ns) for p, ns in entries if _path_matches_search(p, qn)]
+        total_matches = len(matched_entries)
+        work_entries = matched_entries
     else:
         total_matches = total_in_scope
-        slice_paths = sorted_paths[off : off + lim]
+        work_entries = entries
+    sorted_paths = _sort_entries_by_keys(work_entries, sb, so)
+    slice_paths = sorted_paths[off : off + lim]
     has_more = off + len(slice_paths) < total_matches
     items: list[GybEmlSummary] = []
     for path in slice_paths:
