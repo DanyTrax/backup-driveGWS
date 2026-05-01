@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { useNavigate } from 'react-router-dom'
 import {
   Alert,
   Badge,
@@ -63,61 +63,93 @@ function sortFromPreset(preset: GybSortPreset): { sortBy: 'header_date' | 'mtime
   return { sortBy: 'mtime', sortOrder: 'asc' }
 }
 
+function writePopupLoadingDocument(w: Window): void {
+  const d = w.document
+  d.open()
+  d.write(
+    '<!DOCTYPE html><html lang="es"><head><meta charset="utf-8"/><title>Cargando</title>' +
+      '<style>body{font-family:system-ui,sans-serif;margin:0;padding:24px;background:#f8fafc;color:#475569}</style></head>' +
+      '<body><p>Cargando mensaje…</p></body></html>',
+  )
+  d.close()
+}
+
 async function openGybWorkMessageInPopup(accountId: string, messageKey: string) {
+  // Abrir ya en el gesto de usuario (doble clic); sin noopener para conservar referencia al document.
+  // Tras await, window.open() suele quedar bloqueado o devolver null.
+  const w = window.open('about:blank', '_blank', 'width=1024,height=800')
+  if (!w) {
+    toast.error('Ventana emergente bloqueada; permití popups para este sitio.')
+    return
+  }
+  writePopupLoadingDocument(w)
+
   try {
     const { data } = await api.get<MailboxMessageBody>(`/accounts/${accountId}/gyb-work/message`, {
       params: { key: messageKey },
       timeout: MAILBOX_MESSAGE_TIMEOUT_MS,
     })
-    const w = window.open('about:blank', '_blank', 'noopener,noreferrer,width=1024,height=800')
-    if (!w) {
-      toast.error('Ventana emergente bloqueada; permití popups para este sitio.')
-      return
-    }
-    const title = data.subject.slice(0, 120) || 'Mensaje'
-    w.document.open()
-    w.document.write(
-      `<!DOCTYPE html><html lang="es"><head><meta charset="utf-8"/><title></title></head><body style="margin:0;font-family:system-ui,sans-serif;background:#f8fafc;color:#0f172a"></body></html>`,
+
+    if (w.closed) return
+
+    const title = (data.subject || 'Mensaje').slice(0, 120)
+    const d = w.document
+    d.open()
+    d.write(
+      '<!DOCTYPE html><html lang="es"><head><meta charset="utf-8"/><title></title></head>' +
+        '<body style="margin:0;font-family:system-ui,sans-serif;background:#f8fafc;color:#0f172a"></body></html>',
     )
-    w.document.close()
-    w.document.title = title
-    const b = w.document.body
-    const wrap = w.document.createElement('div')
+    d.close()
+    d.title = title
+
+    const b = d.body
+    b.replaceChildren()
+
+    const wrap = d.createElement('div')
     wrap.style.cssText = 'padding:16px 20px;max-width:100%;box-sizing:border-box'
     b.appendChild(wrap)
-    const h = w.document.createElement('h1')
+    const h = d.createElement('h1')
     h.style.cssText = 'font-size:1.1rem;font-weight:600;margin:0 0 8px'
     h.textContent = data.subject || '(sin asunto)'
     wrap.appendChild(h)
-    const fromEl = w.document.createElement('p')
+    const fromEl = d.createElement('p')
     fromEl.style.cssText = 'margin:0 0 4px;font-size:14px'
     fromEl.textContent = `De: ${data.from}`
     wrap.appendChild(fromEl)
     if (data.date) {
-      const d = w.document.createElement('p')
-      d.style.cssText = 'margin:0 0 12px;font-size:12px;color:#64748b'
-      d.textContent = data.date
-      wrap.appendChild(d)
+      const dateEl = d.createElement('p')
+      dateEl.style.cssText = 'margin:0 0 12px;font-size:12px;color:#64748b'
+      dateEl.textContent = data.date
+      wrap.appendChild(dateEl)
     }
     if (data.text_html) {
-      const iframe = w.document.createElement('iframe')
-      iframe.style.cssText = 'width:100%;height:calc(100vh - 140px);min-height:400px;border:1px solid #cbd5e1;border-radius:6px'
+      const iframe = d.createElement('iframe')
+      iframe.style.cssText =
+        'width:100%;height:calc(100vh - 140px);min-height:400px;border:1px solid #cbd5e1;border-radius:6px'
       iframe.setAttribute('sandbox', 'allow-popups allow-downloads')
       iframe.srcdoc = wrapMailHtmlFragment(data.text_html)
       wrap.appendChild(iframe)
     } else if (data.text_plain) {
-      const pre = w.document.createElement('pre')
+      const pre = d.createElement('pre')
       pre.style.cssText =
         'white-space:pre-wrap;word-break:break-word;font-size:13px;padding:12px;background:#fff;border:1px solid #e2e8f0;border-radius:6px;margin:0'
       pre.textContent = data.text_plain
       wrap.appendChild(pre)
     } else {
-      const p = w.document.createElement('p')
+      const p = d.createElement('p')
       p.style.color = '#64748b'
       p.textContent = '(Sin cuerpo de texto/HTML legible)'
       wrap.appendChild(p)
     }
   } catch {
+    if (!w.closed) {
+      try {
+        w.document.body.innerHTML =
+          '<p style="font-family:system-ui,sans-serif;padding:24px">No se pudo cargar el mensaje.</p>'
+      } catch {
+        /* ventana cerrada o documento no accesible */
+      }
+    }
     toast.error('No se pudo abrir el mensaje')
   }
 }
@@ -225,10 +257,6 @@ export default function GybWorkAccountViewer({ accountId: id, variant }: GybWork
   )
 
   const currentAccountEmail = useMemo(() => accountsQ.data?.find((a) => a.id === id)?.email, [accountsQ.data, id])
-  const currentHasMsgDb = useMemo(
-    () => accountsQ.data?.find((a) => a.id === id)?.has_msg_db ?? false,
-    [accountsQ.data, id],
-  )
 
   useEffect(() => {
     setPage(0)
@@ -369,46 +397,6 @@ export default function GybWorkAccountViewer({ accountId: id, variant }: GybWork
           </button>
         </div>
       </div>
-
-      <p className="text-sm text-slate-500 dark:text-slate-400 max-w-3xl">
-        {viewMode === 'disk' ? (
-          <>
-            Carpetas según el árbol de directorios del export (p. ej. fechas). Solo{' '}
-            <code className="text-xs">.eml</code> en ese nivel.
-          </>
-        ) : (
-          <>
-            Etiquetas desde <code className="text-xs">msg-db.sqlite</code> (como al importar a Maildir). Requiere
-            ese fichero en la carpeta de trabajo.
-            {!currentHasMsgDb ? (
-              <span className="text-amber-700 dark:text-amber-400">
-                {' '}
-                Esta cuenta no reporta msg-db en el inventario.
-              </span>
-            ) : null}
-          </>
-        )}{' '}
-        El buscador cubre asunto, remitente, destinatarios (To/Cc), Message-ID, nombres de adjuntos y un extracto del
-        cuerpo texto. Podés listar solo la carpeta activa o todo el export. Con etiquetas y{' '}
-        <code className="text-xs">message_internaldate</code> en msg-db, el orden por fecha de correo evita leer todas las
-        cabeceras cuando hay fecha en la base.
-        {standalone ? (
-          <>
-            {' '}
-            Para Dovecot/Maildir:{' '}
-            <Link to={`/accounts/${id}/mailbox`} className="underline">
-              visor Maildir
-            </Link>
-            .
-          </>
-        ) : (
-          <>
-            {' '}
-            Esta vista usa el volcado GYB local (no el Maildir de Dovecot); cambiá a la pestaña “Maildir” arriba
-            para ver el buzón en disco del servidor.
-          </>
-        )}
-      </p>
 
       <div className="max-w-3xl space-y-3">
         <TextInput
