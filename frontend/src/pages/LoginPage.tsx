@@ -7,6 +7,7 @@ import api from '../api/client'
 import { useBranding } from '../api/hooks'
 import { useAuthStore } from '../stores/auth'
 import { brandingInitials, mergeBranding, type TokenPair } from '../api/types'
+import { BrandingFooterCredit } from '../components/BrandingFooterCredit'
 
 export default function LoginPage() {
   const [email, setEmail] = useState('')
@@ -76,12 +77,13 @@ export default function LoginPage() {
 
   return (
     <div
-      className="min-h-screen flex items-center justify-center p-4"
+      className="min-h-screen flex flex-col"
       style={{
         background: `linear-gradient(to bottom right, ${b.primary_color}, ${b.accent_color})`,
       }}
     >
-      <Card className="w-full max-w-md">
+      <div className="flex flex-1 items-center justify-center p-4">
+        <Card className="w-full max-w-md">
         <div className="text-center">
           {showLogoImg ? (
             <img
@@ -156,7 +158,15 @@ export default function LoginPage() {
             Iniciar sesión
           </Button>
         </form>
-      </Card>
+        </Card>
+      </div>
+      <footer className="shrink-0 py-3 px-4 text-center">
+        <BrandingFooterCredit
+          brand={b}
+          className="m-0 text-xs text-white/90"
+          linkClassName="font-medium underline decoration-white/60 underline-offset-2 hover:text-white"
+        />
+      </footer>
     </div>
   )
 }

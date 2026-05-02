@@ -34,6 +34,8 @@ function BrandingSettingsForm({ config, canEdit }: { config: BrandingConfig; can
   const [primary, setPrimary] = useState(config.primary_color)
   const [accent, setAccent] = useState(config.accent_color)
   const [logoUrl, setLogoUrl] = useState(config.logo_url_external)
+  const [footerByLabel, setFooterByLabel] = useState(config.footer_by_label)
+  const [footerByUrl, setFooterByUrl] = useState(config.footer_by_url)
   const [logoFailPreview, setLogoFailPreview] = useState(false)
 
   useEffect(() => {
@@ -41,6 +43,8 @@ function BrandingSettingsForm({ config, canEdit }: { config: BrandingConfig; can
     setPrimary(config.primary_color)
     setAccent(config.accent_color)
     setLogoUrl(config.logo_url_external)
+    setFooterByLabel(config.footer_by_label)
+    setFooterByUrl(config.footer_by_url)
   }, [config])
 
   useEffect(() => {
@@ -58,6 +62,8 @@ function BrandingSettingsForm({ config, canEdit }: { config: BrandingConfig; can
         primary_color: primary.trim(),
         accent_color: accent.trim(),
         logo_url: logoUrl.trim(),
+        footer_by_label: footerByLabel.trim(),
+        footer_by_url: footerByUrl.trim(),
       })
       toast.success('Branding guardado.')
     } catch (err: unknown) {
@@ -65,7 +71,7 @@ function BrandingSettingsForm({ config, canEdit }: { config: BrandingConfig; can
       if (st === 403) {
         toast.error('Sin permiso para editar branding (settings.branding).')
       } else if (st === 422) {
-        toast.error('Validación: revisá URL del logo (http(s) o ruta que empiece con /) y colores.')
+        toast.error('Validación: revisá URL del logo o del pie (http(s) o ruta /…), colores hex y textos.')
       } else {
         toast.error('No se pudo guardar el branding.')
       }
@@ -180,6 +186,33 @@ function BrandingSettingsForm({ config, canEdit }: { config: BrandingConfig; can
           <p className="mt-1 text-xs text-slate-500">
             Si guardás una URL http(s) o ruta absoluta /…, se elimina un logo previamente subido como archivo.
           </p>
+        </div>
+        <div className="sm:col-span-2 rounded-lg border border-slate-200 dark:border-slate-600 p-3 space-y-3 bg-white/50 dark:bg-slate-900/30">
+          <p className="text-sm font-medium text-slate-700 dark:text-slate-200">Pie de página</p>
+          <p className="text-xs text-slate-500">
+            Texto visible en el pie del panel y en el login. Solo se muestra el enlace si completás ambos campos.
+          </p>
+          <div>
+            <Label htmlFor="branding-footer-label" value="Texto (ej. Desarrollado por Mi empresa)" />
+            <TextInput
+              id="branding-footer-label"
+              value={footerByLabel}
+              onChange={(e) => setFooterByLabel(e.target.value)}
+              disabled={!canEdit || busy}
+              placeholder="Desarrollado por ACME"
+            />
+          </div>
+          <div>
+            <Label htmlFor="branding-footer-url" value="URL al hacer clic" />
+            <TextInput
+              id="branding-footer-url"
+              value={footerByUrl}
+              onChange={(e) => setFooterByUrl(e.target.value)}
+              disabled={!canEdit || busy}
+              placeholder="https://miempresa.com"
+            />
+            <p className="mt-1 text-xs text-slate-500">https://, http:// o ruta que empiece con /</p>
+          </div>
         </div>
       </div>
 

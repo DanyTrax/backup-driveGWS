@@ -108,6 +108,8 @@ export type BrandingUpdatePayload = {
   primary_color?: string
   accent_color?: string
   logo_url?: string
+  footer_by_label?: string
+  footer_by_url?: string
 }
 
 export function useUpdateBranding() {

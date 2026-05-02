@@ -14,6 +14,18 @@ class BrandingUpdate(BaseModel):
     accent_color: str | None = Field(default=None, max_length=32)
     """URL absoluta del logo (https://…). Vacío = quitar URL (se puede usar solo archivo subido)."""
     logo_url: str | None = Field(default=None, max_length=2000)
+    """Texto del pie (ej. «Desarrollado por MiEmpresa»). Requiere ``footer_by_url`` para mostrar enlace."""
+    footer_by_label: str | None = Field(default=None, max_length=200)
+    """URL al hacer clic en el texto del pie (http(s) o ruta /…)."""
+    footer_by_url: str | None = Field(default=None, max_length=2000)
+
+    @field_validator("footer_by_label")
+    @classmethod
+    def _footer_label(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        t = v.strip()
+        return t if t else ""
 
     @field_validator("primary_color", "accent_color")
     @classmethod
@@ -23,6 +35,18 @@ class BrandingUpdate(BaseModel):
         t = v.strip()
         if not _HEX_COLOR.match(t):
             raise ValueError("color_must_be_hex")
+        return t
+
+    @field_validator("footer_by_url")
+    @classmethod
+    def _footer_url(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        t = v.strip()
+        if not t:
+            return ""
+        if not (t.startswith("http://") or t.startswith("https://") or t.startswith("/")):
+            raise ValueError("footer_by_url_must_be_http_or_path")
         return t
 
     @field_validator("logo_url")
@@ -46,3 +70,5 @@ class BrandingConfigOut(BaseModel):
     accent_color: str
     logo_url_external: str = ""
     has_uploaded_logo: bool = False
+    footer_by_label: str = ""
+    footer_by_url: str = ""

@@ -63,6 +63,8 @@ async def get_branding_config(
         accent_color=str(raw["accent_color"]),
         logo_url_external=str(raw["logo_url_external"]),
         has_uploaded_logo=bool(raw["has_uploaded_logo"]),
+        footer_by_label=str(raw.get("footer_by_label") or ""),
+        footer_by_url=str(raw.get("footer_by_url") or ""),
     )
 
 
@@ -85,6 +87,12 @@ async def update_branding(
         updates["branding.logo_url"] = lu if lu else None
         if lu.startswith("http://") or lu.startswith("https://") or lu.startswith("/"):
             delete_uploaded_logo()
+    if payload.footer_by_label is not None:
+        fl = payload.footer_by_label.strip()
+        updates["branding.footer_by_label"] = fl if fl else None
+    if payload.footer_by_url is not None:
+        fu = payload.footer_by_url.strip()
+        updates["branding.footer_by_url"] = fu if fu else None
 
     for key, val in updates.items():
         short = key.replace("branding.", "")

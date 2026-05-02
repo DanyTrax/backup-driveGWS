@@ -20,6 +20,7 @@ import { useBranding, useProfile } from '../api/hooks'
 import api from '../api/client'
 import { useAuthStore } from '../stores/auth'
 import { brandingInitials, mergeBranding } from '../api/types'
+import { BrandingFooterCredit } from '../components/BrandingFooterCredit'
 import { hideMaildirWebmailUi } from '../config/ui'
 
 const SIDEBAR_STORAGE_KEY = 'msa-sidebar-expanded'
@@ -64,7 +65,7 @@ function readSidebarExpanded(): boolean {
   }
 }
 
-function SystemTimeFooter() {
+function SystemTimeFooter({ brand }: { brand: ReturnType<typeof mergeBranding> }) {
   const [now, setNow] = useState(() => new Date())
 
   useEffect(() => {
@@ -91,12 +92,19 @@ function SystemTimeFooter() {
   })
 
   return (
-    <footer className="shrink-0 border-t border-slate-200/60 bg-white px-4 py-1.5 dark:border-slate-800/60 dark:bg-slate-900 md:px-6">
-      <p className="text-center text-[10px] leading-none tracking-wide text-slate-400 dark:text-slate-500">
-        <time dateTime={now.toISOString()} title="Hora del navegador (sistema local)">
-          {label}
-        </time>
-      </p>
+    <footer className="shrink-0 border-t border-slate-200/60 bg-white px-4 py-2 dark:border-slate-800/60 dark:bg-slate-900 md:px-6">
+      <div className="flex flex-col items-center justify-center gap-1 sm:flex-row sm:flex-wrap sm:gap-x-4 sm:gap-y-0.5 text-center">
+        <p className="text-[10px] leading-none tracking-wide text-slate-400 dark:text-slate-500">
+          <time dateTime={now.toISOString()} title="Hora del navegador (sistema local)">
+            {label}
+          </time>
+        </p>
+        <BrandingFooterCredit
+          brand={brand}
+          className="m-0 text-[10px] leading-none text-slate-500 dark:text-slate-400"
+          linkClassName="underline decoration-slate-400/80 underline-offset-2 hover:text-slate-700 dark:hover:text-slate-200"
+        />
+      </div>
     </footer>
   )
 }
@@ -289,7 +297,7 @@ export default function AppLayout() {
         <main className="flex-1 p-4 md:p-6">
           <Outlet />
         </main>
-        <SystemTimeFooter />
+        <SystemTimeFooter brand={brand} />
       </div>
     </div>
   )

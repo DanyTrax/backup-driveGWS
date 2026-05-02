@@ -62,7 +62,7 @@ PERMISSIONS: tuple[PermissionSpec, ...] = (
     # --- settings / platform ---
     PermissionSpec("settings", "view", "Ver configuración del sistema"),
     PermissionSpec("settings", "edit", "Modificar configuración del sistema"),
-    PermissionSpec("settings", "branding", "Cambiar branding (logo, colores, nombre)"),
+    PermissionSpec("settings", "branding", "Cambiar branding (logo, colores, nombre, pie de página)"),
     PermissionSpec("platform", "refresh", "Ejecutar Git Refresh"),
     PermissionSpec("platform", "backup", "Ejecutar platform backup manualmente"),
     PermissionSpec(

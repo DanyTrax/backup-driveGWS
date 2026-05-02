@@ -22,6 +22,8 @@ async def get_branding_dict(db: AsyncSession) -> dict[str, str]:
     out.setdefault("app_name", "MSA Backup Commander")
     out.setdefault("primary_color", "#1d4ed8")
     out.setdefault("accent_color", "#0ea5e9")
+    out.setdefault("footer_by_label", "")
+    out.setdefault("footer_by_url", "")
     raw_logo = (out.get("logo_url") or "").strip()
     if raw_logo.startswith("http://") or raw_logo.startswith("https://") or raw_logo.startswith("/"):
         out["logo_url"] = raw_logo
@@ -50,4 +52,6 @@ async def get_branding_config_for_editor(db: AsyncSession) -> dict[str, str | bo
         "accent_color": raw.get("accent_color") or "#0ea5e9",
         "logo_url_external": raw.get("logo_url") or "",
         "has_uploaded_logo": has_uploaded_logo(),
+        "footer_by_label": raw.get("footer_by_label") or "",
+        "footer_by_url": raw.get("footer_by_url") or "",
     }

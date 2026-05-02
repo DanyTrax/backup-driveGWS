@@ -13,6 +13,10 @@ export interface BrandingPublic {
   primary_color: string
   accent_color: string
   logo_url: string
+  /** Texto del enlace en el pie (p. ej. «Desarrollado por Mi empresa»). */
+  footer_by_label: string
+  /** URL al hacer clic (http(s) o ruta /…). */
+  footer_by_url: string
 }
 
 /** GET /settings/branding-config (formulario: URL en BD + si hay archivo subido). */
@@ -22,6 +26,8 @@ export interface BrandingConfig {
   accent_color: string
   logo_url_external: string
   has_uploaded_logo: boolean
+  footer_by_label: string
+  footer_by_url: string
 }
 
 export const DEFAULT_BRANDING: BrandingPublic = {
@@ -29,6 +35,8 @@ export const DEFAULT_BRANDING: BrandingPublic = {
   primary_color: '#1d4ed8',
   accent_color: '#0ea5e9',
   logo_url: '',
+  footer_by_label: '',
+  footer_by_url: '',
 }
 
 export function mergeBranding(b: Partial<BrandingPublic> | undefined | null): BrandingPublic {
