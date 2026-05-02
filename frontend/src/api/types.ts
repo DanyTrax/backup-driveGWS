@@ -378,6 +378,8 @@ export interface HostOpsConfig {
   docker_socket_present: boolean
   stack_path_configured: boolean
   compose_dir: string | null
+  /** Imagen para ``docker run`` del despliegue en segundo plano. */
+  runner_image_configured?: boolean
   schedule: HostOpsSchedule
 }
 
@@ -396,4 +398,25 @@ export interface StackDeployResult {
   mode?: StackDeployMode
   error?: string
   steps?: HostOpsShellStep[]
+}
+
+/** Respuesta inmediata de POST /stack-deploy (trabajo en contenedor aparte). */
+export interface StackDeployJobStart {
+  ok: boolean
+  detached?: boolean
+  job?: string
+  mode?: StackDeployMode
+  error?: string
+  hint?: string
+  stderr_tail?: string
+}
+
+export interface StackDeployJobStatus {
+  phase: 'running' | 'finished' | 'unknown'
+  job?: string
+  error?: string
+  stderr_tail?: string
+  logs_tail?: string | null
+  exit_code?: number
+  result?: StackDeployResult | null
 }

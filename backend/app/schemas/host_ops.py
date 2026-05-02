@@ -33,4 +33,5 @@ class HostOpsConfigOut(BaseModel):
     docker_socket_present: bool
     stack_path_configured: bool
     compose_dir: str | None
+    runner_image_configured: bool = False
     schedule: dict

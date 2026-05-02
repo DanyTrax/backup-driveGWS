@@ -13,7 +13,8 @@ import type {
   GybWorkMessagesPage,
   HostOpsConfig,
   HostOpsSchedule,
-  StackDeployResult,
+  StackDeployJobStart,
+  StackDeployJobStatus,
   StackDeployMode,
   MailboxFolder,
   MailboxMessageBody,
@@ -627,9 +628,23 @@ export function useStackDeployRun() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: async (mode: StackDeployMode) =>
-      (await api.post<StackDeployResult>('/admin/host-ops/stack-deploy', { mode })).data,
+      (await api.post<StackDeployJobStart>('/admin/host-ops/stack-deploy', { mode })).data,
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ['host-ops-config'] })
+    },
+  })
+}
+
+export function useStackDeployJob(jobName: string | null) {
+  return useQuery({
+    queryKey: ['stack-deploy-job', jobName],
+    queryFn: async () =>
+      (await api.get<StackDeployJobStatus>(`/admin/host-ops/stack-deploy-job/${jobName as string}`)).data,
+    enabled: Boolean(jobName),
+    refetchInterval: (q) => {
+      const d = q.state.data
+      if (!d) return 2500
+      return d.phase === 'running' ? 2500 : false
     },
   })
 }

@@ -6,11 +6,15 @@ Requiere en producción:
   * Para despliegue: montar el repo del stack en **la misma ruta** en host y contenedor
     (p. ej. ``/opt/stacks/backup-stack:/opt/stacks/backup-stack``) para que el daemon
     resuelva bien el contexto de ``docker compose build``.
-  * Usuario del proceso con GID compatible con el socket (p. ej. ``group_add`` del GID ``docker`` del host).
+  * Despliegue desde el panel: además ``HOST_STACK_DEPLOY_RUNNER_IMAGE`` (misma imagen que ``app``) para
+    el contenedor efímero que ejecuta compose mientras ``app`` puede reiniciarse.
 """
 from __future__ import annotations
 
+import json
 import os
+import re
+import uuid
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Literal
@@ -26,6 +30,11 @@ from app.utils.shell_safe import RunResult, safe_run
 KEY_DOCKER_PRUNE_SCHEDULE = "host.docker_prune_schedule"
 
 _DOCKER_COMPOSE_FILE = "docker-compose.yml"
+
+DEPLOY_RESULT_MARKER = "__MSA_DEPLOY_RESULT_JSON__"
+_DEPLOY_JOB_RE = re.compile(r"^msa-deploy-[0-9a-f]{12}$")
+
+StackDeployMode = Literal["frontend", "frontend_backend", "rebuild_app", "full"]
 
 
 def _settings_ok_docker() -> tuple[bool, str | None]:
@@ -104,14 +113,22 @@ def run_docker_prune(
     return {"ok": True, "preset": preset, "steps": steps}
 
 
-def run_stack_deploy(mode: Literal["frontend", "frontend_backend", "rebuild_app", "full"]) -> dict[str, Any]:
-    ok, err = _settings_ok_deploy()
-    if not ok:
-        return {"ok": False, "error": err}
-    s = get_settings()
-    stack = Path(s.host_stack_mount_path).resolve()
-    compose_dir = (stack / s.host_compose_project_subdir).resolve()
-    env_file = (compose_dir / Path(s.host_compose_env_file)).resolve()
+def run_stack_deploy_with_paths(
+    mode: StackDeployMode,
+    *,
+    stack_mount: Path,
+    compose_subdir: str,
+    compose_env_file: str,
+    git_path: str,
+) -> dict[str, Any]:
+    """Ejecuta git/compose con rutas explícitas (API sincrónica o contenedor sidecar)."""
+    stack = stack_mount.resolve()
+    compose_dir = (stack / compose_subdir).resolve()
+    if not (compose_dir / _DOCKER_COMPOSE_FILE).is_file():
+        return {"ok": False, "error": "compose_file_missing", "steps": []}
+    env_file = (compose_dir / Path(compose_env_file)).resolve()
+    if not env_file.is_file():
+        return {"ok": False, "error": "compose_env_file_missing", "steps": []}
     env = {**os.environ, "COMPOSE_PROJECT_DIR": str(compose_dir)}
 
     def _compose(args: list[str], timeout: int = 7200) -> RunResult:
@@ -128,7 +145,7 @@ def run_stack_deploy(mode: Literal["frontend", "frontend_backend", "rebuild_app"
     steps: list[dict[str, Any]] = []
 
     if mode == "full":
-        git_root = Path(s.host_git_path).resolve() if (s.host_git_path or "").strip() else stack
+        git_root = Path(git_path).resolve() if git_path.strip() else stack
         r0 = safe_run("git", ["-C", str(git_root), "pull", "--ff-only"], timeout=900)
         steps.append(
             {
@@ -199,7 +216,6 @@ def run_stack_deploy(mode: Literal["frontend", "frontend_backend", "rebuild_app"
             return {"ok": False, "error": "compose_up_app_failed", "steps": steps}
         return {"ok": True, "mode": mode, "steps": steps}
 
-    # frontend_backend
     r1 = _compose(["build", "app", "worker", "beat"], timeout=7200)
     steps.append(
         {
@@ -221,6 +237,126 @@ def run_stack_deploy(mode: Literal["frontend", "frontend_backend", "rebuild_app"
     if r2.returncode != 0:
         return {"ok": False, "error": "compose_up_failed", "steps": steps}
     return {"ok": True, "mode": mode, "steps": steps}
+
+
+def run_stack_deploy(mode: StackDeployMode) -> dict[str, Any]:
+    ok, err = _settings_ok_deploy()
+    if not ok:
+        return {"ok": False, "error": err}
+    s = get_settings()
+    return run_stack_deploy_with_paths(
+        mode,
+        stack_mount=Path(s.host_stack_mount_path),
+        compose_subdir=s.host_compose_project_subdir,
+        compose_env_file=s.host_compose_env_file,
+        git_path=s.host_git_path or "",
+    )
+
+
+def parse_stack_deploy_job_logs(logs: str) -> dict[str, Any] | None:
+    if DEPLOY_RESULT_MARKER not in logs:
+        return None
+    tail = logs.split(DEPLOY_RESULT_MARKER)[-1].strip()
+    for line in reversed(tail.splitlines()):
+        stripped = line.strip()
+        if stripped.startswith("{"):
+            try:
+                return json.loads(stripped)
+            except json.JSONDecodeError:
+                continue
+    return None
+
+
+def start_stack_deploy_detached(mode: StackDeployMode) -> dict[str, Any]:
+    """Arranca un contenedor ``docker run -d``; el trabajo sigue aunque se reinicie el servicio app."""
+    ok, err = _settings_ok_deploy()
+    if not ok:
+        return {"ok": False, "error": err, "detached": False}
+    s = get_settings()
+    runner = (s.host_stack_deploy_runner_image or "").strip()
+    if not runner:
+        return {
+            "ok": False,
+            "error": "host_stack_deploy_runner_image_missing",
+            "hint": "Definí HOST_STACK_DEPLOY_RUNNER_IMAGE en .env (misma imagen que servicio app).",
+            "detached": False,
+        }
+    stack = str(Path(s.host_stack_mount_path).resolve())
+    sock = str(Path(s.host_docker_socket_path))
+    job = f"msa-deploy-{uuid.uuid4().hex[:12]}"
+
+    env_pairs = [
+        f"MSA_STACK_DEPLOY_MODE={mode}",
+        f"HOST_STACK_MOUNT_PATH={stack}",
+        f"HOST_COMPOSE_PROJECT_SUBDIR={s.host_compose_project_subdir}",
+        f"HOST_COMPOSE_ENV_FILE={s.host_compose_env_file}",
+        f"HOST_GIT_PATH={(s.host_git_path or '').strip()}",
+    ]
+    run_argv: list[str] = [
+        "run",
+        "-d",
+        "--name",
+        job,
+        "-v",
+        f"{sock}:{sock}",
+        "-v",
+        f"{stack}:{stack}",
+    ]
+    for ep in env_pairs:
+        run_argv.extend(["-e", ep])
+    run_argv.extend([runner, "python", "-m", "app.stack_deploy_sidecar"])
+
+    r = safe_run("docker", run_argv, timeout=120)
+    if r.returncode != 0:
+        return {
+            "ok": False,
+            "error": "docker_run_failed",
+            "stderr_tail": _tail(r.stderr),
+            "detached": False,
+        }
+    return {"ok": True, "detached": True, "job": job, "mode": mode}
+
+
+def stack_deploy_job_status(job_name: str) -> dict[str, Any]:
+    if not _DEPLOY_JOB_RE.match(job_name):
+        return {"phase": "unknown", "error": "invalid_job_name"}
+    ok_d, err_d = _settings_ok_docker()
+    if not ok_d:
+        return {"phase": "unknown", "error": err_d}
+
+    r = safe_run(
+        "docker",
+        ["inspect", "-f", "{{.State.Status}}|{{.State.ExitCode}}", job_name],
+        timeout=30,
+    )
+    if r.returncode != 0:
+        return {"phase": "unknown", "error": "job_not_found", "stderr_tail": _tail(r.stderr)}
+
+    parts = r.stdout.strip().split("|", 1)
+    status = parts[0].strip() if parts else ""
+    try:
+        exit_code = int(parts[1].strip()) if len(parts) > 1 else -1
+    except ValueError:
+        exit_code = -1
+
+    r_logs = safe_run("docker", ["logs", "--tail", "8000", job_name], timeout=90)
+    combined = r_logs.stdout + r_logs.stderr
+    logs_tail = _tail(combined, 12000)
+
+    if status == "running":
+        return {"phase": "running", "job": job_name, "logs_tail": logs_tail}
+
+    parsed = parse_stack_deploy_job_logs(combined)
+    out: dict[str, Any] = {
+        "phase": "finished",
+        "job": job_name,
+        "exit_code": exit_code,
+        "result": parsed,
+        "logs_tail": logs_tail if parsed is None else None,
+    }
+    if parsed is not None:
+        safe_run("docker", ["rm", "-f", job_name], timeout=60)
+    return out
 
 
 def _dow_sunday0(dt: datetime) -> int:
@@ -303,4 +439,5 @@ def host_ops_public_config() -> dict[str, Any]:
         "docker_socket_present": Path(s.host_docker_socket_path).exists(),
         "stack_path_configured": bool(stack),
         "compose_dir": compose_dir,
+        "runner_image_configured": bool((s.host_stack_deploy_runner_image or "").strip()),
     }

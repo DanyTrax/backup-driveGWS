@@ -24,8 +24,9 @@ from app.services.host_ops_service import (
     get_prune_schedule,
     host_ops_public_config,
     run_docker_prune,
-    run_stack_deploy,
     save_prune_schedule,
+    stack_deploy_job_status,
+    start_stack_deploy_detached,
 )
 
 router = APIRouter(prefix="/admin/host-ops", tags=["admin-host-ops"])
@@ -87,7 +88,8 @@ async def stack_deploy(
     db: AsyncSession = Depends(get_db),
     current: SysUser = Depends(require_permission("platform.stack_deploy")),
 ) -> dict:
-    result = run_stack_deploy(payload.mode)
+    """Encola un contenedor efímero; la respuesta llega en segundos aunque ``app`` se reinicie después."""
+    result = start_stack_deploy_detached(payload.mode)
     await record_audit(
         db,
         action=AuditAction.STACK_DEPLOY,
@@ -100,3 +102,11 @@ async def stack_deploy(
     )
     await db.commit()
     return result
+
+
+@router.get("/stack-deploy-job/{job_name}")
+async def stack_deploy_job(
+    job_name: str,
+    _: SysUser = Depends(require_permission("platform.stack_deploy")),
+) -> dict:
+    return stack_deploy_job_status(job_name)

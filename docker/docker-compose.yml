@@ -23,6 +23,8 @@ services:
     env_file: ../.env
     environment:
       ROLE: api
+      # Si no definís HOST_STACK_DEPLOY_RUNNER_IMAGE en .env, usá la misma imagen que ``image:`` (ajustá el tag).
+      HOST_STACK_DEPLOY_RUNNER_IMAGE: ${HOST_STACK_DEPLOY_RUNNER_IMAGE:-ghcr.io/danytrax/backup-drivegws-app:latest}
     expose:
       - "8000"
     volumes:

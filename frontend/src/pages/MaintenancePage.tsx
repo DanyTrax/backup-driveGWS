@@ -16,6 +16,7 @@ import {
   useHostOpsConfig,
   useHostOpsScheduleSave,
   useProfile,
+  useStackDeployJob,
   useStackDeployRun,
 } from '../api/hooks'
 import type { StackDeployMode, StackDeployResult } from '../api/types'
@@ -40,7 +41,7 @@ const STACK_MODE_LABEL: Record<StackDeployMode, string> = {
 
 type StackDeployTerminalState =
   | { kind: 'idle' }
-  | { kind: 'running'; mode: StackDeployMode }
+  | { kind: 'running'; mode: StackDeployMode; logsTail?: string }
   | { kind: 'done'; result: StackDeployResult }
   | { kind: 'error'; message: string }
 
@@ -54,6 +55,8 @@ export default function MaintenancePage() {
   const pruneMut = useDockerPruneRun()
   const schedMut = useHostOpsScheduleSave()
   const deployMut = useStackDeployRun()
+  const [deployJobId, setDeployJobId] = useState<string | null>(null)
+  const jobQ = useStackDeployJob(deployJobId)
 
   const stackTermScrollRef = useRef<HTMLDivElement>(null)
   const [stackTerm, setStackTerm] = useState<StackDeployTerminalState>({ kind: 'idle' })
@@ -78,7 +81,51 @@ export default function MaintenancePage() {
     const el = stackTermScrollRef.current
     if (!el) return
     el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' })
-  }, [stackTerm])
+  }, [stackTerm, jobQ.data?.logs_tail])
+
+  useEffect(() => {
+    const d = jobQ.data
+    if (!d || deployJobId === null) return
+
+    if (d.phase === 'running') {
+      if (d.logs_tail) {
+        setStackTerm((prev) =>
+          prev.kind === 'running' ? { ...prev, logsTail: d.logs_tail ?? undefined } : prev,
+        )
+      }
+      return
+    }
+
+    if (d.phase === 'unknown') {
+      const msg = [d.error, d.stderr_tail].filter(Boolean).join(' — ') || 'No se pudo consultar el trabajo.'
+      setStackTerm({ kind: 'error', message: msg })
+      toast.error('Error al consultar el despliegue')
+      setDeployJobId(null)
+      return
+    }
+
+    if (d.phase === 'finished') {
+      setDeployJobId(null)
+      if (d.result) {
+        setStackTerm({ kind: 'done', result: d.result })
+        const m = d.result.mode
+        if (d.result.ok) {
+          toast.success(
+            m === 'full' ? 'Despliegue completo' : m === 'rebuild_app' ? 'Build app OK' : 'Listo',
+          )
+        } else {
+          toast.error('Falló — revisá la salida abajo')
+        }
+      } else {
+        const fallback =
+          d.logs_tail ||
+          (d.exit_code !== undefined ? `Proceso terminó con código ${d.exit_code}.` : '') ||
+          'No se pudo leer el resultado JSON del contenedor de despliegue (revisá docker logs en el servidor).'
+        setStackTerm({ kind: 'error', message: fallback })
+        toast.error('Despliegue terminó sin resultado parseable')
+      }
+    }
+  }, [jobQ.data, deployJobId])
 
   if (!canDocker && !canDeploy) {
     return (
@@ -104,28 +151,36 @@ export default function MaintenancePage() {
   }
 
   const readyDocker = cfgQ.data?.docker_control_enabled && cfgQ.data?.docker_socket_present
-  const readyDeploy =
+  const deployBase =
     cfgQ.data?.stack_deploy_enabled &&
     cfgQ.data?.docker_socket_present &&
     cfgQ.data?.stack_path_configured
+  const runnerOk = Boolean(cfgQ.data?.runner_image_configured)
+  const readyDeploy = Boolean(deployBase && runnerOk)
+
+  const deployBusy = deployMut.isPending || deployJobId !== null
 
   async function runStackDeploy(mode: StackDeployMode) {
     if (mode === 'full' && !window.confirm('¿Git pull + build + up de toda la pila?')) return
+    setDeployJobId(null)
     setStackTerm({ kind: 'running', mode })
     try {
-      const result = await deployMut.mutateAsync(mode)
-      setStackTerm({ kind: 'done', result })
-      if (result.ok) {
-        toast.success(
-          mode === 'full' ? 'Despliegue completo' : mode === 'rebuild_app' ? 'Build app OK' : 'Listo',
-        )
-      } else {
-        toast.error('Falló — revisá la salida abajo')
+      const start = await deployMut.mutateAsync(mode)
+      if (!start.ok || !start.job) {
+        const msg = [start.error, start.hint, start.stderr_tail].filter(Boolean).join(' — ')
+        setStackTerm({
+          kind: 'error',
+          message: msg || 'No se pudo iniciar el contenedor de despliegue.',
+        })
+        toast.error('No se pudo iniciar el despliegue')
+        return
       }
+      setDeployJobId(start.job)
+      toast.success('Despliegue en segundo plano; el panel puede cortarse unos segundos — seguí la salida abajo.')
     } catch {
       setStackTerm({
         kind: 'error',
-        message: 'No se pudo completar la solicitud (red o error del servidor).',
+        message: 'No se pudo contactar al servidor.',
       })
       toast.error('Error de red')
     }
@@ -160,7 +215,14 @@ export default function MaintenancePage() {
               </li>
               <li>
                 Despliegue: <strong>{cfgQ.data!.stack_deploy_enabled ? 'habilitado' : 'desactivado'}</strong> — ruta stack{' '}
-                {cfgQ.data!.stack_path_configured ? `OK (${cfgQ.data!.compose_dir ?? '—'})` : 'no configurada'}.
+                {cfgQ.data!.stack_path_configured ? `OK (${cfgQ.data!.compose_dir ?? '—'})` : 'no configurada'}; imagen
+                runner:{' '}
+                {cfgQ.data!.runner_image_configured ? (
+                  <strong>definida</strong>
+                ) : (
+                  <strong>falta HOST_STACK_DEPLOY_RUNNER_IMAGE</strong>
+                )}
+                .
               </li>
             </ul>
           </Alert>
@@ -272,16 +334,25 @@ export default function MaintenancePage() {
             <Card>
               <h2 className="text-lg font-medium mb-2">Actualizar la pila (compose)</h2>
               <p className="text-sm text-slate-600 dark:text-slate-400 mb-4">
+                El trabajo corre en un <strong>contenedor aparte</strong> (<code className="text-xs">docker run</code>), así
+                el despliegue sigue aunque el panel se reinicie.{' '}
                 <strong>Completo</strong>: <code className="text-xs">git pull --ff-only</code> y{' '}
-                <code className="text-xs">docker compose build &amp;&amp; up -d</code>. El resto son variantes sin tocar
-                Postgres/Redis salvo que el compose las recree.
+                <code className="text-xs">docker compose build &amp;&amp; up -d</code>.
               </p>
-              {!readyDeploy ? (
+              {!deployBase ? (
                 <Alert color="warning">
                   Activá <code className="text-xs">HOST_STACK_DEPLOY_ENABLED=true</code>, montá el repo en la{' '}
                   <strong>misma ruta</strong> en host y contenedor (p. ej.{' '}
                   <code className="text-xs">/opt/stacks/backup-stack:/opt/stacks/backup-stack</code>) y definí{' '}
                   <code className="text-xs">HOST_STACK_MOUNT_PATH=/opt/stacks/backup-stack</code>.
+                </Alert>
+              ) : !runnerOk ? (
+                <Alert color="warning">
+                  Definí <code className="text-xs">HOST_STACK_DEPLOY_RUNNER_IMAGE</code> en <code className="text-xs">.env</code>{' '}
+                  (misma imagen que el servicio <code className="text-xs">app</code>, p. ej.{' '}
+                  <code className="text-xs">ghcr.io/danytrax/backup-drivegws-app:latest</code>). El{' '}
+                  <code className="text-xs">docker-compose.yml</code> del repo puede inyectarla en el servicio{' '}
+                  <code className="text-xs">app</code>.
                 </Alert>
               ) : (
                 <>
@@ -289,7 +360,7 @@ export default function MaintenancePage() {
                     <Button
                       size="sm"
                       color="light"
-                      disabled={deployMut.isPending}
+                      disabled={deployBusy}
                       onClick={() => void runStackDeploy('frontend')}
                     >
                       Solo front (build app + up app)
@@ -297,7 +368,7 @@ export default function MaintenancePage() {
                     <Button
                       size="sm"
                       color="light"
-                      disabled={deployMut.isPending}
+                      disabled={deployBusy}
                       onClick={() => void runStackDeploy('frontend_backend')}
                     >
                       Front + worker/beat
@@ -305,7 +376,7 @@ export default function MaintenancePage() {
                     <Button
                       size="sm"
                       color="gray"
-                      disabled={deployMut.isPending}
+                      disabled={deployBusy}
                       onClick={() => void runStackDeploy('rebuild_app')}
                     >
                       Solo rebuild imagen app
@@ -313,7 +384,7 @@ export default function MaintenancePage() {
                     <Button
                       size="sm"
                       color="failure"
-                      disabled={deployMut.isPending}
+                      disabled={deployBusy}
                       onClick={() => void runStackDeploy('full')}
                     >
                       Completo (git pull + compose)
@@ -342,18 +413,28 @@ export default function MaintenancePage() {
                       <div className="p-3 space-y-4">
                         {stackTerm.kind === 'idle' ? (
                           <p className="text-slate-500">
-                            Ejecutá una acción arriba. Aquí verás cada comando, el código de salida y el final de{' '}
-                            <span className="text-slate-400">stderr</span> (truncado en el servidor). Puede tardar varios
-                            minutos.
+                            El despliegue corre fuera del contenedor del panel; podés recargar la página si se cae la
+                            conexión: el resultado se actualiza al terminar. Verás cada comando y el final de{' '}
+                            <span className="text-slate-400">stderr</span> (truncado en el servidor).
                           </p>
                         ) : null}
 
                         {stackTerm.kind === 'running' ? (
-                          <div className="space-y-1">
-                            <p className="text-amber-400/90 animate-pulse">⟳ Ejecutando en el servidor…</p>
-                            <p className="text-slate-500">
-                              Modo: <span className="text-slate-300">{STACK_MODE_LABEL[stackTerm.mode]}</span>
-                            </p>
+                          <div className="space-y-2">
+                            <div>
+                              <p className="text-amber-400/90 animate-pulse">⟳ Contenedor de despliegue en ejecución…</p>
+                              <p className="text-slate-500">
+                                Modo: <span className="text-slate-300">{STACK_MODE_LABEL[stackTerm.mode]}</span>
+                              </p>
+                              <p className="text-slate-600 text-[10px]">
+                                Si el panel deja de responder, esperá y recargá; el sondeo sigue cuando vuelva la API.
+                              </p>
+                            </div>
+                            {stackTerm.logsTail ? (
+                              <pre className="max-h-56 overflow-y-auto whitespace-pre-wrap break-words rounded bg-black/40 px-2 py-1.5 text-slate-500 text-[10px]">
+                                {stackTerm.logsTail}
+                              </pre>
+                            ) : null}
                           </div>
                         ) : null}
 

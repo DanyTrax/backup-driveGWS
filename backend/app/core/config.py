@@ -106,6 +106,8 @@ class Settings(BaseSettings):
     host_compose_project_subdir: str = "docker"
     host_compose_env_file: str = "../.env"
     host_git_path: str = ""
+    # Imagen para ``docker run`` del despliegue en segundo plano (ej. ghcr.io/.../app:latest).
+    host_stack_deploy_runner_image: str = ""
 
     @field_validator("account_verify_gyb_timeout_seconds", mode="before")
     @classmethod
@@ -115,7 +117,13 @@ class Settings(BaseSettings):
         n = int(v)
         return max(0, n)
 
-    @field_validator("host_docker_socket_path", "host_stack_mount_path", "host_git_path", mode="before")
+    @field_validator(
+        "host_docker_socket_path",
+        "host_stack_mount_path",
+        "host_git_path",
+        "host_stack_deploy_runner_image",
+        mode="before",
+    )
     @classmethod
     def _strip_host_paths(cls, v: object) -> str:
         if v is None:
