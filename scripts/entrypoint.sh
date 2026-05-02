@@ -52,12 +52,18 @@ run_migrations() {
   alembic upgrade head
 }
 
+verify_app_import() {
+  echo "[entrypoint] verifying FastAPI app import (si falla: código en /app/app o .env inválido)..."
+  python -c "import app.main; print('[entrypoint] app.main import OK')"
+}
+
 case "${ROLE}" in
   api)
     prepare_maildir_volume
     wait_for_postgres
     wait_for_redis
     run_migrations
+    verify_app_import
     exec uvicorn app.main:app --host 0.0.0.0 --port 8000 --proxy-headers --forwarded-allow-ips='*'
     ;;
   worker)

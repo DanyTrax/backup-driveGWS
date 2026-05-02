@@ -103,6 +103,37 @@ curl -I https://webmail.example.com/
 
 Ambos deben devolver 200 OK con `Strict-Transport-Security` presente.
 
+## 502 Bad Gateway (OpenResty / Nginx) — «los contenedores están arriba» pero el dominio no carga
+
+El **502** lo genera el **reverse proxy** cuando no recibe una respuesta HTTP válida del upstream. No suele ser un bug del panel en sí, sino **red Docker**, **nombre de contenedor** o **API que no levanta** aunque `docker ps` diga *Running*.
+
+1. **Logs de la API** (casi siempre muestran el fallo real: migración, `ValidationError` en `.env`, sintaxis Python en el bind-mount, etc.):
+   ```bash
+   docker logs msa-backup-app --tail 120
+   ```
+   Tras un `git pull`, el entrypoint ejecuta `import app.main` antes de Uvicorn; si falla, el error aparece **aquí** y el contenedor puede reiniciarse en bucle.
+
+2. **Health solo dentro del contenedor** (debe ser HTTP 200):
+   ```bash
+   docker exec msa-backup-app curl -fsS http://127.0.0.1:8000/api/health
+   ```
+
+3. **Misma red que NPM**: el host de la plataforma en NPM debe ser **`msa-backup-app`**, puerto **`8000`**, esquema **`http`**. Si apuntás por error a **`msa-backup-roundcube`** (puerto 80), obtendrás 502 o comportamientos raros en `/api/`.
+
+4. **Red `proxy-net`**: NPM y `msa-backup-app` deben estar en la misma red externa:
+   ```bash
+   docker network inspect proxy-net | grep -E 'msa-backup-app|nginx'
+   ```
+   Si falta el contenedor de la app, volvé a levantar el stack con `docker compose --env-file ../.env up -d` desde `docker/`.
+
+5. **Probar desde la pila del proxy** (sustituí el nombre del contenedor NPM si difiere):
+   ```bash
+   docker exec -it <contenedor-npm> wget -qO- http://msa-backup-app:8000/api/health
+   ```
+   Si esto falla pero el paso 2 funciona, el problema es **red o nombre DNS** entre NPM y la app.
+
+6. **Capa extra (Cloudflare / OpenResty delante de NPM)**: debe reenviar cabeceras y no apuntar a un upstream viejo o a una IP cacheada tras recrear contenedores.
+
 ## 4) Cerrar el puerto 81 (UI de NPM) cuando termines
 
 Una vez configurado todo, cerrá el puerto 81 con `ufw`/`firewalld` en el host para evitar exponer el panel de NPM a Internet. Mantenelo accesible solo vía Wireguard/SSH tunneling cuando quieras modificar.
