@@ -149,7 +149,6 @@ def _pg_enum(py_enum: type[enum.Enum], name: str) -> ENUM:
     )
 
 
-user_role_enum = _pg_enum(UserRole, "user_role")
 user_status_enum = _pg_enum(UserStatus, "user_status")
 account_auth_method_enum = _pg_enum(AccountAuthMethod, "account_auth_method")
 account_status_enum = _pg_enum(AccountStatus, "account_status")
@@ -166,7 +165,6 @@ audit_action_enum = _pg_enum(AuditAction, "audit_action")
 
 
 ALL_PG_ENUMS = (
-    user_role_enum,
     user_status_enum,
     account_auth_method_enum,
     account_status_enum,

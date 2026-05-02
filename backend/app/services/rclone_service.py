@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import shlex
 import tempfile
 from contextlib import asynccontextmanager, suppress
 from dataclasses import dataclass, field
@@ -19,7 +20,7 @@ from typing import AsyncIterator, Iterable
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.config import get_settings
+from app.core.config import Settings, get_settings
 from app.services.backup_batch_registry import is_log_cancelled
 from app.services.google.credentials import load_sa_info
 from app.utils.async_process import SUBPROCESS_PIPE_LIMIT
@@ -165,6 +166,33 @@ async def build_rclone_vault_dest_only_config(
             pass
 
 
+def _gmail_vault_compare_argv_part(s: Settings) -> list[str]:
+    out: list[str] = []
+    if s.rclone_gmail_vault_compare == "size_only":
+        out.append("--size-only")
+    elif s.rclone_gmail_vault_compare == "checksum":
+        out.append("--checksum")
+    return out
+
+
+def _gmail_vault_tps_argv_part(s: Settings) -> list[str]:
+    out: list[str] = []
+    lim = s.rclone_gmail_vault_tpslimit
+    if lim > 0:
+        out += ["--tpslimit", str(lim)]
+        burst = s.rclone_gmail_vault_tpslimit_burst
+        if burst > 0:
+            out += ["--tpslimit-burst", str(burst)]
+    return out
+
+
+def _gmail_vault_extra_flags_argv_part(s: Settings) -> list[str]:
+    raw = (s.rclone_gmail_vault_extra_flags or "").strip()
+    if not raw:
+        return []
+    return shlex.split(raw)
+
+
 def build_rclone_local_to_vault_argv(
     local_abs: str,
     cfg: RcloneConfig,
@@ -200,6 +228,11 @@ def build_rclone_local_to_vault_argv(
         "--low-level-retries",
         "10",
     ]
+    if s.rclone_gmail_vault_no_traverse:
+        argv.append("--no-traverse")
+    argv += _gmail_vault_tps_argv_part(s)
+    argv += _gmail_vault_compare_argv_part(s)
+    argv += _gmail_vault_extra_flags_argv_part(s)
     if dry_run:
         argv.append("--dry-run")
     argv += list(extra_flags)
@@ -233,18 +266,26 @@ def build_rclone_check_local_vault_argv(
     dest_subpath: str,
 ) -> list[str]:
     """``rclone check <local> dest:<ruta> --one-way`` — confirma que lo subido al vault cubre el árbol local."""
+    s = get_settings()
     rel = dest_subpath.strip().lstrip("/")
     remote = f"{cfg.remote_dest.rstrip(':')}:{rel}/" if rel else cfg.remote_dest
-    return [
+    argv = [
         "check",
         str(Path(local_abs).resolve()),
         remote,
         "--config",
         cfg.config_path,
+        "--checkers",
+        str(s.rclone_gmail_vault_checkers),
         "--one-way",
         "--max-backlog",
         "200000",
+        "--fast-list",
     ]
+    argv += _gmail_vault_compare_argv_part(s)
+    argv += _gmail_vault_tps_argv_part(s)
+    argv += _gmail_vault_extra_flags_argv_part(s)
+    return argv
 
 
 @asynccontextmanager

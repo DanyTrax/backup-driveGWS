@@ -57,6 +57,7 @@ export interface Profile {
   email: string
   full_name: string
   role_code: string
+  role_name?: string | null
   mfa_enabled: boolean
   must_change_password: boolean
   status: string
@@ -66,6 +67,22 @@ export interface Profile {
   permissions: string[]
   /** Solo aplica con permiso mailbox.view_delegated (sin view_all). */
   mailbox_delegated_account_ids?: string[]
+}
+
+export interface PermissionCatalogEntry {
+  code: string
+  module: string
+  action: string
+  description?: string | null
+}
+
+export interface PlatformRole {
+  id: string
+  code: string
+  name: string
+  description: string | null
+  is_system: boolean
+  permissions: PermissionCatalogEntry[]
 }
 
 export const MAILBOX_MESSAGE_TIMEOUT_MS = 120_000

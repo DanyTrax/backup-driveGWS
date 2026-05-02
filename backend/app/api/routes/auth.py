@@ -150,6 +150,7 @@ async def me(
         email=user.email,
         full_name=user.full_name,
         role_code=user.role_code,
+        role_name=user.role.name if user.role is not None else None,
         mfa_enabled=user.mfa_enabled,
         must_change_password=user.must_change_password,
         status=user.status,

@@ -9,6 +9,7 @@ import {
   HiCube,
   HiDocumentSearch,
   HiFolderOpen,
+  HiKey,
   HiMail,
   HiMenu,
   HiOutlineLogout,
@@ -55,6 +56,12 @@ const NAV: NavItem[] = [
   { to: '/restore', label: 'Restaurar', icon: <HiRefresh className="h-5 w-5 shrink-0" />, perm: 'restore.view' },
   { to: '/webmail', label: 'Webmail', icon: <HiMail className="h-5 w-5 shrink-0" />, perm: 'webmail.sso_admin' },
   { to: '/users', label: 'Usuarios', icon: <HiShieldCheck className="h-5 w-5 shrink-0" />, perm: 'users.view' },
+  {
+    to: '/roles',
+    label: 'Roles',
+    icon: <HiKey className="h-5 w-5 shrink-0" />,
+    permAny: ['roles.view', 'roles.manage'],
+  },
   { to: '/settings', label: 'Configuración', icon: <HiCog className="h-5 w-5 shrink-0" />, perm: 'settings.view' },
   {
     to: '/maintenance',

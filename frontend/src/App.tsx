@@ -9,6 +9,7 @@ import LogsPage from './pages/LogsPage'
 import RestorePage from './pages/RestorePage'
 import WizardPage from './pages/WizardPage'
 import UsersPage from './pages/UsersPage'
+import RolesPage from './pages/RolesPage'
 import SettingsPage from './pages/SettingsPage'
 import ProfilePage from './pages/ProfilePage'
 import WebmailPage from './pages/WebmailPage'
@@ -62,6 +63,7 @@ export default function App() {
         <Route path="/webmail" element={<WebmailRoute />} />
         <Route path="/setup" element={<WizardPage />} />
         <Route path="/users" element={<UsersPage />} />
+        <Route path="/roles" element={<RolesPage />} />
         <Route path="/settings" element={<SettingsPage />} />
         <Route path="/maintenance" element={<MaintenancePage />} />
         <Route path="/profile" element={<ProfilePage />} />

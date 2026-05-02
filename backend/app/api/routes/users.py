@@ -16,7 +16,7 @@ from app.api.deps import (
 )
 from app.core.security import hash_password
 from app.models.accounts import GwAccount
-from app.models.enums import AuditAction, UserRole
+from app.models.enums import AuditAction
 from app.models.mailbox_delegation import SysUserMailboxDelegation
 from app.models.users import SysRole, SysUser
 from app.schemas.users import AdminPasswordReset, MailboxDelegationsPut, UserCreate, UserOut, UserUpdate
@@ -34,11 +34,15 @@ async def _load_role(db: AsyncSession, code: str) -> SysRole:
 
 
 def _to_out(u: SysUser) -> UserOut:
+    rn = None
+    if u.role is not None:
+        rn = u.role.name
     return UserOut(
         id=str(u.id),
         email=u.email,
         full_name=u.full_name,
         role_code=u.role_code,
+        role_name=rn,
         status=u.status,
         mfa_enabled=u.mfa_enabled,
         last_login_at=u.last_login_at,
@@ -53,7 +57,7 @@ async def list_users(
     db: AsyncSession = Depends(get_db),
     _user: SysUser = Depends(require_permission("users.view")),
 ) -> list[UserOut]:
-    stmt = select(SysUser).order_by(SysUser.created_at.desc())
+    stmt = select(SysUser).options(selectinload(SysUser.role)).order_by(SysUser.created_at.desc())
     rows = (await db.execute(stmt)).scalars().all()
     return [_to_out(u) for u in rows]
 
@@ -131,13 +135,13 @@ async def create_user(
     if exists.scalar_one() > 0:
         raise HTTPException(status.HTTP_409_CONFLICT, "email_already_exists")
 
-    role = await _load_role(db, payload.role_code.value)
+    role = await _load_role(db, payload.role_code)
     user = SysUser(
         email=payload.email.lower(),
         full_name=payload.full_name,
         password_hash=hash_password(payload.password),
         role_id=role.id,
-        role_code=payload.role_code.value,
+        role_code=role.code,
         must_change_password=payload.must_change_password,
     )
     db.add(user)
@@ -155,8 +159,12 @@ async def create_user(
         metadata={"email": user.email, "role": user.role_code},
     )
     await db.commit()
-    await db.refresh(user)
-    return _to_out(user)
+    reloaded = (
+        await db.execute(
+            select(SysUser).options(selectinload(SysUser.role)).where(SysUser.id == user.id)
+        )
+    ).scalar_one()
+    return _to_out(reloaded)
 
 
 @router.patch("/{user_id}", response_model=UserOut)
@@ -184,15 +192,15 @@ async def update_user(
     if payload.status is not None:
         user.status = payload.status.value
     if payload.role_code is not None:
-        # Only SuperAdmin may promote/demote another SuperAdmin.
+        # Solo SuperAdmin puede promover/degradar otro SuperAdmin.
         if (
-            user.role_code == UserRole.SUPER_ADMIN.value
-            or payload.role_code == UserRole.SUPER_ADMIN
-        ) and current.role_code != UserRole.SUPER_ADMIN.value:
+            user.role_code == "super_admin"
+            or payload.role_code == "super_admin"
+        ) and current.role_code != "super_admin":
             raise HTTPException(status.HTTP_403_FORBIDDEN, "requires_superadmin")
-        role = await _load_role(db, payload.role_code.value)
+        role = await _load_role(db, payload.role_code)
         user.role_id = role.id
-        user.role_code = payload.role_code.value
+        user.role_code = role.code
 
     await record_audit(
         db,
@@ -263,11 +271,11 @@ async def delete_user(
     if user is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "user_not_found")
     # Prevent removing the last SuperAdmin.
-    if user.role_code == UserRole.SUPER_ADMIN.value:
+    if user.role_code == "super_admin":
         admins = await db.execute(
             select(func.count())
             .select_from(SysUser)
-            .where(SysUser.role_code == UserRole.SUPER_ADMIN.value)
+            .where(SysUser.role_code == "super_admin")
         )
         if admins.scalar_one() <= 1:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, "last_superadmin")

@@ -111,13 +111,13 @@ def get_user_permissions(user: SysUser) -> set[str]:
     perms: set[str] = set()
     if user.role is not None and user.role.permissions:
         perms.update(p.code for p in user.role.permissions)
-    # Fallback for safety: merge catalog defaults if DB seed is partial.
+    if perms:
+        return perms
     try:
         role_enum = UserRole(user.role_code)
-        perms |= set(DEFAULT_ROLE_PERMISSIONS.get(role_enum, frozenset()))
+        return set(DEFAULT_ROLE_PERMISSIONS.get(role_enum, frozenset()))
     except ValueError:
-        pass
-    return perms
+        return set()
 
 
 def require_permission(*codes: str) -> Callable[[SysUser], SysUser]:

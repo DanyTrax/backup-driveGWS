@@ -31,6 +31,9 @@ PERMISSIONS: tuple[PermissionSpec, ...] = (
     PermissionSpec("users", "edit", "Editar usuarios (rol, estado, preferencias)"),
     PermissionSpec("users", "delete", "Eliminar usuarios de plataforma"),
     PermissionSpec("users", "reset_password", "Forzar reset de contraseña"),
+    # --- roles (roles personalizados en sys_roles) ---
+    PermissionSpec("roles", "view", "Ver roles y los permisos asignados"),
+    PermissionSpec("roles", "manage", "Crear, editar y eliminar roles personalizados"),
     # --- gw_accounts ---
     PermissionSpec("accounts", "view", "Ver cuentas de Workspace"),
     PermissionSpec("accounts", "approve", "Aprobar cuenta para backup (opt-in)"),
@@ -99,6 +102,11 @@ DEFAULT_ROLE_PERMISSIONS: dict[UserRole, frozenset[str]] = {
     UserRole.OPERATOR: frozenset(
         {
             "users.view",
+            "users.create",
+            "users.edit",
+            "users.reset_password",
+            "roles.view",
+            "roles.manage",
             "accounts.view",
             "accounts.approve",
             "accounts.revoke",

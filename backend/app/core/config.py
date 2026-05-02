@@ -91,9 +91,25 @@ class Settings(BaseSettings):
     rclone_rc_port_range_end: int = 5599
     rclone_bwlimit: str = ""
     # Solo ``rclone copy`` local → vault ``1-GMAIL/gyb_mbox`` (muchos .eml). Subir un poco más
-    # el paralelismo suele acortar tiempos; si Drive responde 403/rate limit, bajá estos valores.
+    # el paralelismo suele acortar tiempos; si Drive responde 403/rate limit, bajá estos valores
+    # y/o usá ``rclone_gmail_vault_tpslimit``.
     rclone_gmail_vault_transfers: int = Field(default=16, ge=1, le=128)
     rclone_gmail_vault_checkers: int = Field(default=16, ge=1, le=128)
+    # Límite de operaciones API/s hacia Drive (``rclone --tpslimit``). 0 = sin flag; suele aliviar
+    # throttling cuando ``copy`` o ``check`` tardan días pese a tener casi todo en remoto.
+    rclone_gmail_vault_tpslimit: int = Field(default=0, ge=0, le=2000)
+    rclone_gmail_vault_tpslimit_burst: int = Field(default=0, ge=0, le=2000)
+    # Cómo decide rclone si un archivo ya está en Drive: por defecto ``size_only`` porque GYB suele tocar
+    # muchos mtimes en disco aunque solo haya mensajes nuevos; ``default`` fuerza comparación más estricta
+    # (más lenta, parece «recorrer todo»); ``checksum`` es la más lenta; ``size_only`` asume que dos .eml
+    # distintos con el mismo tamaño en bytes es raro.
+    rclone_gmail_vault_compare: Literal["default", "size_only", "checksum"] = "size_only"
+    # Si es True, añade ``--no-traverse`` al ``copy`` al vault: evita listar antes todo el árbol en Drive
+    # cuando el destino ya está lleno; a veces acorta la fase «en frío» antes de subir pocos ficheros nuevos.
+    rclone_gmail_vault_no_traverse: bool = False
+    # Flags extra para ``copy``/``check`` del vault GYB (p.ej. ``--drive-pacer-min-sleep 100ms``).
+    # Una sola línea; se parte con shlex como en shell.
+    rclone_gmail_vault_extra_flags: str = ""
     # GYB --action estimate en «Comprobar acceso». 0 = sin límite (hasta que termine GYB).
     account_verify_gyb_timeout_seconds: int = 0
     # Export ZIP del Maildir desde el panel. 0 = sin límite de tamaño (proveedor/ops asume el riesgo).

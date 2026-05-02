@@ -26,7 +26,7 @@ from app.core.security import (
     verify_password,
     verify_totp,
 )
-from app.models.enums import AuditAction, UserRole, UserStatus
+from app.models.enums import AuditAction, UserStatus
 from app.models.users import SysSession, SysUser
 from app.services.audit_service import record_audit
 
@@ -203,7 +203,7 @@ async def authenticate(
     # Enforce MFA for SuperAdmin if configured.
     mfa_required = user.mfa_enabled or (
         settings.feature_mfa_required_for_superadmin
-        and user.role_code == UserRole.SUPER_ADMIN.value
+        and user.role_code == "super_admin"
     )
 
     if mfa_required:

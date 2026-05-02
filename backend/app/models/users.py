@@ -22,7 +22,7 @@ from sqlalchemy.dialects.postgresql import INET, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, TimestampMixin, UUIDPKMixin
-from app.models.enums import user_role_enum, user_status_enum
+from app.models.enums import user_status_enum
 
 if TYPE_CHECKING:
     from app.models.notifications import SysUserNotificationPref
@@ -106,12 +106,8 @@ class SysUser(UUIDPKMixin, TimestampMixin, Base):
         server_default="active",
     )
 
-    # Legacy column for quick filtering without joining the roles table.
-    role_code: Mapped[str] = mapped_column(
-        user_role_enum,
-        nullable=False,
-        server_default="auditor",
-    )
+    # Código de rol: coincide con ``sys_roles.code`` (sistema o personalizado).
+    role_code: Mapped[str] = mapped_column(String(32), nullable=False, server_default="auditor")
 
     # ---- MFA ----
     mfa_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)

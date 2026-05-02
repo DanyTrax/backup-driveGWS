@@ -66,6 +66,7 @@ class ProfileOut(BaseModel):
     email: EmailStr
     full_name: str
     role_code: str
+    role_name: str | None = None
     mfa_enabled: bool
     must_change_password: bool
     status: str

@@ -20,8 +20,10 @@ import type {
   MailboxMessageBody,
   MailboxMessagesPage,
   MailDataInventory,
+  PermissionCatalogEntry,
   MaildirRebuildFromGybResult,
   PlatformBackupResult,
+  PlatformRole,
   Profile,
   PurgeAllLocalMailResult,
   RestoreJob,
@@ -84,6 +86,106 @@ export function usePutMailboxDelegations() {
       void qc.invalidateQueries({ queryKey: ['user-mailbox-delegations', payload.userId] })
       void qc.invalidateQueries({ queryKey: ['profile'] })
       void qc.invalidateQueries({ queryKey: ['accounts'] })
+    },
+  })
+}
+
+export function usePermissionCatalog() {
+  return useQuery({
+    queryKey: ['meta-permissions-catalog'],
+    queryFn: async () => {
+      const { data } = await api.get<{ permissions: PermissionCatalogEntry[] }>('/meta/permissions')
+      return data.permissions
+    },
+  })
+}
+
+export function usePlatformRoles() {
+  return useQuery({
+    queryKey: ['platform-roles'],
+    queryFn: async () => (await api.get<PlatformRole[]>('/roles')).data,
+  })
+}
+
+export function useCreatePlatformRole() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (payload: {
+      code: string
+      name: string
+      description?: string | null
+      permission_codes: string[]
+    }) =>
+      (
+        await api.post<PlatformRole>('/roles', {
+          code: payload.code,
+          name: payload.name,
+          description: payload.description ?? null,
+          permission_codes: payload.permission_codes,
+        })
+      ).data,
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ['platform-roles'] }),
+  })
+}
+
+export function useUpdatePlatformRole() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (payload: {
+      roleId: string
+      name?: string
+      description?: string | null
+      permission_codes?: string[]
+    }) =>
+      (
+        await api.patch<PlatformRole>(`/roles/${payload.roleId}`, {
+          name: payload.name,
+          description: payload.description,
+          permission_codes: payload.permission_codes,
+        })
+      ).data,
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ['platform-roles'] }),
+  })
+}
+
+export function useDeletePlatformRole() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (roleId: string) => {
+      await api.delete(`/roles/${roleId}`)
+    },
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ['platform-roles'] }),
+  })
+}
+
+export function useCreateUser() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (payload: {
+      email: string
+      full_name: string
+      role_code: string
+      password: string
+      must_change_password: boolean
+    }) => (await api.post('/users', payload)).data,
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ['users'] }),
+  })
+}
+
+export type UserUpdatePayload = {
+  full_name?: string
+  role_code?: string
+  status?: string
+}
+
+export function useUpdateUser() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (payload: { userId: string; body: UserUpdatePayload }) =>
+      (await api.patch(`/users/${payload.userId}`, payload.body)).data,
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['users'] })
+      void qc.invalidateQueries({ queryKey: ['profile'] })
     },
   })
 }

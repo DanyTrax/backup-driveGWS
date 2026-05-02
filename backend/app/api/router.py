@@ -15,6 +15,7 @@ from app.api.routes import (
     meta,
     notifications,
     restore,
+    roles,
     settings as settings_routes,
     setup,
     tasks,
@@ -27,6 +28,7 @@ api_router.include_router(health.router, tags=["health"])
 api_router.include_router(auth.router)
 api_router.include_router(meta.router)
 api_router.include_router(users.router)
+api_router.include_router(roles.router)
 api_router.include_router(audit.router)
 api_router.include_router(setup.router)
 api_router.include_router(accounts.router)

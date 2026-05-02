@@ -6,8 +6,16 @@ import toast from 'react-hot-toast'
 import api from '../api/client'
 import { useBranding } from '../api/hooks'
 import { useAuthStore } from '../stores/auth'
-import { brandingInitials, mergeBranding, type TokenPair } from '../api/types'
+import { brandingInitials, mergeBranding, type Profile, type TokenPair } from '../api/types'
 import { BrandingFooterCredit } from '../components/BrandingFooterCredit'
+
+function defaultLandingPath(permissions: string[]): string {
+  const p = new Set(permissions)
+  if (!p.has('accounts.view') && (p.has('mailbox.view_delegated') || p.has('mailbox.view_all'))) {
+    return '/gyb-work'
+  }
+  return '/dashboard'
+}
 
 export default function LoginPage() {
   const [email, setEmail] = useState('')
@@ -34,7 +42,6 @@ export default function LoginPage() {
   const showLogoImg = Boolean(b.logo_url && !logoFailed)
 
   async function submit(e: React.FormEvent) {
-    e.preventDefault()
     setLoading(true)
     setError(null)
     try {
@@ -44,8 +51,9 @@ export default function LoginPage() {
         mfa_code: needMfa ? mfa : undefined,
       })
       setTokens(resp.data.access_token, resp.data.refresh_token, resp.data.expires_in)
+      const me = await api.get<Profile>('/auth/me')
       toast.success('Sesión iniciada')
-      navigate('/dashboard', { replace: true })
+      navigate(defaultLandingPath(me.data.permissions), { replace: true })
     } catch (err: any) {
       const raw = err?.response?.data?.detail
       const detail = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : null
