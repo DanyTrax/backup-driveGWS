@@ -190,7 +190,10 @@ def _gmail_vault_extra_flags_argv_part(s: Settings) -> list[str]:
     raw = (s.rclone_gmail_vault_extra_flags or "").strip()
     if not raw:
         return []
-    return shlex.split(raw)
+    try:
+        return shlex.split(raw)
+    except ValueError:
+        return []
 
 
 def build_rclone_local_to_vault_argv(

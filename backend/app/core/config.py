@@ -5,8 +5,14 @@ from functools import lru_cache
 from typing import Literal
 from urllib.parse import quote
 
-from pydantic import Field, computed_field, field_validator
+from pydantic import Field, ValidationInfo, computed_field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# Defaults para rclone vault GYB (deben alinearse con los ``Field(default=…)`` abajo).
+_GV_TRANSFERS = 16
+_GV_CHECKERS = 16
+_GV_TPS = 0
+_GV_TPS_BURST = 0
 
 
 class Settings(BaseSettings):
@@ -93,12 +99,12 @@ class Settings(BaseSettings):
     # Solo ``rclone copy`` local → vault ``1-GMAIL/gyb_mbox`` (muchos .eml). Subir un poco más
     # el paralelismo suele acortar tiempos; si Drive responde 403/rate limit, bajá estos valores
     # y/o usá ``rclone_gmail_vault_tpslimit``.
-    rclone_gmail_vault_transfers: int = Field(default=16, ge=1, le=128)
-    rclone_gmail_vault_checkers: int = Field(default=16, ge=1, le=128)
+    rclone_gmail_vault_transfers: int = Field(default=_GV_TRANSFERS, ge=1, le=128)
+    rclone_gmail_vault_checkers: int = Field(default=_GV_CHECKERS, ge=1, le=128)
     # Límite de operaciones API/s hacia Drive (``rclone --tpslimit``). 0 = sin flag; suele aliviar
     # throttling cuando ``copy`` o ``check`` tardan días pese a tener casi todo en remoto.
-    rclone_gmail_vault_tpslimit: int = Field(default=0, ge=0, le=2000)
-    rclone_gmail_vault_tpslimit_burst: int = Field(default=0, ge=0, le=2000)
+    rclone_gmail_vault_tpslimit: int = Field(default=_GV_TPS, ge=0, le=2000)
+    rclone_gmail_vault_tpslimit_burst: int = Field(default=_GV_TPS_BURST, ge=0, le=2000)
     # Cómo decide rclone si un archivo ya está en Drive: por defecto ``size_only`` porque GYB suele tocar
     # muchos mtimes en disco aunque solo haya mensajes nuevos; ``default`` fuerza comparación más estricta
     # (más lenta, parece «recorrer todo»); ``checksum`` es la más lenta; ``size_only`` asume que dos .eml
@@ -165,6 +171,55 @@ class Settings(BaseSettings):
         if not s or s.startswith("#"):
             return ""
         return s
+
+    @field_validator(
+        "rclone_gmail_vault_transfers",
+        "rclone_gmail_vault_checkers",
+        "rclone_gmail_vault_tpslimit",
+        "rclone_gmail_vault_tpslimit_burst",
+        mode="before",
+    )
+    @classmethod
+    def _gmail_vault_ints_skip_empty(cls, v: object, info: ValidationInfo) -> object:
+        """Un ``RCLONE_*=`` vacío en .env rompía ``Settings()`` y el contenedor no arrancaba (502 vía proxy)."""
+        if isinstance(v, str) and not v.strip():
+            field = getattr(info, "field_name", None)
+            if field == "rclone_gmail_vault_transfers":
+                return _GV_TRANSFERS
+            if field == "rclone_gmail_vault_checkers":
+                return _GV_CHECKERS
+            if field == "rclone_gmail_vault_tpslimit":
+                return _GV_TPS
+            if field == "rclone_gmail_vault_tpslimit_burst":
+                return _GV_TPS_BURST
+        return v
+
+    @field_validator("rclone_gmail_vault_compare", mode="before")
+    @classmethod
+    def _normalize_gmail_vault_compare(cls, v: object) -> str:
+        if v is None:
+            return "size_only"
+        s = str(v).strip().lower().replace("-", "_")
+        if s in ("sizeonly",):
+            s = "size_only"
+        allowed = frozenset({"default", "size_only", "checksum"})
+        if s in allowed:
+            return s
+        return "size_only"
+
+    @field_validator("rclone_gmail_vault_no_traverse", mode="before")
+    @classmethod
+    def _coerce_gmail_vault_no_traverse(cls, v: object) -> bool:
+        if isinstance(v, bool):
+            return v
+        if v is None:
+            return False
+        s = str(v).strip().lower()
+        if s in ("1", "true", "yes", "on", "si", "sí", "y"):
+            return True
+        if s in ("0", "false", "no", "off", "", "n"):
+            return False
+        return False
 
     @computed_field  # type: ignore[misc]
     @property
