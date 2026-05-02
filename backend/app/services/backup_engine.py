@@ -12,6 +12,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import os
+import re
 import shutil
 import uuid
 from datetime import UTC, datetime
@@ -41,6 +42,19 @@ from app.services.maildir_paths import maildir_home_from_email, maildir_root_for
 from app.services.progress_bus import publish
 from app.services.vault_report_upload import upload_backup_success_report
 from app.utils.gmail_export_counts import count_gyb_export
+
+_RCLONE_STATS_PCT = re.compile(r"(\d+(?:\.\d+)?)\s*%")
+
+
+def _rclone_line_progress_pct(line: str) -> float | None:
+    """Porcentaje en líneas ``Transferred: …, 12%, …`` de rclone (--stats-one-line)."""
+    m = _RCLONE_STATS_PCT.search(line)
+    if not m:
+        return None
+    try:
+        return max(0.0, min(100.0, float(m.group(1))))
+    except ValueError:
+        return None
 
 
 def _purge_gyb_workdir_contents(work_root: Path) -> None:
@@ -183,13 +197,47 @@ async def run_gmail_vault_push_phase(
         if mk_rc != 0:
             return False, f"vault_rclone_mkdir_rc={mk_rc}\n{mk_out[-4000:]}"
 
+        async def _emit_vault_rclone(line: str, phase: str) -> None:
+            s = line.strip()
+            if not s:
+                return
+            try:
+                payload: dict[str, Any] = {
+                    "stage": "progress",
+                    "scope": "gmail",
+                    "phase": phase,
+                    "raw": s,
+                }
+                pct = _rclone_line_progress_pct(s)
+                if pct is not None:
+                    payload["progress_pct"] = round(pct, 2)
+                await publish(log_id_str, payload)
+            except Exception:
+                pass
+
+        def _vault_rclone_on_line(phase: str):
+            def _on_line(line: str) -> None:
+                if not line.strip():
+                    return
+                try:
+                    loop = asyncio.get_running_loop()
+                except RuntimeError:
+                    return
+                loop.create_task(_emit_vault_rclone(line, phase))
+
+            return _on_line
+
         pargv = rclone_service.build_rclone_local_to_vault_argv(
             str(work_root),
             push_cfg,
             dest_subpath=subp,
             dry_run=False,
         )
-        vrc, vout = await rclone_service.run_rclone(pargv, cancel_log_id=log_id_str)
+        vrc, vout = await rclone_service.run_rclone(
+            pargv,
+            on_line=_vault_rclone_on_line("vault_copy"),
+            cancel_log_id=log_id_str,
+        )
         await db.refresh(log)
         if log.status == BackupStatus.CANCELLED.value:
             return False, "cancelled"
@@ -206,7 +254,11 @@ async def run_gmail_vault_push_phase(
                 push_cfg,
                 dest_subpath=subp,
             )
-            crc, cout = await rclone_service.run_rclone(cargv, cancel_log_id=log_id_str)
+            crc, cout = await rclone_service.run_rclone(
+                cargv,
+                on_line=_vault_rclone_on_line("vault_check"),
+                cancel_log_id=log_id_str,
+            )
             await db.refresh(log)
             if log.status == BackupStatus.CANCELLED.value:
                 return False, "cancelled"

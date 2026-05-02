@@ -86,10 +86,21 @@ function describeLiveProgress(p: Record<string, unknown> | null | undefined): st
   }
   if (stage === 'progress') {
     const raw = typeof p.raw === 'string' ? p.raw.trim() : ''
+    const phase = String(p.phase ?? '')
+    const isVault =
+      p.scope === 'gmail' && (phase === 'vault_copy' || phase === 'vault_check')
+    const prefix =
+      isVault && phase === 'vault_check'
+        ? 'Verificación vault 1-GMAIL (rclone check)'
+        : isVault
+          ? 'Subida vault 1-GMAIL (rclone copy)'
+          : 'Drive (rclone)'
+    const pctN = typeof p.progress_pct === 'number' ? p.progress_pct : null
+    const pct = pctN != null ? ` · ~${Math.round(pctN)}%` : ''
     if (raw) {
-      return `Drive (rclone): ${raw.slice(0, 280)}${raw.length > 280 ? '…' : ''}`
+      return `${prefix}: ${raw.slice(0, 260)}${raw.length > 260 ? '…' : ''}${pct}`
     }
-    return 'Copiando o sincronizando archivos de Google Drive (rclone)…'
+    return `${prefix} en curso…${pct}`
   }
   if (stage === 'computers_backup_skipped')
     return 'Sin carpeta «Computadoras»/«Computers» en la raíz de Mi unidad: finalizado sin copiar (ver informe en 3-REPORTS/logs).'
