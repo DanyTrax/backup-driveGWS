@@ -4,6 +4,7 @@ import { Avatar, Dropdown } from 'flowbite-react'
 import clsx from 'clsx'
 import {
   HiChartPie,
+  HiCloud,
   HiCog,
   HiCube,
   HiDocumentSearch,
@@ -40,6 +41,12 @@ const NAV: NavItem[] = [
     to: '/gyb-work',
     label: 'GYB trabajo',
     icon: <HiFolderOpen className="h-5 w-5 shrink-0" />,
+    permAny: ['mailbox.view_all', 'mailbox.view_delegated'],
+  },
+  {
+    to: '/gyb-vault-work',
+    label: 'GYB en Drive',
+    icon: <HiCloud className="h-5 w-5 shrink-0" />,
     permAny: ['mailbox.view_all', 'mailbox.view_delegated'],
   },
   { to: '/accounts', label: 'Cuentas', icon: <HiUserGroup className="h-5 w-5 shrink-0" />, perm: 'accounts.view' },

@@ -465,18 +465,25 @@ export function useMailboxMessage(accountId: string | null, folderId: string, me
   })
 }
 
-export function useGybWorkAccounts() {
+/** Prefijo API: carpeta local del worker o copia GYB bajo el vault en Drive. */
+export type GybWorkApiScope = 'gyb-work' | 'gyb-vault-work'
+
+export function useGybWorkAccounts(scope: GybWorkApiScope = 'gyb-work') {
   return useQuery({
-    queryKey: ['gyb-work-accounts'],
-    queryFn: async () => (await api.get<GybWorkAccount[]>('/accounts/gyb-work/accounts')).data,
+    queryKey: ['gyb-work-accounts', scope],
+    queryFn: async () => (await api.get<GybWorkAccount[]>(`/accounts/${scope}/accounts`)).data,
   })
 }
 
-export function useGybWorkFolders(accountId: string | null, view: 'disk' | 'labels') {
+export function useGybWorkFolders(
+  accountId: string | null,
+  view: 'disk' | 'labels',
+  scope: GybWorkApiScope = 'gyb-work',
+) {
   return useQuery({
-    queryKey: ['gyb-work-folders', accountId, view],
+    queryKey: ['gyb-work-folders', scope, accountId, view],
     queryFn: async () =>
-      (await api.get<MailboxFolder[]>(`/accounts/${accountId}/gyb-work/folders`, { params: { view } }))
+      (await api.get<MailboxFolder[]>(`/accounts/${accountId}/${scope}/folders`, { params: { view } }))
         .data,
     enabled: Boolean(accountId),
   })
@@ -494,11 +501,13 @@ export function useGybWorkMessages(
     sortBy: 'header_date' | 'mtime'
     sortOrder: 'desc' | 'asc'
   },
+  scope: GybWorkApiScope = 'gyb-work',
 ) {
   const { view, folderId, labelId, q, offset, listScope, sortBy, sortOrder } = params
   return useQuery({
     queryKey: [
       'gyb-work-messages',
+      scope,
       accountId,
       view,
       folderId,
@@ -522,7 +531,7 @@ export function useGybWorkMessages(
       else reqParams.label = labelId
       if (q) reqParams.q = q
       return (
-        await api.get<GybWorkMessagesPage>(`/accounts/${accountId}/gyb-work/messages`, {
+        await api.get<GybWorkMessagesPage>(`/accounts/${accountId}/${scope}/messages`, {
           params: reqParams,
           timeout: MAILBOX_LIST_TIMEOUT_MS,
         })
@@ -534,12 +543,16 @@ export function useGybWorkMessages(
   })
 }
 
-export function useGybWorkMessage(accountId: string | null, messageKey: string | null) {
+export function useGybWorkMessage(
+  accountId: string | null,
+  messageKey: string | null,
+  scope: GybWorkApiScope = 'gyb-work',
+) {
   return useQuery({
-    queryKey: ['gyb-work-message', accountId, messageKey],
+    queryKey: ['gyb-work-message', scope, accountId, messageKey],
     queryFn: async () =>
       (
-        await api.get<MailboxMessageBody>(`/accounts/${accountId}/gyb-work/message`, {
+        await api.get<MailboxMessageBody>(`/accounts/${accountId}/${scope}/message`, {
           params: { key: messageKey! },
           timeout: MAILBOX_MESSAGE_TIMEOUT_MS,
         })

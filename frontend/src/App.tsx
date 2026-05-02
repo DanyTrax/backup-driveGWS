@@ -15,6 +15,7 @@ import WebmailPage from './pages/WebmailPage'
 import WebmailAssignPasswordPage from './pages/WebmailAssignPasswordPage'
 import MailboxBrowserPage from './pages/MailboxBrowserPage'
 import GybWorkBrowserPage from './pages/GybWorkBrowserPage'
+import GybVaultWorkBrowserPage from './pages/GybVaultWorkBrowserPage'
 import AccountMailDataPage from './pages/AccountMailDataPage'
 import MaintenancePage from './pages/MaintenancePage'
 
@@ -52,6 +53,8 @@ export default function App() {
         <Route path="/accounts/:accountId/mailbox" element={<MailboxRoute />} />
         <Route path="/gyb-work" element={<GybWorkBrowserPage />} />
         <Route path="/gyb-work/:accountId" element={<GybWorkBrowserPage />} />
+        <Route path="/gyb-vault-work" element={<GybVaultWorkBrowserPage />} />
+        <Route path="/gyb-vault-work/:accountId" element={<GybVaultWorkBrowserPage />} />
         <Route path="/accounts/:accountId/mail-data" element={<AccountMailDataPage />} />
         <Route path="/tasks" element={<TasksPage />} />
         <Route path="/logs" element={<LogsPage />} />

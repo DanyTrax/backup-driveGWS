@@ -163,16 +163,7 @@ def encode_eml_rel_key(rel: Path) -> str:
 
 def decode_eml_path(work_root: Path, key: str) -> Path:
     """Resuelve ``key`` a ruta ``.eml`` bajo ``work_root`` (sin traversal)."""
-    key = (key or "").strip()
-    if not key:
-        raise ValueError("invalid_key")
-    pad = "=" * ((4 - len(key) % 4) % 4)
-    try:
-        rel_s = base64.urlsafe_b64decode(key + pad).decode("utf-8")
-    except Exception as exc:
-        raise ValueError("invalid_key") from exc
-    if not rel_s or rel_s.startswith("/") or ".." in rel_s.split("/"):
-        raise ValueError("invalid_key")
+    rel_s = decode_gyb_eml_relpath(key)
     wr = work_root.resolve()
     target = (wr / rel_s).resolve()
     try:
@@ -186,13 +177,59 @@ def decode_eml_path(work_root: Path, key: str) -> Path:
     return target
 
 
-def _headers_from_eml(path: Path, max_bytes: int = 96_000) -> tuple[str, str, str | None]:
-    data = path.read_bytes()[:max_bytes]
-    msg = email.message_from_bytes(data, policy=compat32)
+def decode_gyb_eml_relpath(key: str) -> str:
+    """Ruta relativa bajo la raíz GYB (disco o ``1-GMAIL/gyb_mbox`` en vault) a partir de ``key``."""
+    key = (key or "").strip()
+    if not key:
+        raise ValueError("invalid_key")
+    pad = "=" * ((4 - len(key) % 4) % 4)
+    try:
+        rel_s = base64.urlsafe_b64decode(key + pad).decode("utf-8")
+    except Exception as exc:
+        raise ValueError("invalid_key") from exc
+    if not rel_s or rel_s.startswith("/") or ".." in rel_s.split("/"):
+        raise ValueError("invalid_key")
+    if not rel_s.lower().endswith(".eml"):
+        raise ValueError("not_eml")
+    return rel_s
+
+
+def read_gyb_eml_message(work_root: Path, *, key: str) -> MessageBody:
+    path = decode_eml_path(work_root, key)
+    raw = path.read_bytes()
+    return read_gyb_eml_message_from_bytes(raw, key=key)
+
+
+def read_gyb_eml_message_from_bytes(raw: bytes, *, key: str) -> MessageBody:
+    msg = BytesParser(policy=compat32).parsebytes(raw)
+    subject = _decode_mime_header(msg.get("Subject")) or "(sin asunto)"
+    from_ = _decode_mime_header(msg.get("From")) or "—"
+    date = msg.get("Date")
+    tpl, thtml, attachments, _ = _extract_body_and_attachments(msg)
+    return MessageBody(
+        key=key,
+        subject=subject,
+        from_addr=from_,
+        date_display=date,
+        text_plain=tpl,
+        text_html=thtml,
+        attachments=attachments,
+    )
+
+
+def _headers_from_eml_bytes(data: bytes, max_bytes: int = 96_000) -> tuple[str, str, str | None]:
+    chunk = data[:max_bytes] if max_bytes else data
+    msg = email.message_from_bytes(chunk, policy=compat32)
     subject = _decode_mime_header(msg.get("Subject")) or "(sin asunto)"
     from_ = _decode_mime_header(msg.get("From")) or "—"
     date = msg.get("Date")
     return subject, from_, date
+
+
+def _headers_from_eml(path: Path, max_bytes: int = 96_000) -> tuple[str, str, str | None]:
+    with open(path, "rb") as f:
+        chunk = f.read(max_bytes)
+    return _headers_from_eml_bytes(chunk, max_bytes=max_bytes)
 
 
 @dataclass
@@ -341,11 +378,18 @@ def _load_labels_by_relpath(work_root: Path) -> dict[str, list[str]]:
 
 
 def _path_matches_search(path: Path, q_lower: str) -> bool:
+    try:
+        data = path.read_bytes()[:96_000]
+    except OSError:
+        return False
+    return _eml_bytes_matches_search(data, q_lower)
+
+
+def _eml_bytes_matches_search(data: bytes, q_lower: str) -> bool:
     if not q_lower:
         return True
     try:
-        data = path.read_bytes()[:96_000]
-        msg = email.message_from_bytes(data, policy=compat32)
+        msg = email.message_from_bytes(data[:96_000], policy=compat32)
         blob_parts: list[str] = []
         for h in (
             "Subject",
@@ -404,7 +448,7 @@ def _path_matches_search(path: Path, q_lower: str) -> bool:
             except Exception:
                 pass
         return False
-    except OSError:
+    except Exception:
         return False
 
 
@@ -598,29 +642,18 @@ def list_gyb_eml_summaries_for_label(
     )
 
 
-def read_gyb_eml_message(work_root: Path, *, key: str) -> MessageBody:
-    path = decode_eml_path(work_root, key)
-    raw = path.read_bytes()
-    msg = BytesParser(policy=compat32).parsebytes(raw)
-    subject = _decode_mime_header(msg.get("Subject")) or "(sin asunto)"
-    from_ = _decode_mime_header(msg.get("From")) or "—"
-    date = msg.get("Date")
-    tpl, thtml, attachments, _ = _extract_body_and_attachments(msg)
-    return MessageBody(
-        key=key,
-        subject=subject,
-        from_addr=from_,
-        date_display=date,
-        text_plain=tpl,
-        text_html=thtml,
-        attachments=attachments,
-    )
-
-
 def read_gyb_eml_leaf_bytes(path: Path, *, leaf_index: int) -> tuple[bytes, str | None, str]:
     if leaf_index < 0:
         raise ValueError("invalid_leaf_index")
     raw = path.read_bytes()
+    return read_gyb_eml_leaf_bytes_from_bytes(raw, leaf_index=leaf_index)
+
+
+def read_gyb_eml_leaf_bytes_from_bytes(
+    raw: bytes, *, leaf_index: int
+) -> tuple[bytes, str | None, str]:
+    if leaf_index < 0:
+        raise ValueError("invalid_leaf_index")
     msg = BytesParser(policy=compat32).parsebytes(raw)
     i = 0
     for part in msg.walk():

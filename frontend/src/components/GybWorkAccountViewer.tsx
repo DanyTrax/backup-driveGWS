@@ -16,7 +16,13 @@ import toast from 'react-hot-toast'
 import { HiArrowLeft, HiSearch } from 'react-icons/hi'
 import api from '../api/client'
 import { downloadGybWorkAttachment } from '../api/gybWorkAttachment'
-import { useGybWorkAccounts, useGybWorkFolders, useGybWorkMessage, useGybWorkMessages } from '../api/hooks'
+import type { GybWorkApiScope } from '../api/hooks'
+import {
+  useGybWorkAccounts,
+  useGybWorkFolders,
+  useGybWorkMessage,
+  useGybWorkMessages,
+} from '../api/hooks'
 import type { MailboxMessageBody, MailboxMessageSummary } from '../api/types'
 import { MAILBOX_MESSAGE_TIMEOUT_MS } from '../api/types'
 import { wrapMailHtmlFragment } from '../utils/mailHtmlWrap'
@@ -66,7 +72,11 @@ function writePopupLoadingDocument(w: Window): void {
   d.close()
 }
 
-async function openGybWorkMessageInPopup(accountId: string, messageKey: string) {
+async function openGybWorkMessageInPopup(
+  accountId: string,
+  messageKey: string,
+  scope: GybWorkApiScope = 'gyb-work',
+) {
   // Abrir ya en el gesto de usuario (doble clic); sin noopener para conservar referencia al document.
   // Tras await, window.open() suele quedar bloqueado o devolver null.
   const w = window.open('about:blank', '_blank', 'width=1024,height=800')
@@ -77,7 +87,7 @@ async function openGybWorkMessageInPopup(accountId: string, messageKey: string) 
   writePopupLoadingDocument(w)
 
   try {
-    const { data } = await api.get<MailboxMessageBody>(`/accounts/${accountId}/gyb-work/message`, {
+    const { data } = await api.get<MailboxMessageBody>(`/accounts/${accountId}/${scope}/message`, {
       params: { key: messageKey },
       timeout: MAILBOX_MESSAGE_TIMEOUT_MS,
     })
@@ -151,11 +161,20 @@ export type GybWorkAccountViewerVariant = 'standalone' | 'embedded'
 export type GybWorkAccountViewerProps = {
   accountId: string
   variant: GybWorkAccountViewerVariant
+  /** Carpeta local del worker (default) o copia acumulada en Drive ``1-GMAIL/gyb_mbox``. */
+  source?: 'local' | 'vault'
 }
 
-export default function GybWorkAccountViewer({ accountId: id, variant }: GybWorkAccountViewerProps) {
+export default function GybWorkAccountViewer({
+  accountId: id,
+  variant,
+  source = 'local',
+}: GybWorkAccountViewerProps) {
   const navigate = useNavigate()
-  const [viewMode, setViewMode] = useState<'disk' | 'labels'>('labels')
+  const apiScope: GybWorkApiScope = source === 'vault' ? 'gyb-vault-work' : 'gyb-work'
+  const vaultMode = source === 'vault'
+  const [internalViewMode, setInternalViewMode] = useState<'disk' | 'labels'>('labels')
+  const viewMode: 'disk' | 'labels' = vaultMode ? 'disk' : internalViewMode
   const [folderId, setFolderId] = useState('')
   const [labelId, setLabelId] = useState('')
   const [page, setPage] = useState(0)
@@ -209,19 +228,23 @@ export default function GybWorkAccountViewer({ accountId: id, variant }: GybWork
     [id],
   )
 
-  const accountsQ = useGybWorkAccounts()
-  const foldersQ = useGybWorkFolders(id, viewMode)
-  const msgsQ = useGybWorkMessages(id, {
-    view: viewMode,
-    folderId,
-    labelId,
-    q: searchCommitted,
-    offset: page * 80,
-    listScope,
-    sortBy,
-    sortOrder,
-  })
-  const bodyQ = useGybWorkMessage(id, selectedKey)
+  const accountsQ = useGybWorkAccounts(apiScope)
+  const foldersQ = useGybWorkFolders(id, viewMode, apiScope)
+  const msgsQ = useGybWorkMessages(
+    id,
+    {
+      view: viewMode,
+      folderId,
+      labelId,
+      q: searchCommitted,
+      offset: page * 80,
+      listScope,
+      sortBy,
+      sortOrder,
+    },
+    apiScope,
+  )
+  const bodyQ = useGybWorkMessage(id, selectedKey, apiScope)
 
   const folders = foldersQ.data ?? []
   const items = msgsQ.data?.items ?? []
@@ -355,39 +378,50 @@ export default function GybWorkAccountViewer({ accountId: id, variant }: GybWork
   }
 
   const standalone = variant === 'standalone'
+  const listBasePath = vaultMode ? '/gyb-vault-work' : '/gyb-work'
 
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-2 md:gap-3">
         {standalone ? (
-          <Button color="light" size="sm" onClick={() => navigate('/gyb-work')}>
+          <Button color="light" size="sm" onClick={() => navigate(listBasePath)}>
             <HiArrowLeft className="h-4 w-4 mr-2" /> Otra cuenta
           </Button>
         ) : (
-          <Button color="light" size="sm" onClick={() => navigate(`/gyb-work/${id}`)}>
+          <Button color="light" size="sm" onClick={() => navigate(`${listBasePath}/${id}`)}>
             Abrir vista GYB completa
           </Button>
         )}
         <h1 className="text-xl font-semibold">
-          {standalone ? 'Mensajes GYB · carpeta de trabajo' : 'Bandeja de trabajo GYB'}
+          {standalone
+            ? vaultMode
+              ? 'Mensajes GYB · copia en Google Drive'
+              : 'Mensajes GYB · carpeta de trabajo'
+            : vaultMode
+              ? 'Bandeja GYB · vault (Drive)'
+              : 'Bandeja de trabajo GYB'}
         </h1>
         <Badge color="info">{currentAccountEmail ?? id}</Badge>
-        <div className="flex rounded-lg border border-slate-200 dark:border-slate-600 overflow-hidden text-sm">
-          <button
-            type="button"
-            className={`px-3 py-1.5 ${viewMode === 'disk' ? 'bg-blue-600 text-white' : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200'}`}
-            onClick={() => setViewMode('disk')}
-          >
-            Carpetas en disco
-          </button>
-          <button
-            type="button"
-            className={`px-3 py-1.5 border-l border-slate-200 dark:border-slate-600 ${viewMode === 'labels' ? 'bg-blue-600 text-white' : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200'}`}
-            onClick={() => setViewMode('labels')}
-          >
-            Etiquetas Gmail
-          </button>
-        </div>
+        {vaultMode ? (
+          <Badge color="gray">1-GMAIL/gyb_mbox · rclone</Badge>
+        ) : (
+          <div className="flex rounded-lg border border-slate-200 dark:border-slate-600 overflow-hidden text-sm">
+            <button
+              type="button"
+              className={`px-3 py-1.5 ${viewMode === 'disk' ? 'bg-blue-600 text-white' : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200'}`}
+              onClick={() => setInternalViewMode('disk')}
+            >
+              Carpetas en disco
+            </button>
+            <button
+              type="button"
+              className={`px-3 py-1.5 border-l border-slate-200 dark:border-slate-600 ${viewMode === 'labels' ? 'bg-blue-600 text-white' : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200'}`}
+              onClick={() => setInternalViewMode('labels')}
+            >
+              Etiquetas Gmail
+            </button>
+          </div>
+        )}
       </div>
 
       <div className="max-w-3xl space-y-3">
@@ -414,6 +448,12 @@ export default function GybWorkAccountViewer({ accountId: id, variant }: GybWork
             ))}
           </Select>
         </div>
+        {vaultMode ? (
+          <p className="text-xs text-slate-500 dark:text-slate-400">
+            Orden de la lista: fecha de modificación del archivo en Google Drive (no la cabecera <code className="text-[10px]">Date</code> del correo).
+            La búsqueda descarga un fragmento de cada <code className="text-[10px]">.eml</code> en el ámbito vía rclone.
+          </p>
+        ) : null}
         <p className="text-xs text-slate-500 dark:text-slate-400">
           Atajos con foco fuera de campos: <kbd className="px-1 rounded bg-slate-200 dark:bg-slate-700">j</kbd> /{' '}
           <kbd className="px-1 rounded bg-slate-200 dark:bg-slate-700">k</kbd> mensaje siguiente/anterior;{' '}
@@ -421,16 +461,27 @@ export default function GybWorkAccountViewer({ accountId: id, variant }: GybWork
         </p>
         {listScope === 'all' ? (
           <p className="text-xs text-amber-800 dark:text-amber-200/90">
-            Vista global: puede tardar en buzones muy grandes. En «Etiquetas Gmail» se usa{' '}
-            <code className="text-[10px]">msg-db.sqlite</code>; sin ese archivo la API devuelve error.
+            Vista global: puede tardar en buzones muy grandes.
+            {vaultMode
+              ? ' Cada mensaje implica lectura remota.'
+              : ' En «Etiquetas Gmail» se usa msg-db.sqlite; sin ese archivo la API devuelve error.'}
           </p>
         ) : null}
       </div>
 
       {msgsQ.isError && (
         <Alert color="failure">
-          {(msgsQ.error as Error)?.message ?? 'Error'}. Si ves <code>gyb_work_no_export</code>, esta cuenta no
-          tiene export en la carpeta de trabajo.
+          {(msgsQ.error as Error)?.message ?? 'Error'}.{' '}
+          {vaultMode ? (
+            <>
+              Si ves <code>missing_drive_vault_folder_id</code>, falta la carpeta vault de la cuenta. Otros códigos
+              suelen ser de rclone o permisos sobre el Shared Drive.
+            </>
+          ) : (
+            <>
+              Si ves <code>gyb_work_no_export</code>, esta cuenta no tiene export en la carpeta de trabajo.
+            </>
+          )}
         </Alert>
       )}
 
@@ -512,7 +563,7 @@ export default function GybWorkAccountViewer({ accountId: id, variant }: GybWork
                     onClick={() => setSelectedKey(m.id)}
                     onDoubleClick={(e) => {
                       e.preventDefault()
-                      void openGybWorkMessageInPopup(id, m.id)
+                      void openGybWorkMessageInPopup(id, m.id, apiScope)
                     }}
                   >
                     <div className="flex items-start gap-1">
@@ -642,6 +693,7 @@ export default function GybWorkAccountViewer({ accountId: id, variant }: GybWork
                               key: selectedKey,
                               leafIndex: a.leaf_index,
                               filename: a.filename,
+                              scope: apiScope,
                             }).catch(() => toast.error('No se pudo descargar el adjunto'))
                           }}
                         >

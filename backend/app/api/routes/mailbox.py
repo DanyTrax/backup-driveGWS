@@ -36,6 +36,14 @@ from app.schemas.mailbox import (
     MailboxMessageSummaryOut,
 )
 from app.services.audit_service import record_audit
+from app.services.gyb_vault_work_browser_service import (
+    RcloneVaultGybError,
+    get_gyb_vault_eml_rows_cached,
+    list_gyb_vault_eml_summaries,
+    list_gyb_vault_work_folders,
+    read_gyb_vault_eml_leaf,
+    read_gyb_vault_eml_message,
+)
 from app.services.gyb_work_browser_service import (
     decode_eml_path,
     list_gyb_eml_summaries,
@@ -45,6 +53,7 @@ from app.services.gyb_work_browser_service import (
     read_gyb_eml_leaf_bytes,
     read_gyb_eml_message,
 )
+from app.services.rclone_service import build_rclone_vault_dest_only_config
 from app.services.mail_purge_service import _dir_size, gyb_work_root_for_email
 from app.services.mailbox_browser_service import (
     list_maildir_folders,
@@ -99,6 +108,263 @@ async def gyb_work_list_accounts(
             )
         )
     return out
+
+
+@router.get(
+    "/gyb-vault-work/accounts",
+    response_model=list[GybWorkAccountOut],
+    summary="Cuentas con vault de Drive (GYB en 1-GMAIL/gyb_mbox) para leer .eml vía rclone",
+)
+async def gyb_vault_work_list_accounts(
+    db: AsyncSession = Depends(get_db),
+    current: SysUser = Depends(require_any_permission("mailbox.view_all", "mailbox.view_delegated")),
+) -> list[GybWorkAccountOut]:
+    stmt = select(GwAccount).order_by(GwAccount.email.asc())
+    perms = get_user_permissions(current)
+    if "mailbox.view_delegated" in perms and "mailbox.view_all" not in perms:
+        stmt = stmt.where(
+            GwAccount.id.in_(
+                select(SysUserMailboxDelegation.gw_account_id).where(
+                    SysUserMailboxDelegation.sys_user_id == current.id
+                )
+            )
+        )
+    rows = (await db.execute(stmt)).scalars().all()
+    out: list[GybWorkAccountOut] = []
+    for a in rows:
+        if not (a.drive_vault_folder_id or "").strip():
+            continue
+        out.append(
+            GybWorkAccountOut(
+                id=str(a.id),
+                email=a.email,
+                work_size_bytes=None,
+                has_msg_db=False,
+            )
+        )
+    return out
+
+
+@router.get(
+    "/{account_id}/gyb-vault-work/folders",
+    response_model=list[MailboxFolderOut],
+    summary="Carpetas (árbol de .eml) bajo 1-GMAIL/gyb_mbox en el vault de la cuenta",
+)
+async def gyb_vault_work_list_folders(
+    account_id: uuid.UUID,
+    view: Literal["disk", "labels"] = Query(
+        "disk",
+        description="Solo disk; la vista por etiquetas requiere msg-db.sqlite local (Bandeja GYB).",
+    ),
+    db: AsyncSession = Depends(get_db),
+    _u: SysUser = Depends(mailbox_reader_for_path_account),
+) -> list[MailboxFolderOut]:
+    if view == "labels":
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            "gyb_vault_work_labels_not_supported",
+        )
+    acc = await _load(db, account_id)
+    vault_id = (acc.drive_vault_folder_id or "").strip()
+    if not vault_id:
+        raise HTTPException(status.HTTP_409_CONFLICT, "missing_drive_vault_folder_id")
+    async with build_rclone_vault_dest_only_config(db, vault_folder_id=vault_id) as cfg:
+        try:
+            rows = await asyncio.to_thread(
+                get_gyb_vault_eml_rows_cached,
+                cfg,
+                account_id=acc.id,
+                vault_folder_id=vault_id,
+            )
+        except RcloneVaultGybError as exc:
+            raise HTTPException(status.HTTP_502_BAD_GATEWAY, str(exc)) from exc
+    folders = list_gyb_vault_work_folders(rows)
+    return [MailboxFolderOut(id=f.folder_id, name=f.display_name) for f in folders]
+
+
+@router.get(
+    "/{account_id}/gyb-vault-work/messages",
+    response_model=GybWorkMessagesPageOut,
+    summary="Listar .eml bajo 1-GMAIL/gyb_mbox en el vault ( orden por ModTime en Drive )",
+)
+async def gyb_vault_work_list_messages(
+    account_id: uuid.UUID,
+    view: Literal["disk", "labels"] = Query("disk"),
+    folder: str = Query(
+        "",
+        max_length=2048,
+        description="Ruta relativa bajo gyb_mbox (solo vista disk).",
+    ),
+    label: str = Query("", max_length=512),
+    q: str = Query(
+        "",
+        max_length=200,
+        description="Filtrar por texto en cabeceras/cuerpo parcial (un rclone cat por mensaje en el ámbito).",
+    ),
+    list_scope: Literal["folder", "all"] = Query("folder"),
+    sort_by: Literal["header_date", "mtime"] = Query(
+        "header_date",
+        description="En vault se usa siempre la fecha de modificación remota (lsjson); el parámetro se ignora.",
+    ),
+    sort_order: Literal["desc", "asc"] = Query("desc"),
+    limit: int = Query(80, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+    db: AsyncSession = Depends(get_db),
+    _u: SysUser = Depends(mailbox_reader_for_path_account),
+) -> GybWorkMessagesPageOut:
+    if view == "labels" or (label or "").strip():
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            "gyb_vault_work_labels_not_supported",
+        )
+    acc = await _load(db, account_id)
+    vault_id = (acc.drive_vault_folder_id or "").strip()
+    if not vault_id:
+        raise HTTPException(status.HTTP_409_CONFLICT, "missing_drive_vault_folder_id")
+    q_clean = q.strip()
+    async with build_rclone_vault_dest_only_config(db, vault_folder_id=vault_id) as cfg:
+        try:
+            rows = await asyncio.to_thread(
+                get_gyb_vault_eml_rows_cached,
+                cfg,
+                account_id=acc.id,
+                vault_folder_id=vault_id,
+            )
+            page = await asyncio.to_thread(
+                list_gyb_vault_eml_summaries,
+                cfg,
+                all_rows=rows,
+                folder_id=folder,
+                limit=limit,
+                offset=offset,
+                q=q_clean or None,
+                list_scope=list_scope,
+                sort_by=sort_by,
+                sort_order=sort_order,
+            )
+        except RcloneVaultGybError as exc:
+            raise HTTPException(status.HTTP_502_BAD_GATEWAY, str(exc)) from exc
+    fid = folder.strip()
+    return GybWorkMessagesPageOut(
+        view="disk",
+        folder_id=fid,
+        label="",
+        search=q_clean,
+        list_scope=list_scope,
+        sort_by=sort_by,
+        sort_order=sort_order,
+        offset=offset,
+        limit=limit,
+        has_more=page.has_more,
+        total_in_scope=page.total_in_scope,
+        total_matches=page.total_matches,
+        items=[
+            MailboxMessageSummaryOut(
+                id=x.key,
+                subject=x.subject,
+                from_=x.from_addr,
+                date=x.date_display,
+                size=x.size,
+                labels=list(x.labels) if x.labels else [],
+            )
+            for x in page.items
+        ],
+    )
+
+
+@router.get(
+    "/{account_id}/gyb-vault-work/message",
+    response_model=MailboxMessageBodyOut,
+    summary="Leer un .eml desde 1-GMAIL/gyb_mbox en el vault",
+)
+async def gyb_vault_work_get_message(
+    account_id: uuid.UUID,
+    key: str = Query(
+        ...,
+        min_length=1,
+        max_length=4096,
+        description="Clave del listado de mensajes vault",
+    ),
+    db: AsyncSession = Depends(get_db),
+    _u: SysUser = Depends(mailbox_reader_for_path_account),
+) -> MailboxMessageBodyOut:
+    acc = await _load(db, account_id)
+    vault_id = (acc.drive_vault_folder_id or "").strip()
+    if not vault_id:
+        raise HTTPException(status.HTTP_409_CONFLICT, "missing_drive_vault_folder_id")
+    async with build_rclone_vault_dest_only_config(db, vault_folder_id=vault_id) as cfg:
+        try:
+            body = await asyncio.to_thread(lambda: read_gyb_vault_eml_message(cfg, key=key))
+        except ValueError as exc:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+        except FileNotFoundError as exc:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "message_not_found") from exc
+        except RcloneVaultGybError as exc:
+            raise HTTPException(status.HTTP_502_BAD_GATEWAY, str(exc)) from exc
+    return MailboxMessageBodyOut(
+        id=body.key,
+        subject=body.subject,
+        from_=body.from_addr,
+        date=body.date_display,
+        text_plain=body.text_plain,
+        text_html=body.text_html,
+        attachments=[
+            MailboxAttachmentOut(
+                leaf_index=a.leaf_index,
+                filename=a.filename,
+                content_type=a.content_type,
+                size=a.size,
+                disposition=a.disposition,
+                content_id=a.content_id,
+            )
+            for a in body.attachments
+        ],
+    )
+
+
+@router.get(
+    "/{account_id}/gyb-vault-work/attachment",
+    summary="Adjunto de un .eml en el vault (rclone cat)",
+    response_class=Response,
+)
+async def gyb_vault_work_get_attachment_part(
+    account_id: uuid.UUID,
+    key: str = Query(..., min_length=1, max_length=4096),
+    leaf_index: int = Query(..., ge=0, description="Índice de hoja en attachments[].leaf_index"),
+    db: AsyncSession = Depends(get_db),
+    _u: SysUser = Depends(mailbox_reader_for_path_account),
+) -> Response:
+    acc = await _load(db, account_id)
+    vault_id = (acc.drive_vault_folder_id or "").strip()
+    if not vault_id:
+        raise HTTPException(status.HTTP_409_CONFLICT, "missing_drive_vault_folder_id")
+    async with build_rclone_vault_dest_only_config(db, vault_folder_id=vault_id) as cfg:
+        try:
+            data, filename, content_type = await asyncio.to_thread(
+                read_gyb_vault_eml_leaf,
+                cfg,
+                key=key,
+                leaf_index=leaf_index,
+            )
+        except ValueError as exc:
+            code = str(exc)
+            if code in ("invalid_leaf_index", "part_decode_error"):
+                raise HTTPException(status.HTTP_400_BAD_REQUEST, code) from exc
+            if code == "leaf_index_out_of_range":
+                raise HTTPException(status.HTTP_404_NOT_FOUND, code) from exc
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+        except FileNotFoundError as exc:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "message_not_found") from exc
+        except RcloneVaultGybError as exc:
+            raise HTTPException(status.HTTP_502_BAD_GATEWAY, str(exc)) from exc
+
+    safe = _content_disposition_filename(filename)
+    cd = f'attachment; filename="{safe}"'
+    return Response(
+        content=data,
+        media_type=content_type or "application/octet-stream",
+        headers={"Content-Disposition": cd},
+    )
 
 
 @router.get(

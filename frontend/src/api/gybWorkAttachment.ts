@@ -1,11 +1,18 @@
+import type { GybWorkApiScope } from './hooks'
 import api from './client'
 import { MAILBOX_MESSAGE_TIMEOUT_MS } from './types'
 
 export async function downloadGybWorkAttachment(
   accountId: string,
-  params: { key: string; leafIndex: number; filename?: string | null },
+  params: {
+    key: string
+    leafIndex: number
+    filename?: string | null
+    scope?: GybWorkApiScope
+  },
 ): Promise<void> {
-  const resp = await api.get<Blob>(`/accounts/${accountId}/gyb-work/attachment`, {
+  const scope = params.scope ?? 'gyb-work'
+  const resp = await api.get<Blob>(`/accounts/${accountId}/${scope}/attachment`, {
     params: { key: params.key, leaf_index: params.leafIndex },
     responseType: 'blob',
     timeout: MAILBOX_MESSAGE_TIMEOUT_MS,
