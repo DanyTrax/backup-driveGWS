@@ -84,17 +84,40 @@ function describeLiveProgress(p: Record<string, unknown> | null | undefined): st
     if (sc === 'drive_root' || sc === 'drive_computadoras') return 'Iniciando copia/sincronización de Google Drive…'
     return `Iniciando (${sc})…`
   }
+  if (stage === 'drive_dated_plan') {
+    const chain = typeof p.chain_run === 'string' ? p.chain_run : ''
+    const cmp = typeof p.compare_folder === 'string' ? p.compare_folder : ''
+    const n = typeof p.dated_snapshots_existing === 'number' ? p.dated_snapshots_existing : null
+    const nTxt = n != null ? String(n) : '—'
+    if (chain === 'incremental') {
+      return `Plan MSA_Runs: corrida incremental respecto a «${cmp || 'la última carpeta'}» (compare-dest). Carpetas ya en MSA_Runs: ${nTxt}. En seguida arranca rclone…`
+    }
+    if (chain === 'full') {
+      return `Plan MSA_Runs: copia ancla completa (TOTAL: nueva carpeta con sello). Carpetas existentes antes: ${nTxt}. En seguida arranca rclone…`
+    }
+    return `Planificando destino fechado en 2-DRIVE/MSA_Runs (${chain || '…'}).`
+  }
   if (stage === 'progress') {
     const raw = typeof p.raw === 'string' ? p.raw.trim() : ''
     const phase = String(p.phase ?? '')
     const isVault =
       p.scope === 'gmail' && (phase === 'vault_copy' || phase === 'vault_check')
-    const prefix =
-      isVault && phase === 'vault_check'
+    const isDriveScope = p.scope === 'drive'
+    const rcloneMode =
+      typeof p.rclone_mode === 'string' ? (p.rclone_mode === 'sync' ? 'sync' : 'copy') : null
+    const destShort =
+      typeof p.dest_subpath === 'string' && p.dest_subpath
+        ? p.dest_subpath.length > 72
+          ? `${p.dest_subpath.slice(0, 69)}…`
+          : p.dest_subpath
+        : ''
+    const prefix = isVault
+      ? phase === 'vault_check'
         ? 'Verificación vault 1-GMAIL (rclone check)'
-        : isVault
-          ? 'Subida vault 1-GMAIL (rclone copy)'
-          : 'Drive (rclone)'
+        : 'Subida vault 1-GMAIL (rclone copy)'
+      : isDriveScope
+        ? `Respaldo Drive → bóveda (rclone ${rcloneMode ?? 'copy/sync'})${destShort ? ` → …/${destShort}` : ''}`
+        : 'Drive (rclone)'
     const pctN = typeof p.progress_pct === 'number' ? p.progress_pct : null
     const pct = pctN != null ? ` · ~${Math.round(pctN)}%` : ''
     if (raw) {

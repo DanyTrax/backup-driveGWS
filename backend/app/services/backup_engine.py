@@ -648,14 +648,40 @@ async def run_drive_backup(
                 compare_dest_remotes=compare_dest_remotes,
             )
 
-            def _on_line(line: str) -> None:
-                asyncio.run_coroutine_threadsafe(
-                    publish(log_id, {"stage": "progress", "raw": line}),
-                    asyncio.get_event_loop(),
-                )
+            async def _emit_drive_rclone(line: str) -> None:
+                s = line.strip()
+                if not s:
+                    return
+                try:
+                    payload: dict[str, Any] = {
+                        "stage": "progress",
+                        "scope": "drive",
+                        "phase": "rclone",
+                        "rclone_mode": mode,
+                        "raw": s,
+                    }
+                    if dest_subpath:
+                        payload["dest_subpath"] = dest_subpath
+                    pct = _rclone_line_progress_pct(s)
+                    if pct is not None:
+                        payload["progress_pct"] = round(pct, 2)
+                    await publish(log_id, payload)
+                except Exception:
+                    pass
+
+            def _drive_rclone_on_line(line: str) -> None:
+                if not line.strip():
+                    return
+                try:
+                    loop = asyncio.get_running_loop()
+                except RuntimeError:
+                    return
+                loop.create_task(_emit_drive_rclone(line))
 
             rc, output = await rclone_service.run_rclone(
-                argv, on_line=lambda _ln: None, cancel_log_id=log_id
+                argv,
+                on_line=_drive_rclone_on_line,
+                cancel_log_id=log_id,
             )
             await db.refresh(log)
             if log.status == BackupStatus.CANCELLED.value:
