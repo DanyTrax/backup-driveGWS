@@ -10,6 +10,7 @@ from app.api.routes import (
     auth,
     backup,
     health,
+    host_ops,
     mailbox,
     meta,
     notifications,
@@ -37,3 +38,4 @@ api_router.include_router(webmail.router)
 api_router.include_router(notifications.router)
 api_router.include_router(settings_routes.router)
 api_router.include_router(admin.router)
+api_router.include_router(host_ops.router)

@@ -50,6 +50,16 @@ def cleanup_expired_sessions() -> dict[str, Any]:
     return run_async(with_session(inner))
 
 
+@celery_app.task(name="app.workers.tasks.maintenance.host_docker_prune_scheduled_tick")
+def host_docker_prune_scheduled_tick() -> dict[str, Any]:
+    from app.services.host_ops_service import maybe_run_scheduled_docker_prune
+
+    async def inner(db: AsyncSession) -> dict[str, Any]:
+        return await maybe_run_scheduled_docker_prune(db)
+
+    return run_async(with_session(inner))
+
+
 @celery_app.task(name="app.workers.tasks.maintenance.dispatch_scheduled_backups")
 def dispatch_scheduled_backups() -> dict[str, Any]:
     """Scan enabled backup_tasks that match the current minute and queue them."""

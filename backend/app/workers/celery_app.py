@@ -53,4 +53,8 @@ celery_app.conf.beat_schedule = {
         "task": "app.workers.tasks.maintenance.dispatch_scheduled_backups",
         "schedule": crontab(minute="*/5"),
     },
+    "host-docker-prune-tick": {
+        "task": "app.workers.tasks.maintenance.host_docker_prune_scheduled_tick",
+        "schedule": crontab(minute="*/5"),
+    },
 }

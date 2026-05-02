@@ -11,6 +11,8 @@ import type {
   GitRefreshResult,
   GybWorkAccount,
   GybWorkMessagesPage,
+  HostOpsConfig,
+  HostOpsSchedule,
   MailboxFolder,
   MailboxMessageBody,
   MailboxMessagesPage,
@@ -587,5 +589,45 @@ export function useGitRefresh() {
 export function usePlatformBackupRun() {
   return useMutation({
     mutationFn: async () => (await api.post<PlatformBackupResult>('/admin/platform-backup')).data,
+  })
+}
+
+export function useHostOpsConfig() {
+  return useQuery({
+    queryKey: ['host-ops-config'],
+    queryFn: async () => (await api.get<HostOpsConfig>('/admin/host-ops/config')).data,
+  })
+}
+
+export function useDockerPruneRun() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (preset: 'light' | 'deep') =>
+      (await api.post<Record<string, unknown>>('/admin/host-ops/docker-prune', { preset })).data,
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['host-ops-config'] })
+    },
+  })
+}
+
+export function useHostOpsScheduleSave() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (payload: HostOpsSchedule) =>
+      (await api.put<HostOpsSchedule>('/admin/host-ops/docker-prune-schedule', payload)).data,
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['host-ops-config'] })
+    },
+  })
+}
+
+export function useStackDeployRun() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (mode: 'frontend' | 'frontend_backend' | 'rebuild_app' | 'full') =>
+      (await api.post<Record<string, unknown>>('/admin/host-ops/stack-deploy', { mode })).data,
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['host-ops-config'] })
+    },
   })
 }

@@ -99,6 +99,14 @@ class Settings(BaseSettings):
     # Export ZIP del Maildir desde el panel. 0 = sin límite de tamaño (proveedor/ops asume el riesgo).
     maildir_export_max_bytes: int = 0
 
+    host_docker_control_enabled: bool = False
+    host_stack_deploy_enabled: bool = False
+    host_docker_socket_path: str = "/var/run/docker.sock"
+    host_stack_mount_path: str = ""
+    host_compose_project_subdir: str = "docker"
+    host_compose_env_file: str = "../.env"
+    host_git_path: str = ""
+
     @field_validator("account_verify_gyb_timeout_seconds", mode="before")
     @classmethod
     def _non_negative_verify_gyb_tmo(cls, v: object) -> int:
@@ -106,6 +114,13 @@ class Settings(BaseSettings):
             return 0
         n = int(v)
         return max(0, n)
+
+    @field_validator("host_docker_socket_path", "host_stack_mount_path", "host_git_path", mode="before")
+    @classmethod
+    def _strip_host_paths(cls, v: object) -> str:
+        if v is None:
+            return ""
+        return str(v).strip()
 
     @field_validator("maildir_export_max_bytes", mode="before")
     @classmethod

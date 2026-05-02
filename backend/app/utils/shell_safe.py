@@ -24,6 +24,7 @@ ALLOWED_BINARIES = {
     "git": "/usr/bin/git",
     "age": "/usr/bin/age",
     "tar": "/bin/tar",
+    "docker": "/usr/local/bin/docker",
 }
 
 

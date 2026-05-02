@@ -67,6 +67,16 @@ PERMISSIONS: tuple[PermissionSpec, ...] = (
     PermissionSpec("platform", "backup", "Ejecutar platform backup manualmente"),
     PermissionSpec(
         "platform",
+        "host_docker",
+        "Limpieza programada o manual de imágenes Docker en el host (containerd; requiere docker.sock)",
+    ),
+    PermissionSpec(
+        "platform",
+        "stack_deploy",
+        "Actualizar la pila desde el panel (git pull / docker compose build; requiere montaje del repo + socket)",
+    ),
+    PermissionSpec(
+        "platform",
         "purge_all_mail_local",
         "Eliminar todas las copias locales de correo de todas las cuentas (Maildir, GYB, logs Gmail BD, tokens webmail)",
     ),

@@ -31,10 +31,21 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 # - xz-utils: tar -xJf necesita el binario `xz` para extraer .tar.xz (GYB)
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
-      curl ca-certificates unzip xz-utils git gcc libpq-dev libmagic1 tini age \
+      curl ca-certificates       unzip xz-utils git gcc libpq-dev libmagic1 tini age \
       postgresql-client fonts-dejavu-core \
       tzdata supervisor \
  && rm -rf /var/lib/apt/lists/*
+
+# Cliente Docker + Compose v2 (limpieza / despliegue desde el panel si montás docker.sock)
+COPY --from=docker:27-cli /usr/local/bin/docker /usr/local/bin/docker
+ARG DOCKER_COMPOSE_VERSION=2.31.0
+RUN mkdir -p /usr/local/lib/docker/cli-plugins \
+ && ARCH=$(dpkg --print-architecture) \
+ && case "$ARCH" in arm64) DC=aarch64 ;; *) DC=x86_64 ;; esac \
+ && curl -fsSL \
+      "https://github.com/docker/compose/releases/download/v${DOCKER_COMPOSE_VERSION}/docker-compose-linux-${DC}" \
+      -o /usr/local/lib/docker/cli-plugins/docker-compose \
+ && chmod +x /usr/local/lib/docker/cli-plugins/docker-compose
 
 # Install rclone (latest stable)
 RUN curl -fsSL https://rclone.org/install.sh | bash \

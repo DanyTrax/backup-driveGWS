@@ -12,6 +12,7 @@ import {
   HiMenu,
   HiOutlineLogout,
   HiRefresh,
+  HiServer,
   HiShieldCheck,
   HiUserGroup,
 } from 'react-icons/hi'
@@ -47,6 +48,12 @@ const NAV: NavItem[] = [
   { to: '/webmail', label: 'Webmail', icon: <HiMail className="h-5 w-5 shrink-0" />, perm: 'webmail.sso_admin' },
   { to: '/users', label: 'Usuarios', icon: <HiShieldCheck className="h-5 w-5 shrink-0" />, perm: 'users.view' },
   { to: '/settings', label: 'Configuración', icon: <HiCog className="h-5 w-5 shrink-0" />, perm: 'settings.view' },
+  {
+    to: '/maintenance',
+    label: 'Mantenimiento',
+    icon: <HiServer className="h-5 w-5 shrink-0" />,
+    permAny: ['platform.host_docker', 'platform.stack_deploy'],
+  },
 ]
 
 function readSidebarExpanded(): boolean {

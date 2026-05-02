@@ -40,6 +40,10 @@ services:
       - platform_backups:/platform_backups
       # Export GYB (.eml): mismo path en app y worker (reintento vault; sin esto la API no ve los archivos del worker).
       - gyb_work_gmail:/var/msa/work/gmail
+      # Opcional — mantenimiento Docker / despliegue desde el panel (HOST_* en .env):
+      # - /var/run/docker.sock:/var/run/docker.sock
+      # Misma ruta en host y contenedor para que build vea el contexto:
+      # - /opt/stacks/backup-stack:/opt/stacks/backup-stack
     depends_on:
       postgres:
         condition: service_healthy
@@ -80,6 +84,8 @@ services:
       - maildirs:/var/mail/vhosts
       - platform_backups:/platform_backups
       - gyb_work_gmail:/var/msa/work/gmail
+      # Opcional — misma razón que en ``app`` si usás limpieza Docker programada (Celery worker ejecuta la tarea):
+      # - /var/run/docker.sock:/var/run/docker.sock
     depends_on:
       postgres:
         condition: service_healthy

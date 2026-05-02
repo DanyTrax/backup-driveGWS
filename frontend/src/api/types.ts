@@ -362,3 +362,21 @@ export interface PlatformBackupResult {
   filename?: string
   retention_deleted?: string[]
 }
+
+export interface HostOpsSchedule {
+  enabled: boolean
+  preset: 'light' | 'deep'
+  hour: number
+  minute: number
+  dow: number | null
+  last_run_date?: string | null
+}
+
+export interface HostOpsConfig {
+  docker_control_enabled: boolean
+  stack_deploy_enabled: boolean
+  docker_socket_present: boolean
+  stack_path_configured: boolean
+  compose_dir: string | null
+  schedule: HostOpsSchedule
+}

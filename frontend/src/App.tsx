@@ -16,6 +16,7 @@ import WebmailAssignPasswordPage from './pages/WebmailAssignPasswordPage'
 import MailboxBrowserPage from './pages/MailboxBrowserPage'
 import GybWorkBrowserPage from './pages/GybWorkBrowserPage'
 import AccountMailDataPage from './pages/AccountMailDataPage'
+import MaintenancePage from './pages/MaintenancePage'
 
 import { hideMaildirWebmailUi } from './config/ui'
 
@@ -59,6 +60,7 @@ export default function App() {
         <Route path="/setup" element={<WizardPage />} />
         <Route path="/users" element={<UsersPage />} />
         <Route path="/settings" element={<SettingsPage />} />
+        <Route path="/maintenance" element={<MaintenancePage />} />
         <Route path="/profile" element={<ProfilePage />} />
       </Route>
       <Route path="/" element={<Navigate to="/dashboard" replace />} />
