@@ -13,6 +13,8 @@ import type {
   GybWorkMessagesPage,
   HostOpsConfig,
   HostOpsSchedule,
+  StackDeployResult,
+  StackDeployMode,
   MailboxFolder,
   MailboxMessageBody,
   MailboxMessagesPage,
@@ -624,8 +626,8 @@ export function useHostOpsScheduleSave() {
 export function useStackDeployRun() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: async (mode: 'frontend' | 'frontend_backend' | 'rebuild_app' | 'full') =>
-      (await api.post<Record<string, unknown>>('/admin/host-ops/stack-deploy', { mode })).data,
+    mutationFn: async (mode: StackDeployMode) =>
+      (await api.post<StackDeployResult>('/admin/host-ops/stack-deploy', { mode })).data,
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ['host-ops-config'] })
     },

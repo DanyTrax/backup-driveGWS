@@ -380,3 +380,20 @@ export interface HostOpsConfig {
   compose_dir: string | null
   schedule: HostOpsSchedule
 }
+
+/** Paso devuelto por prune/deploy (salida de shell en el backend). */
+export interface HostOpsShellStep {
+  cmd: string
+  rc: number
+  stderr_tail?: string
+  note?: string
+}
+
+export type StackDeployMode = 'frontend' | 'frontend_backend' | 'rebuild_app' | 'full'
+
+export interface StackDeployResult {
+  ok: boolean
+  mode?: StackDeployMode
+  error?: string
+  steps?: HostOpsShellStep[]
+}

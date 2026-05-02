@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   Alert,
   Button,
@@ -18,6 +18,7 @@ import {
   useProfile,
   useStackDeployRun,
 } from '../api/hooks'
+import type { StackDeployMode, StackDeployResult } from '../api/types'
 
 const DOW_OPTS: { v: string; label: string }[] = [
   { v: '', label: 'Todos los días' },
@@ -30,6 +31,19 @@ const DOW_OPTS: { v: string; label: string }[] = [
   { v: '6', label: 'Sábado' },
 ]
 
+const STACK_MODE_LABEL: Record<StackDeployMode, string> = {
+  frontend: 'Solo front (build app + up app)',
+  frontend_backend: 'Front + worker/beat',
+  rebuild_app: 'Solo rebuild imagen app',
+  full: 'Completo (git pull + compose)',
+}
+
+type StackDeployTerminalState =
+  | { kind: 'idle' }
+  | { kind: 'running'; mode: StackDeployMode }
+  | { kind: 'done'; result: StackDeployResult }
+  | { kind: 'error'; message: string }
+
 export default function MaintenancePage() {
   const { data: profile } = useProfile()
   const perms = useMemo(() => new Set(profile?.permissions ?? []), [profile?.permissions])
@@ -40,6 +54,9 @@ export default function MaintenancePage() {
   const pruneMut = useDockerPruneRun()
   const schedMut = useHostOpsScheduleSave()
   const deployMut = useStackDeployRun()
+
+  const stackTermScrollRef = useRef<HTMLDivElement>(null)
+  const [stackTerm, setStackTerm] = useState<StackDeployTerminalState>({ kind: 'idle' })
 
   const s = cfgQ.data?.schedule
   const [schedEnabled, setSchedEnabled] = useState(false)
@@ -56,6 +73,12 @@ export default function MaintenancePage() {
     setSchedMinute(s.minute)
     setSchedDow(s.dow == null ? '' : String(s.dow))
   }, [s])
+
+  useEffect(() => {
+    const el = stackTermScrollRef.current
+    if (!el) return
+    el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' })
+  }, [stackTerm])
 
   if (!canDocker && !canDeploy) {
     return (
@@ -86,8 +109,30 @@ export default function MaintenancePage() {
     cfgQ.data?.docker_socket_present &&
     cfgQ.data?.stack_path_configured
 
+  async function runStackDeploy(mode: StackDeployMode) {
+    if (mode === 'full' && !window.confirm('¿Git pull + build + up de toda la pila?')) return
+    setStackTerm({ kind: 'running', mode })
+    try {
+      const result = await deployMut.mutateAsync(mode)
+      setStackTerm({ kind: 'done', result })
+      if (result.ok) {
+        toast.success(
+          mode === 'full' ? 'Despliegue completo' : mode === 'rebuild_app' ? 'Build app OK' : 'Listo',
+        )
+      } else {
+        toast.error('Falló — revisá la salida abajo')
+      }
+    } catch {
+      setStackTerm({
+        kind: 'error',
+        message: 'No se pudo completar la solicitud (red o error del servidor).',
+      })
+      toast.error('Error de red')
+    }
+  }
+
   return (
-    <div className="space-y-6 max-w-4xl">
+    <div className="space-y-6 max-w-5xl">
       <div>
         <h1 className="text-xl font-semibold text-slate-900 dark:text-white flex items-center gap-2">
           <HiServer className="h-6 w-6" /> Mantenimiento del host
@@ -239,57 +284,127 @@ export default function MaintenancePage() {
                   <code className="text-xs">HOST_STACK_MOUNT_PATH=/opt/stacks/backup-stack</code>.
                 </Alert>
               ) : (
-                <div className="flex flex-wrap gap-2">
-                  <Button
-                    size="sm"
-                    color="light"
-                    disabled={deployMut.isPending}
-                    onClick={() =>
-                      void deployMut.mutateAsync('frontend').then((r) =>
-                        (r as { ok?: boolean }).ok ? toast.success('Listo') : toast.error('Falló'),
-                      )
-                    }
-                  >
-                    Solo front (build app + up app)
-                  </Button>
-                  <Button
-                    size="sm"
-                    color="light"
-                    disabled={deployMut.isPending}
-                    onClick={() =>
-                      void deployMut.mutateAsync('frontend_backend').then((r) =>
-                        (r as { ok?: boolean }).ok ? toast.success('Listo') : toast.error('Falló'),
-                      )
-                    }
-                  >
-                    Front + worker/beat
-                  </Button>
-                  <Button
-                    size="sm"
-                    color="gray"
-                    disabled={deployMut.isPending}
-                    onClick={() =>
-                      void deployMut.mutateAsync('rebuild_app').then((r) =>
-                        (r as { ok?: boolean }).ok ? toast.success('Build app OK') : toast.error('Falló'),
-                      )
-                    }
-                  >
-                    Solo rebuild imagen app
-                  </Button>
-                  <Button
-                    size="sm"
-                    color="failure"
-                    disabled={deployMut.isPending}
-                    onClick={() => {
-                      if (!window.confirm('¿Git pull + build + up de toda la pila?')) return
-                      void deployMut.mutateAsync('full').then((r) =>
-                        (r as { ok?: boolean }).ok ? toast.success('Despliegue completo') : toast.error('Falló'),
-                      )
-                    }}
-                  >
-                    Completo (git pull + compose)
-                  </Button>
-                </div>
+                <>
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      size="sm"
+                      color="light"
+                      disabled={deployMut.isPending}
+                      onClick={() => void runStackDeploy('frontend')}
+                    >
+                      Solo front (build app + up app)
+                    </Button>
+                    <Button
+                      size="sm"
+                      color="light"
+                      disabled={deployMut.isPending}
+                      onClick={() => void runStackDeploy('frontend_backend')}
+                    >
+                      Front + worker/beat
+                    </Button>
+                    <Button
+                      size="sm"
+                      color="gray"
+                      disabled={deployMut.isPending}
+                      onClick={() => void runStackDeploy('rebuild_app')}
+                    >
+                      Solo rebuild imagen app
+                    </Button>
+                    <Button
+                      size="sm"
+                      color="failure"
+                      disabled={deployMut.isPending}
+                      onClick={() => void runStackDeploy('full')}
+                    >
+                      Completo (git pull + compose)
+                    </Button>
+                  </div>
+
+                  <div className="mt-6 space-y-2">
+                    <div className="flex items-center justify-between gap-2">
+                      <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-200">
+                        Salida del despliegue
+                      </h3>
+                      <span className="text-[10px] uppercase tracking-wide text-slate-500">simulación de consola</span>
+                    </div>
+                    <div
+                      ref={stackTermScrollRef}
+                      className="rounded-lg border border-slate-700 dark:border-slate-600 bg-slate-950 text-slate-100 font-mono text-[11px] leading-relaxed shadow-inner max-h-[min(28rem,55vh)] overflow-y-auto overflow-x-auto"
+                    >
+                      <div className="sticky top-0 flex items-center gap-2 border-b border-slate-800 bg-slate-900/95 px-3 py-1.5 text-[10px] text-slate-500">
+                        <span className="inline-flex gap-1">
+                          <span className="h-2 w-2 rounded-full bg-red-500/80" />
+                          <span className="h-2 w-2 rounded-full bg-amber-500/80" />
+                          <span className="h-2 w-2 rounded-full bg-green-500/80" />
+                        </span>
+                        <span>host-ops — stack-deploy</span>
+                      </div>
+                      <div className="p-3 space-y-4">
+                        {stackTerm.kind === 'idle' ? (
+                          <p className="text-slate-500">
+                            Ejecutá una acción arriba. Aquí verás cada comando, el código de salida y el final de{' '}
+                            <span className="text-slate-400">stderr</span> (truncado en el servidor). Puede tardar varios
+                            minutos.
+                          </p>
+                        ) : null}
+
+                        {stackTerm.kind === 'running' ? (
+                          <div className="space-y-1">
+                            <p className="text-amber-400/90 animate-pulse">⟳ Ejecutando en el servidor…</p>
+                            <p className="text-slate-500">
+                              Modo: <span className="text-slate-300">{STACK_MODE_LABEL[stackTerm.mode]}</span>
+                            </p>
+                          </div>
+                        ) : null}
+
+                        {stackTerm.kind === 'error' ? (
+                          <p className="text-red-400 font-medium">{stackTerm.message}</p>
+                        ) : null}
+
+                        {stackTerm.kind === 'done' ? (
+                          <div className="space-y-3">
+                            <p
+                              className={
+                                stackTerm.result.ok
+                                  ? 'text-emerald-400 font-medium'
+                                  : 'text-red-400 font-medium'
+                              }
+                            >
+                              {stackTerm.result.ok
+                                ? '✓ Finalizado correctamente'
+                                : `✗ Error: ${stackTerm.result.error ?? 'desconocido'}`}
+                            </p>
+                            {(stackTerm.result.steps ?? []).length === 0 && stackTerm.result.error ? (
+                              <p className="text-slate-500">No hay pasos registrados (falló la comprobación inicial).</p>
+                            ) : null}
+                            {(stackTerm.result.steps ?? []).map((step, i) => (
+                              <div
+                                key={`${step.cmd}-${i}`}
+                                className="border-l-2 border-slate-700 pl-3 space-y-1"
+                              >
+                                <div className="text-green-400">
+                                  <span className="text-slate-600 select-none mr-2">$</span>
+                                  {step.cmd}
+                                </div>
+                                <div className={step.rc === 0 ? 'text-slate-400' : 'text-red-400'}>
+                                  → exit {step.rc}
+                                  {step.note ? (
+                                    <span className="text-slate-500"> — {step.note}</span>
+                                  ) : null}
+                                </div>
+                                {step.stderr_tail ? (
+                                  <pre className="mt-1 max-h-48 overflow-y-auto whitespace-pre-wrap break-words rounded bg-black/40 px-2 py-1.5 text-slate-400 text-[10px]">
+                                    {step.stderr_tail}
+                                  </pre>
+                                ) : null}
+                              </div>
+                            ))}
+                          </div>
+                        ) : null}
+                      </div>
+                    </div>
+                  </div>
+                </>
               )}
             </Card>
           ) : null}
