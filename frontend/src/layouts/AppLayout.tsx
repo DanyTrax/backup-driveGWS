@@ -92,16 +92,17 @@ function SystemTimeFooter({ brand }: { brand: ReturnType<typeof mergeBranding> }
   })
 
   return (
-    <footer className="shrink-0 border-t border-slate-200/60 bg-white px-4 py-2 dark:border-slate-800/60 dark:bg-slate-900 md:px-6">
-      <div className="flex flex-col items-center justify-center gap-1 sm:flex-row sm:flex-wrap sm:gap-x-4 sm:gap-y-0.5 text-center">
-        <p className="text-[10px] leading-none tracking-wide text-slate-400 dark:text-slate-500">
-          <time dateTime={now.toISOString()} title="Hora del navegador (sistema local)">
-            {label}
-          </time>
-        </p>
+    <footer className="grid shrink-0 grid-cols-[1fr_auto_1fr] items-center gap-x-3 border-t border-slate-200/60 bg-white px-4 py-2.5 dark:border-slate-800/60 dark:bg-slate-900 md:px-6">
+      <span className="min-w-0" aria-hidden />
+      <p className="col-start-2 justify-self-center text-center text-sm leading-snug tracking-wide text-slate-500 dark:text-slate-400">
+        <time dateTime={now.toISOString()} title="Hora del navegador (sistema local)">
+          {label}
+        </time>
+      </p>
+      <div className="col-start-3 min-w-0 justify-self-end text-right">
         <BrandingFooterCredit
           brand={brand}
-          className="m-0 text-[10px] leading-none text-slate-500 dark:text-slate-400"
+          className="m-0 text-sm leading-snug text-slate-500 dark:text-slate-400"
           linkClassName="underline decoration-slate-400/80 underline-offset-2 hover:text-slate-700 dark:hover:text-slate-200"
         />
       </div>

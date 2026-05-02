@@ -160,10 +160,10 @@ export default function LoginPage() {
         </form>
         </Card>
       </div>
-      <footer className="shrink-0 py-3 px-4 text-center">
+      <footer className="shrink-0 py-3 px-4 text-right">
         <BrandingFooterCredit
           brand={b}
-          className="m-0 text-xs text-white/90"
+          className="m-0 text-sm text-white/90"
           linkClassName="font-medium underline decoration-white/60 underline-offset-2 hover:text-white"
         />
       </footer>
