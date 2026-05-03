@@ -17,19 +17,19 @@ class SysUserVaultDriveDelegation(UUIDPKMixin, TimestampMixin, Base):
 
     sys_user_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("sys_users.id", ondelete="CASCADE"),
+        ForeignKey("sys_users.id", ondelete="CASCADE", name="fk_vault_drv_del_sys_user"),
         nullable=False,
         index=True,
     )
     gw_account_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("gw_accounts.id", ondelete="CASCADE"),
+        ForeignKey("gw_accounts.id", ondelete="CASCADE", name="fk_vault_drv_del_gw_account"),
         nullable=False,
         index=True,
     )
     granted_by_user_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("sys_users.id", ondelete="SET NULL"),
+        ForeignKey("sys_users.id", ondelete="SET NULL", name="fk_vault_drv_del_granted_by"),
     )
 
     __table_args__ = (

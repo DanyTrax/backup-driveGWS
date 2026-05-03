@@ -30,19 +30,19 @@ def upgrade() -> None:
         sa.ForeignKeyConstraint(
             ["granted_by_user_id"],
             ["sys_users.id"],
-            name="fk_sys_user_vault_drive_delegations_granted_by_user_id_sys_users",
+            name="fk_vault_drv_del_granted_by",
             ondelete="SET NULL",
         ),
         sa.ForeignKeyConstraint(
             ["gw_account_id"],
             ["gw_accounts.id"],
-            name="fk_sys_user_vault_drive_delegations_gw_account_id_gw_accounts",
+            name="fk_vault_drv_del_gw_account",
             ondelete="CASCADE",
         ),
         sa.ForeignKeyConstraint(
             ["sys_user_id"],
             ["sys_users.id"],
-            name="fk_sys_user_vault_drive_delegations_sys_user_id_sys_users",
+            name="fk_vault_drv_del_sys_user",
             ondelete="CASCADE",
         ),
         sa.PrimaryKeyConstraint("id"),
