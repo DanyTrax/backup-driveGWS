@@ -316,7 +316,7 @@ export default function AppLayout() {
             </Dropdown.Item>
           </Dropdown>
         </header>
-        <main className="flex-1 p-4 md:p-6">
+        <main className="flex min-h-0 flex-1 flex-col p-4 md:p-6">
           <Outlet />
         </main>
         <SystemTimeFooter brand={brand} />

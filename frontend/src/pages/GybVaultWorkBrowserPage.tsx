@@ -13,7 +13,11 @@ export default function GybVaultWorkBrowserPage() {
   const accounts = accountsQ.data ?? []
 
   if (id) {
-    return <GybWorkAccountViewer accountId={id} variant="standalone" source="vault" />
+    return (
+      <div className="flex min-h-0 flex-1 flex-col">
+        <GybWorkAccountViewer accountId={id} variant="standalone" source="vault" />
+      </div>
+    )
   }
 
   return (

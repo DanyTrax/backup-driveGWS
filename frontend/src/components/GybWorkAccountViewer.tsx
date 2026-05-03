@@ -380,8 +380,10 @@ export default function GybWorkAccountViewer({
   const standalone = variant === 'standalone'
   const listBasePath = vaultMode ? '/gyb-vault-work' : '/gyb-work'
 
+  const shellClass = standalone ? 'flex min-h-0 flex-1 flex-col gap-4' : 'space-y-4'
+
   return (
-    <div className="space-y-4">
+    <div className={shellClass}>
       <div className="flex flex-wrap items-center gap-2 md:gap-3">
         {standalone ? (
           <Button color="light" size="sm" onClick={() => navigate(listBasePath)}>
@@ -424,7 +426,7 @@ export default function GybWorkAccountViewer({
         )}
       </div>
 
-      <div className="max-w-3xl space-y-3">
+      <div className={[standalone ? 'shrink-0' : '', 'max-w-3xl space-y-3'].filter(Boolean).join(' ')}>
         <TextInput
           icon={HiSearch}
           type="search"
@@ -470,7 +472,7 @@ export default function GybWorkAccountViewer({
       </div>
 
       {msgsQ.isError && (
-        <Alert color="failure">
+        <Alert color="failure" className={standalone ? 'shrink-0' : undefined}>
           {(msgsQ.error as Error)?.message ?? 'Error'}.{' '}
           {vaultMode ? (
             <>
@@ -486,12 +488,26 @@ export default function GybWorkAccountViewer({
       )}
 
       {foldersQ.isError && (
-        <Alert color="failure">{(foldersQ.error as Error)?.message ?? 'Error cargando carpetas/etiquetas'}</Alert>
+        <Alert color="failure" className={standalone ? 'shrink-0' : undefined}>{(foldersQ.error as Error)?.message ?? 'Error cargando carpetas/etiquetas'}</Alert>
       )}
 
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-12">
-        <Card className="lg:col-span-5">
-          <div className="flex flex-wrap items-center gap-2 mb-2">
+      <div
+        className={[
+          'grid grid-cols-1 gap-4 lg:grid-cols-12 lg:items-stretch lg:gap-4',
+          standalone ? 'min-h-0 flex-1' : 'items-start',
+        ]
+          .filter(Boolean)
+          .join(' ')}
+      >
+        <Card
+          className={[
+            'lg:col-span-4 flex h-full min-h-0 flex-col overflow-hidden',
+            standalone ? 'min-h-[12rem]' : '',
+          ]
+            .filter(Boolean)
+            .join(' ')}
+        >
+          <div className="flex flex-wrap items-center gap-2 mb-2 shrink-0">
             <span className="text-sm font-medium text-slate-600 dark:text-slate-300 shrink-0">Mensajes</span>
             {foldersQ.isLoading ? (
               <Spinner size="sm" />
@@ -528,29 +544,38 @@ export default function GybWorkAccountViewer({
             )}
           </div>
           {listScope === 'all' ? (
-            <p className="text-xs text-slate-500 dark:text-slate-400 mb-2">
+            <p className="mb-2 shrink-0 text-xs text-slate-500 dark:text-slate-400">
               Listado global: puede tardar en buzones muy grandes.
             </p>
           ) : null}
           {!foldersQ.isLoading && folders.length === 0 ? (
-            <p className="text-slate-500 text-xs mb-2">
+            <p className="mb-2 shrink-0 text-xs text-slate-500">
               {viewMode === 'labels'
                 ? 'Sin etiquetas en msg-db (¿falta msg-db.sqlite?). Probá “Carpetas en disco”.'
                 : 'Sin carpetas con .eml (¿solo .mbox?).'}
             </p>
           ) : null}
-          {msgsQ.isLoading ? (
-            <Spinner size="sm" />
-          ) : msgsQ.isError ? (
-            <p className="text-red-600 text-sm">No se pudo listar</p>
-          ) : items.length === 0 ? (
-            <p className="text-slate-500 text-sm">
-              {viewMode === 'labels' && listScope === 'folder' && !labelId
-                ? 'Elegí una etiqueta en el desplegable.'
-                : 'Sin resultados (probá otra carpeta, “Todo el export” o el buscador).'}
-            </p>
-          ) : (
-            <ul className="space-y-1 max-h-[70vh] overflow-y-auto text-sm" aria-label="Lista de mensajes">
+          <div className="flex min-h-0 flex-1 flex-col">
+            {msgsQ.isLoading ? (
+              <Spinner size="sm" />
+            ) : msgsQ.isError ? (
+              <p className="text-sm text-red-600">No se pudo listar</p>
+            ) : items.length === 0 ? (
+              <p className="text-sm text-slate-500">
+                {viewMode === 'labels' && listScope === 'folder' && !labelId
+                  ? 'Elegí una etiqueta en el desplegable.'
+                  : 'Sin resultados (probá otra carpeta, “Todo el export” o el buscador).'}
+              </p>
+            ) : (
+              <ul
+                className={[
+                  'min-h-0 flex-1 space-y-1 overflow-y-auto text-sm overscroll-contain',
+                  standalone ? '' : 'max-h-[min(70vh,480px)]',
+                ]
+                  .filter(Boolean)
+                  .join(' ')}
+                aria-label="Lista de mensajes"
+              >
               {items.map((m: MailboxMessageSummary) => (
                 <li key={m.id}>
                   <button
@@ -592,8 +617,9 @@ export default function GybWorkAccountViewer({
                 </li>
               ))}
             </ul>
-          )}
-          <div className="flex flex-wrap items-center justify-between gap-2 mt-3">
+            )}
+          </div>
+          <div className="mt-auto flex shrink-0 flex-wrap items-center justify-between gap-2 border-t border-slate-100 pt-3 dark:border-slate-700">
             <div className="flex gap-2">
               <Button
                 size="xs"
@@ -620,124 +646,138 @@ export default function GybWorkAccountViewer({
           </div>
         </Card>
 
-        <Card className="lg:col-span-7">
-          <h2 className="text-sm font-medium mb-2">Contenido</h2>
+        <Card
+          className={[
+            'lg:col-span-8 flex h-full min-h-0 flex-col overflow-hidden',
+            standalone ? 'min-h-[12rem]' : '',
+          ]
+            .filter(Boolean)
+            .join(' ')}
+        >
+          <h2 className="mb-2 shrink-0 text-sm font-medium">Contenido</h2>
           {!selectedKey ? (
-            <p className="text-slate-500 text-sm">Seleccioná un mensaje</p>
+            <p className="text-sm text-slate-500">Seleccioná un mensaje</p>
           ) : bodyQ.isLoading ? (
             <Spinner />
           ) : bodyQ.isError ? (
-            <p className="text-red-600 text-sm">No se pudo cargar el mensaje</p>
+            <p className="text-sm text-red-600">No se pudo cargar el mensaje</p>
           ) : bodyQ.data ? (
-            <div className="space-y-3 max-h-[75vh] overflow-y-auto">
-              <div className="flex flex-wrap items-start gap-2">
-                <div className="flex-1 min-w-0">
-                  <div className="font-semibold">{bodyQ.data.subject}</div>
-                  <div className="text-sm text-slate-600 dark:text-slate-300">De: {bodyQ.data.from}</div>
-                  <div className="text-xs text-slate-400">{bodyQ.data.date ?? ''}</div>
+            <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+              <div className="flex min-h-0 flex-1 flex-col gap-0 overflow-hidden">
+                <div className="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain pr-1">
+                  <div className="flex flex-wrap items-start gap-2">
+                    <div className="min-w-0 flex-1">
+                      <div className="font-semibold">{bodyQ.data.subject}</div>
+                      <div className="text-sm text-slate-600 dark:text-slate-300">De: {bodyQ.data.from}</div>
+                      <div className="text-xs text-slate-400">{bodyQ.data.date ?? ''}</div>
+                    </div>
+                    <label className="flex shrink-0 cursor-pointer items-center gap-2 text-xs text-slate-600 dark:text-slate-300">
+                      <Checkbox
+                        checked={reviewedIds.has(selectedKey)}
+                        onChange={() => toggleReviewed(selectedKey)}
+                      />
+                      Revisado
+                    </label>
+                  </div>
+                  {(bodyQ.data.attachments ?? []).length > 0 ? (
+                    <div className="rounded-lg border border-slate-200 p-2 text-sm dark:border-slate-600">
+                      <div className="mb-1 font-medium text-slate-700 dark:text-slate-200">Adjuntos</div>
+                      <ul className="space-y-1">
+                        {(bodyQ.data.attachments ?? []).map((a) => (
+                          <li
+                            key={`${a.leaf_index}-${a.filename ?? a.content_type}`}
+                            className="flex flex-wrap items-center gap-2"
+                          >
+                            <span
+                              className="max-w-[60%] truncate text-slate-600 dark:text-slate-300"
+                              title={a.filename ?? undefined}
+                            >
+                              {a.filename ?? '(sin nombre)'}
+                            </span>
+                            <span className="text-xs text-slate-400">{formatBytes(a.size)}</span>
+                            <Button
+                              size="xs"
+                              color="light"
+                              onClick={() => {
+                                downloadGybWorkAttachment(id, {
+                                  key: selectedKey,
+                                  leafIndex: a.leaf_index,
+                                  filename: a.filename,
+                                  scope: apiScope,
+                                }).catch(() => toast.error('No se pudo descargar el adjunto'))
+                              }}
+                            >
+                              Descargar
+                            </Button>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  ) : null}
+                  {bodyQ.data.text_html ? (
+                    <div className="overflow-hidden rounded border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-800">
+                      <p className="border-b border-slate-200 bg-slate-100 px-2 py-1 text-xs text-slate-500 dark:border-slate-700 dark:bg-slate-800">
+                        Vista HTML
+                      </p>
+                      <iframe
+                        title="html"
+                        className="h-[min(55vh,560px)] min-h-[200px] w-full bg-white dark:bg-slate-900"
+                        sandbox="allow-popups allow-downloads"
+                        srcDoc={iframeSrcDoc}
+                      />
+                    </div>
+                  ) : null}
+                  {bodyQ.data.text_plain ? (
+                    <details
+                      open
+                      className="group overflow-hidden rounded-lg border border-slate-200 dark:border-slate-700"
+                    >
+                      <summary className="flex list-none cursor-pointer select-none items-center justify-between bg-slate-50 px-3 py-2 text-sm font-medium text-slate-700 dark:bg-slate-800 dark:text-slate-200 [&::-webkit-details-marker]:hidden">
+                        <span>Texto plano</span>
+                        <span className="text-xs text-slate-400 group-open:hidden">Mostrar</span>
+                        <span className="hidden text-xs text-slate-400 group-open:inline">Ocultar</span>
+                      </summary>
+                      <pre className="m-0 max-h-[min(50vh,420px)] overflow-auto whitespace-pre-wrap border-t border-slate-200 bg-slate-50 p-3 text-sm dark:border-slate-700 dark:bg-slate-900">
+                        {bodyQ.data.text_plain}
+                      </pre>
+                    </details>
+                  ) : null}
+                  {!bodyQ.data.text_plain && !bodyQ.data.text_html ? (
+                    <p className="text-sm text-slate-500">(Sin cuerpo de texto/HTML legible)</p>
+                  ) : null}
+                  <div className="border-t border-slate-200 pt-3 dark:border-slate-600">
+                    <Label htmlFor="gyb-note" value="Nota de auditoría (local)" className="mb-1" />
+                    <Textarea
+                      id="gyb-note"
+                      rows={2}
+                      value={noteDraft}
+                      placeholder="Solo en este navegador…"
+                      onChange={(e) => setNoteDraft(e.target.value)}
+                    />
+                    <Button
+                      size="xs"
+                      color="light"
+                      className="mt-1"
+                      onClick={() => {
+                        try {
+                          localStorage.setItem(noteStorageKey(id, selectedKey), noteDraft)
+                          toast.success('Nota guardada en el navegador')
+                        } catch {
+                          toast.error('No se pudo guardar la nota')
+                        }
+                      }}
+                    >
+                      Guardar nota
+                    </Button>
+                  </div>
                 </div>
-                <label className="flex items-center gap-2 text-xs text-slate-600 dark:text-slate-300 shrink-0 cursor-pointer">
-                  <Checkbox
-                    checked={reviewedIds.has(selectedKey)}
-                    onChange={() => toggleReviewed(selectedKey)}
-                  />
-                  Revisado
-                </label>
               </div>
-              <div>
-                <Label htmlFor="gyb-note" value="Nota de auditoría (local)" className="mb-1" />
-                <Textarea
-                  id="gyb-note"
-                  rows={2}
-                  value={noteDraft}
-                  placeholder="Solo en este navegador…"
-                  onChange={(e) => setNoteDraft(e.target.value)}
-                />
-                <Button
-                  size="xs"
-                  color="light"
-                  className="mt-1"
-                  onClick={() => {
-                    try {
-                      localStorage.setItem(noteStorageKey(id, selectedKey), noteDraft)
-                      toast.success('Nota guardada en el navegador')
-                    } catch {
-                      toast.error('No se pudo guardar la nota')
-                    }
-                  }}
-                >
-                  Guardar nota
-                </Button>
-              </div>
-              {(bodyQ.data.attachments ?? []).length > 0 ? (
-                <div className="rounded-lg border border-slate-200 dark:border-slate-600 p-2 text-sm">
-                  <div className="font-medium text-slate-700 dark:text-slate-200 mb-1">Adjuntos</div>
-                  <ul className="space-y-1">
-                    {(bodyQ.data.attachments ?? []).map((a) => (
-                      <li
-                        key={`${a.leaf_index}-${a.filename ?? a.content_type}`}
-                        className="flex flex-wrap items-center gap-2"
-                      >
-                        <span
-                          className="text-slate-600 dark:text-slate-300 truncate max-w-[60%]"
-                          title={a.filename ?? undefined}
-                        >
-                          {a.filename ?? '(sin nombre)'}
-                        </span>
-                        <span className="text-xs text-slate-400">{formatBytes(a.size)}</span>
-                        <Button
-                          size="xs"
-                          color="light"
-                          onClick={() => {
-                            downloadGybWorkAttachment(id, {
-                              key: selectedKey,
-                              leafIndex: a.leaf_index,
-                              filename: a.filename,
-                              scope: apiScope,
-                            }).catch(() => toast.error('No se pudo descargar el adjunto'))
-                          }}
-                        >
-                          Descargar
-                        </Button>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              ) : null}
-              {bodyQ.data.text_html ? (
-                <div className="border border-slate-200 dark:border-slate-700 rounded overflow-hidden bg-white dark:bg-slate-800">
-                  <p className="text-xs text-slate-500 px-2 py-1 bg-slate-100 dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700">
-                    Vista HTML
-                  </p>
-                  <iframe
-                    title="html"
-                    className="w-full min-h-[min(70vh,520px)] bg-white dark:bg-slate-900"
-                    sandbox="allow-popups allow-downloads"
-                    srcDoc={iframeSrcDoc}
-                  />
-                </div>
-              ) : null}
-              {bodyQ.data.text_plain ? (
-                <details className="rounded-lg border border-slate-200 dark:border-slate-700 overflow-hidden group">
-                  <summary className="cursor-pointer select-none text-sm font-medium px-3 py-2 bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-200 list-none flex items-center justify-between [&::-webkit-details-marker]:hidden">
-                    <span>Texto plano</span>
-                    <span className="text-xs text-slate-400 group-open:hidden">Mostrar</span>
-                    <span className="text-xs text-slate-400 hidden group-open:inline">Ocultar</span>
-                  </summary>
-                  <pre className="whitespace-pre-wrap text-sm bg-slate-50 dark:bg-slate-900 p-3 border-t border-slate-200 dark:border-slate-700 max-h-[40vh] overflow-auto m-0">
-                    {bodyQ.data.text_plain}
-                  </pre>
-                </details>
-              ) : null}
-              {!bodyQ.data.text_plain && !bodyQ.data.text_html ? (
-                <p className="text-slate-500 text-sm">(Sin cuerpo de texto/HTML legible)</p>
-              ) : null}
             </div>
           ) : null}
         </Card>
       </div>
 
-      <div className="flex flex-wrap items-center gap-4 pt-3 mt-1 border-t border-slate-200 dark:border-slate-700">
+      <div className={[standalone ? 'mt-auto shrink-0 border-t border-slate-200 pt-3 dark:border-slate-700' : 'pt-3 mt-1 border-t border-slate-200 dark:border-slate-700', 'flex flex-wrap items-center gap-4'].filter(Boolean).join(' ')}>
         <Button size="xs" color="light" onClick={downloadCurrentPageCsv} disabled={items.length === 0}>
           CSV (esta página)
         </Button>
