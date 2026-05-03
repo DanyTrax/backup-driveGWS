@@ -71,6 +71,14 @@ function describeLiveProgress(p: Record<string, unknown> | null | undefined): st
     const sub = typeof p.subpath === 'string' ? p.subpath : '1-GMAIL/…'
     return `Subiendo el export a la bóveda de Google Drive del usuario (ruta relativa: ${sub}).`
   }
+  if (stage === 'vault_copy_done') {
+    const sub = typeof p.subpath === 'string' ? p.subpath : '1-GMAIL/…'
+    return `Copia rclone a la bóveda terminada (${sub}). Si la tarea verifica antes de purgar, ahora sigue rclone check (puede tardar sin % claro).`
+  }
+  if (stage === 'vault_check_start') {
+    const sub = typeof p.subpath === 'string' ? p.subpath : '1-GMAIL/…'
+    return `Verificando vault con rclone check (${sub}): comparación de hashes; puede ir mucho tiempo; el panel se actualiza con las líneas de estadísticas de rclone.`
+  }
   if (stage === 'vault_ensure_dest') {
     const sub = typeof p.subpath === 'string' ? p.subpath : '1-GMAIL/…'
     return `Comprobando o recreando la carpeta en el vault antes de subir (${sub}).`
@@ -503,7 +511,7 @@ export default function LogsPage() {
                   </div>
                   <p className="text-sm text-slate-800 dark:text-slate-200 mt-2 leading-relaxed">
                     {describeLiveProgress(detailQuery.data.live_progress ?? null) ||
-                      'Todavía no llegó telemetría al panel (esperá unos segundos). Si persiste, comprobá Redis y el worker.'}
+                      'Sin telemetría reciente en el panel: el worker puede estar en una fase larga (p. ej. rclone check) o sin salida momentánea. Usá el Celery task id abajo para buscar en logs del worker.'}
                   </p>
                   <p className="text-xs text-slate-500 dark:text-slate-400 mt-2">
                     Gmail suele pasar por: <strong>GYB</strong> (descarga) → <strong>Maildir</strong> (importación

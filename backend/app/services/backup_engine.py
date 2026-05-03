@@ -244,11 +244,28 @@ async def run_gmail_vault_push_phase(
         if vrc != 0:
             return False, f"vault_rclone_to_1_gmail_rc={vrc}\n{vout[-4000:]}"
 
+        await publish(
+            log_id_str,
+            {
+                "stage": "vault_copy_done",
+                "scope": "gmail",
+                "subpath": subp,
+            },
+        )
+
         workdir_purged = False
         want_purge = vault_layout.gmail_purge_gyb_workdir_after_vault_verified(
             task.filters_json or {}
         )
         if want_purge:
+            await publish(
+                log_id_str,
+                {
+                    "stage": "vault_check_start",
+                    "scope": "gmail",
+                    "subpath": subp,
+                },
+            )
             cargv = rclone_service.build_rclone_check_local_vault_argv(
                 str(work_root),
                 push_cfg,
