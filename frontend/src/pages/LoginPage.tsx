@@ -32,6 +32,7 @@ export default function LoginPage() {
   const [showPassword, setShowPassword] = useState(false)
   const [logoFailed, setLogoFailed] = useState(false)
   const setTokens = useAuthStore((s) => s.setTokens)
+  const setProfile = useAuthStore((s) => s.setProfile)
   const navigate = useNavigate()
   const { data: brandingRaw } = useBranding()
   const b = mergeBranding(brandingRaw)
@@ -47,6 +48,7 @@ export default function LoginPage() {
   const showLogoImg = Boolean(b.logo_url && !logoFailed)
 
   async function submit(e: React.FormEvent) {
+    e.preventDefault()
     setLoading(true)
     setError(null)
     try {
@@ -57,6 +59,7 @@ export default function LoginPage() {
       })
       setTokens(resp.data.access_token, resp.data.refresh_token, resp.data.expires_in)
       const me = await api.get<Profile>('/auth/me')
+      setProfile(me.data)
       toast.success('Sesión iniciada')
       navigate(defaultLandingPath(me.data.permissions), { replace: true })
     } catch (err: any) {
