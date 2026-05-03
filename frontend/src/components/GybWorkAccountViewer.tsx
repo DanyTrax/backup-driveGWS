@@ -380,7 +380,7 @@ export default function GybWorkAccountViewer({
   const standalone = variant === 'standalone'
   const listBasePath = vaultMode ? '/gyb-vault-work' : '/gyb-work'
 
-  const shellClass = standalone ? 'flex min-h-0 flex-1 flex-col gap-4' : 'space-y-4'
+  const shellClass = standalone ? 'flex min-h-0 flex-1 flex-col gap-2' : 'space-y-4'
 
   return (
     <div className={shellClass}>
