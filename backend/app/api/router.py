@@ -20,6 +20,7 @@ from app.api.routes import (
     setup,
     tasks,
     users,
+    vault_drive_browser,
     webmail,
 )
 
@@ -33,6 +34,7 @@ api_router.include_router(audit.router)
 api_router.include_router(setup.router)
 api_router.include_router(accounts.router)
 api_router.include_router(mailbox.router, prefix="/accounts")
+api_router.include_router(vault_drive_browser.router, prefix="/accounts")
 api_router.include_router(tasks.router)
 api_router.include_router(backup.router)
 api_router.include_router(restore.router)

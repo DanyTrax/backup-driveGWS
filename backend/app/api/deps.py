@@ -178,6 +178,36 @@ async def mailbox_reader_for_path_account(
     )
 
 
+async def vault_drive_reader_for_account(
+    account_id: uuid.UUID,
+    user: SysUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> SysUser:
+    perms = get_user_permissions(user)
+    if "vault_drive.view_all" in perms:
+        return user
+    if "vault_drive.view_delegated" in perms:
+        from app.models.vault_drive_delegation import SysUserVaultDriveDelegation
+
+        stmt = (
+            select(SysUserVaultDriveDelegation.id)
+            .where(
+                SysUserVaultDriveDelegation.sys_user_id == user.id,
+                SysUserVaultDriveDelegation.gw_account_id == account_id,
+            )
+            .limit(1)
+        )
+        if (await db.execute(stmt)).scalar_one_or_none() is not None:
+            return user
+    raise HTTPException(
+        status.HTTP_403_FORBIDDEN,
+        detail={
+            "error": "vault_drive_forbidden",
+            "missing": ["vault_drive.view_all", "vault_drive.view_delegated"],
+        },
+    )
+
+
 def require_role(*roles: UserRole) -> Callable[[SysUser], SysUser]:
     async def _dep(user: SysUser = Depends(get_current_user)) -> SysUser:
         if user.role_code not in {r.value for r in roles}:

@@ -3,6 +3,7 @@ import { Link, NavLink, Outlet, useNavigate } from 'react-router-dom'
 import { Avatar, Dropdown } from 'flowbite-react'
 import clsx from 'clsx'
 import {
+  HiArchive,
   HiChartPie,
   HiCloud,
   HiCog,
@@ -49,6 +50,12 @@ const NAV: NavItem[] = [
     label: 'GYB en Drive',
     icon: <HiCloud className="h-5 w-5 shrink-0" />,
     permAny: ['mailbox.view_all', 'mailbox.view_delegated'],
+  },
+  {
+    to: '/vault-drive',
+    label: 'Bóveda Drive',
+    icon: <HiArchive className="h-5 w-5 shrink-0" />,
+    permAny: ['vault_drive.view_all', 'vault_drive.view_delegated'],
   },
   { to: '/accounts', label: 'Cuentas', icon: <HiUserGroup className="h-5 w-5 shrink-0" />, perm: 'accounts.view' },
   { to: '/tasks', label: 'Tareas de backup', icon: <HiCube className="h-5 w-5 shrink-0" />, perm: 'tasks.view' },

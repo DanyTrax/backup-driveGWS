@@ -9,6 +9,7 @@ from app.models.accounts import GwAccount, GwSyncLog
 from app.models.audit import SysAudit
 from app.models.base import Base
 from app.models.mailbox_delegation import SysUserMailboxDelegation
+from app.models.vault_drive_delegation import SysUserVaultDriveDelegation
 from app.models.notifications import Notification, SysUserNotificationPref
 from app.models.restore import RestoreJob
 from app.models.settings import SysSetting
@@ -31,6 +32,7 @@ __all__ = [
     "GwAccount",
     "GwSyncLog",
     "SysUserMailboxDelegation",
+    "SysUserVaultDriveDelegation",
     # tasks
     "BackupTask",
     "BackupLog",

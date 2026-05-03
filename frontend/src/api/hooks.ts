@@ -1,4 +1,4 @@
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useQuery, useMutation, useQueryClient, useInfiniteQuery } from '@tanstack/react-query'
 import api from './client'
 import type {
   AccountAccessCheck,
@@ -29,6 +29,9 @@ import type {
   RestoreJob,
   RunTaskResult,
   SetupState,
+  VaultDriveAccount,
+  VaultDriveChildrenPage,
+  VaultDriveSearchResult,
   WorkspaceAccount,
 } from './types'
 import {
@@ -87,6 +90,70 @@ export function usePutMailboxDelegations() {
       void qc.invalidateQueries({ queryKey: ['profile'] })
       void qc.invalidateQueries({ queryKey: ['accounts'] })
     },
+  })
+}
+
+export function useVaultDriveDelegations(userId: string | null) {
+  return useQuery({
+    queryKey: ['user-vault-drive-delegations', userId],
+    enabled: !!userId,
+    queryFn: async () =>
+      (await api.get<string[]>(`/users/${userId as string}/vault-drive-delegations`)).data,
+  })
+}
+
+export function usePutVaultDriveDelegations() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (payload: { userId: string; accountIds: string[] }) =>
+      (
+        await api.put<string[]>(`/users/${payload.userId}/vault-drive-delegations`, {
+          account_ids: payload.accountIds,
+        })
+      ).data,
+    onSuccess: (_data, payload) => {
+      void qc.invalidateQueries({ queryKey: ['user-vault-drive-delegations', payload.userId] })
+      void qc.invalidateQueries({ queryKey: ['profile'] })
+      void qc.invalidateQueries({ queryKey: ['accounts'] })
+    },
+  })
+}
+
+export function useVaultDriveAccounts() {
+  return useQuery({
+    queryKey: ['vault-drive-accounts'],
+    queryFn: async () => (await api.get<VaultDriveAccount[]>(`/accounts/vault-drive/accounts`)).data,
+  })
+}
+
+export function useVaultDriveChildrenInfinite(accountId: string | null, parentId: string | null) {
+  return useInfiniteQuery({
+    queryKey: ['vault-drive-children', accountId, parentId ?? 'root'],
+    enabled: !!accountId,
+    initialPageParam: null as string | null,
+    queryFn: async ({ pageParam }) => {
+      const params: Record<string, string> = {}
+      if (parentId) params.parent_id = parentId
+      if (pageParam) params.page_token = pageParam
+      return (
+        await api.get<VaultDriveChildrenPage>(`/accounts/${accountId}/vault-drive/children`, { params })
+      ).data
+    },
+    getNextPageParam: (last) => last.next_page_token ?? undefined,
+  })
+}
+
+export function useVaultDriveSearch(accountId: string | null, q: string) {
+  const trimmed = q.trim()
+  return useQuery({
+    queryKey: ['vault-drive-search', accountId, trimmed],
+    enabled: !!accountId && trimmed.length >= 2,
+    queryFn: async () =>
+      (
+        await api.get<VaultDriveSearchResult>(`/accounts/${accountId}/vault-drive/search`, {
+          params: { q: trimmed },
+        })
+      ).data,
   })
 }
 

@@ -26,6 +26,17 @@ function canOpenMailbox(
   return false
 }
 
+function canOpenVaultDrive(
+  account: WorkspaceAccount,
+  hasPermission: (code: string) => boolean,
+  delegatedVaultIds: Set<string>,
+): boolean {
+  if (!(account.drive_vault_folder_id ?? '').trim()) return false
+  if (hasPermission('vault_drive.view_all')) return true
+  if (hasPermission('vault_drive.view_delegated') && delegatedVaultIds.has(account.id)) return true
+  return false
+}
+
 function verifyAccessErrorMessage(err: unknown): string {
   const ax = err as AxiosError<{ detail?: unknown }>
   if (ax.code === 'ECONNABORTED') {
@@ -72,6 +83,10 @@ export default function AccountsPage() {
   const delegatedMailboxIds = useMemo(
     () => new Set(profile?.mailbox_delegated_account_ids ?? []),
     [profile?.mailbox_delegated_account_ids],
+  )
+  const delegatedVaultIds = useMemo(
+    () => new Set(profile?.vault_drive_delegated_account_ids ?? []),
+    [profile?.vault_drive_delegated_account_ids],
   )
   const filtered = useMemo(() => {
     const term = search.trim().toLowerCase()
@@ -236,6 +251,7 @@ export default function AccountsPage() {
                   <th>IMAP</th>
                   <th>Bandeja local</th>
                   <th>Ver Maildir</th>
+                  <th>Bóveda Drive</th>
                   <th>Datos locales</th>
                   <th>Último backup</th>
                   <th>Acceso</th>
@@ -297,6 +313,17 @@ export default function AccountsPage() {
                         <Link to={`/accounts/${a.id}/mailbox`}>
                           <Button size="xs" color="light">
                             Ver correo
+                          </Button>
+                        </Link>
+                      ) : (
+                        <span className="text-slate-400 text-xs">—</span>
+                      )}
+                    </td>
+                    <td>
+                      {canOpenVaultDrive(a, hasPermission, delegatedVaultIds) ? (
+                        <Link to={`/vault-drive/${a.id}`}>
+                          <Button size="xs" color="light">
+                            Bóveda
                           </Button>
                         </Link>
                       ) : (

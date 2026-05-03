@@ -62,6 +62,22 @@ PERMISSIONS: tuple[PermissionSpec, ...] = (
     PermissionSpec("mailbox", "view_all", "Ver correo (Maildir) de cualquier cuenta con backup"),
     PermissionSpec("mailbox", "view_delegated", "Ver correo solo en cuentas delegadas explícitamente"),
     PermissionSpec("mailbox", "delegate", "Asignar o quitar cuentas auditables (delegación Maildir)"),
+    # --- bóveda Drive (Shared Drive / respaldos por cuenta) ---
+    PermissionSpec(
+        "vault_drive",
+        "view_all",
+        "Explorar la bóveda de respaldo en Drive de cualquier cuenta (árbol y búsqueda)",
+    ),
+    PermissionSpec(
+        "vault_drive",
+        "view_delegated",
+        "Explorar la bóveda solo en cuentas delegadas explícitamente",
+    ),
+    PermissionSpec(
+        "vault_drive",
+        "delegate",
+        "Asignar o quitar cuentas para el visor de bóveda Drive (delegación)",
+    ),
     # --- settings / platform ---
     PermissionSpec("settings", "view", "Ver configuración del sistema"),
     PermissionSpec("settings", "edit", "Modificar configuración del sistema"),
@@ -118,6 +134,7 @@ DEFAULT_ROLE_PERMISSIONS: dict[UserRole, frozenset[str]] = {
             "restore.view", "restore.create", "restore.cancel",
             "webmail.sso_admin", "webmail.issue_magic_link", "webmail.revoke_access",
             "mailbox.view_all", "mailbox.delegate",
+            "vault_drive.view_all", "vault_drive.delegate",
             "settings.view",
             "settings.branding",
             "platform.refresh",
@@ -135,6 +152,7 @@ DEFAULT_ROLE_PERMISSIONS: dict[UserRole, frozenset[str]] = {
             "settings.view",
             "audit.view",
             "mailbox.view_delegated",
+            "vault_drive.view_delegated",
         }
     ),
 }

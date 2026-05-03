@@ -28,6 +28,7 @@ EXPECTED_TABLES = {
     "notifications",
     "sys_user_notification_prefs",
     "sys_user_mailbox_delegations",
+    "sys_user_vault_drive_delegations",
 }
 
 

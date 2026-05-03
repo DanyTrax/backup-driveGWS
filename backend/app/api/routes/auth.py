@@ -15,6 +15,7 @@ from app.api.deps import (
 )
 from app.core.config import get_settings
 from app.models.mailbox_delegation import SysUserMailboxDelegation
+from app.models.vault_drive_delegation import SysUserVaultDriveDelegation
 from app.models.users import SysUser
 from app.schemas.auth import (
     LoginRequest,
@@ -137,13 +138,21 @@ async def me(
     db: AsyncSession = Depends(get_db),
 ) -> ProfileOut:
     perms = get_user_permissions(user)
-    delegated_ids: list[str] = []
+    delegated_mailbox: list[str] = []
     if "mailbox.view_delegated" in perms and "mailbox.view_all" not in perms:
         stmt = select(SysUserMailboxDelegation.gw_account_id).where(
             SysUserMailboxDelegation.sys_user_id == user.id
         )
         rows = (await db.execute(stmt)).scalars().all()
-        delegated_ids = [str(r) for r in rows]
+        delegated_mailbox = [str(r) for r in rows]
+
+    delegated_vault: list[str] = []
+    if "vault_drive.view_delegated" in perms and "vault_drive.view_all" not in perms:
+        stmt = select(SysUserVaultDriveDelegation.gw_account_id).where(
+            SysUserVaultDriveDelegation.sys_user_id == user.id
+        )
+        rows = (await db.execute(stmt)).scalars().all()
+        delegated_vault = [str(r) for r in rows]
 
     return ProfileOut(
         id=str(user.id),
@@ -158,7 +167,8 @@ async def me(
         preferred_locale=user.preferred_locale,
         preferred_timezone=user.preferred_timezone,
         permissions=sorted(perms),
-        mailbox_delegated_account_ids=sorted(delegated_ids),
+        mailbox_delegated_account_ids=sorted(delegated_mailbox),
+        vault_drive_delegated_account_ids=sorted(delegated_vault),
     )
 
 

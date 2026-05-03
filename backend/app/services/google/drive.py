@@ -366,3 +366,56 @@ async def ensure_account_vault(
     folders["reports_exports"] = reports_sub["id"]
     folders["reports_logs"] = logs_sub["id"]
     return folders
+
+
+async def id_is_under_vault_folder(
+    db: AsyncSession,
+    *,
+    vault_root_id: str,
+    item_id: str,
+    max_hops: int = 800,
+) -> bool:
+    """True si ``item_id`` es el raíz vault o un descendiente (cadena de parents)."""
+    if item_id == vault_root_id:
+        return True
+    current = item_id
+    for _ in range(max_hops):
+        meta = await get_drive_folder_metadata(db, file_id=current)
+        if not meta or meta.get("trashed"):
+            return False
+        parents = meta.get("parents") or []
+        if vault_root_id in parents:
+            return True
+        if not parents:
+            return False
+        current = parents[0]
+    return False
+
+
+async def list_drive_folder_children_page(
+    db: AsyncSession,
+    *,
+    parent_folder_id: str,
+    page_token: str | None = None,
+    page_size: int = 50,
+) -> dict[str, Any]:
+    """Página de hijos bajo una carpeta (Shared Drive / My Drive con soporte API)."""
+    service = await _build_service(db)
+    page_size = max(10, min(page_size, 200))
+
+    def _op() -> dict[str, Any]:
+        kwargs: dict[str, Any] = {
+            "q": f"'{parent_folder_id}' in parents and trashed = false",
+            "fields": (
+                "nextPageToken, files(id, name, mimeType, size, modifiedTime, webViewLink, shortcutDetails)"
+            ),
+            "pageSize": page_size,
+            "supportsAllDrives": True,
+            "includeItemsFromAllDrives": True,
+            "orderBy": "folder,name_natural",
+        }
+        if page_token:
+            kwargs["pageToken"] = page_token
+        return service.files().list(**kwargs).execute()
+
+    return await asyncio.to_thread(_op)

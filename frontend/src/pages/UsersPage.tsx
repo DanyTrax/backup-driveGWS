@@ -11,7 +11,9 @@ import {
   useMailboxDelegations,
   usePlatformRoles,
   usePutMailboxDelegations,
+  usePutVaultDriveDelegations,
   useUpdateUser,
+  useVaultDriveDelegations,
 } from '../api/hooks'
 import type { WorkspaceAccount } from '../api/types'
 import { useAuthStore } from '../stores/auth'
@@ -37,6 +39,7 @@ function roleBadgeColor(code: string): 'failure' | 'info' | 'gray' | 'success' {
 export default function UsersPage() {
   const hasPermission = useAuthStore((s) => s.hasPermission)
   const canDelegateMailbox = hasPermission('mailbox.delegate')
+  const canDelegateVault = hasPermission('vault_drive.delegate')
   const canCreate = hasPermission('users.create')
   const canEdit = hasPermission('users.edit')
 
@@ -54,7 +57,9 @@ export default function UsersPage() {
   const updateUserM = useUpdateUser()
 
   const [delegateUser, setDelegateUser] = useState<UserRow | null>(null)
+  const [delegateVaultUser, setDelegateVaultUser] = useState<UserRow | null>(null)
   const [picked, setPicked] = useState<Set<string>>(new Set())
+  const [vaultPicked, setVaultPicked] = useState<Set<string>>(new Set())
   const [accountSearch, setAccountSearch] = useState('')
 
   const [createOpen, setCreateOpen] = useState(false)
@@ -71,6 +76,8 @@ export default function UsersPage() {
 
   const delegationsQ = useMailboxDelegations(delegateUser?.id ?? null)
   const putDelegations = usePutMailboxDelegations()
+  const vaultDelegationsQ = useVaultDriveDelegations(delegateVaultUser?.id ?? null)
+  const putVaultDelegations = usePutVaultDriveDelegations()
 
   useEffect(() => {
     if (!delegateUser) {
@@ -80,6 +87,15 @@ export default function UsersPage() {
     const ids = delegationsQ.data ?? []
     setPicked(new Set(ids))
   }, [delegateUser, delegationsQ.data])
+
+  useEffect(() => {
+    if (!delegateVaultUser) {
+      setVaultPicked(new Set())
+      return
+    }
+    const ids = vaultDelegationsQ.data ?? []
+    setVaultPicked(new Set(ids))
+  }, [delegateVaultUser, vaultDelegationsQ.data])
 
   useEffect(() => {
     if (createOpen && roleOptions.length && !cuRole) {
@@ -113,6 +129,29 @@ export default function UsersPage() {
       else next.add(id)
       return next
     })
+  }
+
+  function toggleVaultAccount(id: string) {
+    setVaultPicked((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  async function saveVaultDelegations() {
+    if (!delegateVaultUser) return
+    try {
+      await putVaultDelegations.mutateAsync({
+        userId: delegateVaultUser.id,
+        accountIds: Array.from(vaultPicked),
+      })
+      toast.success('Delegaciones de bóveda Drive actualizadas')
+      setDelegateVaultUser(null)
+    } catch {
+      toast.error('No se pudo guardar. Revisá permisos (vault_drive.delegate).')
+    }
   }
 
   async function saveDelegations() {
@@ -177,8 +216,9 @@ export default function UsersPage() {
         <div>
           <h1 className="text-2xl font-semibold">Usuarios de la plataforma</h1>
           <p className="text-slate-500">
-            Los <strong>roles</strong> definen permisos; para solo GYB sobre correos concretos usá un rol con{' '}
-            <code className="text-xs">mailbox.view_delegated</code> y delegá cuentas aquí.{' '}
+            Los <strong>roles</strong> definen permisos. Para correo delegado usá{' '}
+            <code className="text-xs">mailbox.view_delegated</code>; para explorar solo algunas bóvedas Drive,{' '}
+            <code className="text-xs">vault_drive.view_delegated</code>. Asigná cuentas en las columnas de delegación.{' '}
             <Link to="/roles" className="text-blue-600 dark:text-blue-400 hover:underline text-sm">
               Gestionar roles
             </Link>
@@ -202,7 +242,8 @@ export default function UsersPage() {
                   <th>Estado</th>
                   <th>MFA</th>
                   <th>Último login</th>
-                  {canDelegateMailbox ? <th className="text-right">Delegación</th> : null}
+                  {canDelegateMailbox ? <th className="text-right">Buzones</th> : null}
+                  {canDelegateVault ? <th className="text-right">Bóveda</th> : null}
                   {canEdit ? <th className="text-right">Editar</th> : null}
                 </tr>
               </thead>
@@ -229,6 +270,13 @@ export default function UsersPage() {
                       <td className="text-right">
                         <Button size="xs" color="light" onClick={() => setDelegateUser(u)}>
                           Buzones
+                        </Button>
+                      </td>
+                    ) : null}
+                    {canDelegateVault ? (
+                      <td className="text-right">
+                        <Button size="xs" color="light" onClick={() => setDelegateVaultUser(u)}>
+                          Bóveda
                         </Button>
                       </td>
                     ) : null}
@@ -361,6 +409,49 @@ export default function UsersPage() {
             Cancelar
           </Button>
           <Button onClick={() => void saveDelegations()} disabled={putDelegations.isPending}>
+            Guardar
+          </Button>
+        </Modal.Footer>
+      </Modal>
+
+      <Modal show={!!delegateVaultUser} onClose={() => setDelegateVaultUser(null)} size="xl">
+        <Modal.Header>Bóveda Drive permitida · {delegateVaultUser?.email ?? ''}</Modal.Header>
+        <Modal.Body>
+          <p className="text-sm text-slate-500 mb-3">
+            Cuentas cuyo contenido en la Shared Drive (1-GMAIL, 2-DRIVE, 3-REPORTS…) puede listar este usuario con{' '}
+            <code className="text-xs">vault_drive.view_delegated</code>.
+          </p>
+          <div className="mb-3">
+            <Label value="Buscar cuenta" />
+            <TextInput
+              icon={HiSearch}
+              value={accountSearch}
+              onChange={(e) => setAccountSearch(e.target.value)}
+              placeholder="Correo o nombre"
+            />
+          </div>
+          <div className="max-h-72 overflow-y-auto border border-slate-200 dark:border-slate-700 rounded-lg p-2 space-y-2">
+            {vaultDelegationsQ.isLoading ? (
+              <p className="text-slate-500 text-sm">Cargando delegaciones…</p>
+            ) : (
+              filteredAccounts.map((a: WorkspaceAccount) => (
+                <label
+                  key={a.id}
+                  className="flex items-center gap-2 text-sm cursor-pointer py-1 px-1 rounded hover:bg-slate-50 dark:hover:bg-slate-800"
+                >
+                  <Checkbox checked={vaultPicked.has(a.id)} onChange={() => toggleVaultAccount(a.id)} />
+                  <span className="font-medium">{a.email}</span>
+                  <span className="text-slate-500 text-xs truncate">{a.full_name ?? ''}</span>
+                </label>
+              ))
+            )}
+          </div>
+        </Modal.Body>
+        <Modal.Footer>
+          <Button color="gray" onClick={() => setDelegateVaultUser(null)}>
+            Cancelar
+          </Button>
+          <Button onClick={() => void saveVaultDelegations()} disabled={putVaultDelegations.isPending}>
             Guardar
           </Button>
         </Modal.Footer>

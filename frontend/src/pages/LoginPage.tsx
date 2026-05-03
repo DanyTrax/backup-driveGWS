@@ -11,8 +11,13 @@ import { BrandingFooterCredit } from '../components/BrandingFooterCredit'
 
 function defaultLandingPath(permissions: string[]): string {
   const p = new Set(permissions)
-  if (!p.has('accounts.view') && (p.has('mailbox.view_delegated') || p.has('mailbox.view_all'))) {
-    return '/gyb-work'
+  if (!p.has('accounts.view')) {
+    if (p.has('mailbox.view_delegated') || p.has('mailbox.view_all')) {
+      return '/gyb-work'
+    }
+    if (p.has('vault_drive.view_delegated') || p.has('vault_drive.view_all')) {
+      return '/vault-drive'
+    }
   }
   return '/dashboard'
 }

@@ -55,6 +55,10 @@ class MailboxDelegationsPut(BaseModel):
     account_ids: list[uuid.UUID] = Field(default_factory=list, max_length=2048)
 
 
+class VaultDriveDelegationsPut(BaseModel):
+    account_ids: list[uuid.UUID] = Field(default_factory=list, max_length=2048)
+
+
 class UserOut(BaseModel):
     id: str
     email: EmailStr

@@ -67,6 +67,8 @@ export interface Profile {
   permissions: string[]
   /** Solo aplica con permiso mailbox.view_delegated (sin view_all). */
   mailbox_delegated_account_ids?: string[]
+  /** Solo aplica con vault_drive.view_delegated (sin view_all). */
+  vault_drive_delegated_account_ids?: string[]
 }
 
 export interface PermissionCatalogEntry {
@@ -144,6 +146,31 @@ export interface GybWorkAccount {
   email: string
   work_size_bytes: number | null
   has_msg_db: boolean
+}
+
+export interface VaultDriveAccount {
+  id: string
+  email: string
+}
+
+export interface VaultDriveItem {
+  id: string
+  name: string
+  mime_type: string
+  is_folder: boolean
+  size: number | null
+  modified_time: string | null
+  web_view_link: string | null
+}
+
+export interface VaultDriveChildrenPage {
+  items: VaultDriveItem[]
+  next_page_token: string | null
+}
+
+export interface VaultDriveSearchResult {
+  items: VaultDriveItem[]
+  truncated: boolean
 }
 
 /** GET /accounts/{id}/gyb-work/messages */
