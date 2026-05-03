@@ -426,41 +426,43 @@ export default function GybWorkAccountViewer({
         )}
       </div>
 
-      <div className={[standalone ? 'shrink-0' : '', 'max-w-3xl space-y-3'].filter(Boolean).join(' ')}>
-        <TextInput
-          icon={HiSearch}
-          type="search"
-          placeholder="Buscar (asunto, de, para, cc, cuerpo texto, adjuntos…)"
-          value={searchInput}
-          onChange={(e) => setSearchInput(e.target.value)}
-        />
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="text-xs text-slate-500 dark:text-slate-400 shrink-0">Orden</span>
-          <Select
-            id="gyb-sort-preset"
-            sizing="sm"
-            className="max-w-xs text-xs"
-            value={sortPreset}
-            onChange={(e) => setSortPreset(e.target.value as GybSortPreset)}
-          >
-            {GYB_SORT_PRESETS.map((o) => (
-              <option key={o.value} value={o.value}>
-                {o.label}
-              </option>
-            ))}
-          </Select>
+      <div
+        className={[standalone ? 'shrink-0' : '', 'w-full space-y-2'].filter(Boolean).join(' ')}
+      >
+        <div className="flex flex-wrap items-end gap-2 gap-y-2">
+          <div className="min-w-[min(100%,18rem)] flex-1">
+            <TextInput
+              icon={HiSearch}
+              type="search"
+              placeholder="Buscar (asunto, de, para, cc, cuerpo texto, adjuntos…)"
+              value={searchInput}
+              onChange={(e) => setSearchInput(e.target.value)}
+            />
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="shrink-0 text-xs text-slate-500 dark:text-slate-400">Orden</span>
+            <Select
+              id="gyb-sort-preset"
+              sizing="sm"
+              className="min-w-[12rem] max-w-md text-xs"
+              value={sortPreset}
+              onChange={(e) => setSortPreset(e.target.value as GybSortPreset)}
+            >
+              {GYB_SORT_PRESETS.map((o) => (
+                <option key={o.value} value={o.value}>
+                  {o.label}
+                </option>
+              ))}
+            </Select>
+          </div>
         </div>
         {vaultMode ? (
           <p className="text-xs text-slate-500 dark:text-slate-400">
-            Orden de la lista: fecha de modificación del archivo en Google Drive (no la cabecera <code className="text-[10px]">Date</code> del correo).
-            La búsqueda descarga un fragmento de cada <code className="text-[10px]">.eml</code> en el ámbito vía rclone.
+            Orden de la lista: fecha de modificación del archivo en Google Drive (no la cabecera{' '}
+            <code className="text-[10px]">Date</code> del correo). La búsqueda descarga un fragmento de cada{' '}
+            <code className="text-[10px]">.eml</code> en el ámbito vía rclone.
           </p>
         ) : null}
-        <p className="text-xs text-slate-500 dark:text-slate-400">
-          Atajos con foco fuera de campos: <kbd className="px-1 rounded bg-slate-200 dark:bg-slate-700">j</kbd> /{' '}
-          <kbd className="px-1 rounded bg-slate-200 dark:bg-slate-700">k</kbd> mensaje siguiente/anterior;{' '}
-          <kbd className="px-1 rounded bg-slate-200 dark:bg-slate-700">r</kbd> marcar revisado (solo este navegador).
-        </p>
         {listScope === 'all' ? (
           <p className="text-xs text-amber-800 dark:text-amber-200/90">
             Vista global: puede tardar en buzones muy grandes.
@@ -776,6 +778,12 @@ export default function GybWorkAccountViewer({
           ) : null}
         </Card>
       </div>
+
+      <p className="shrink-0 text-xs text-slate-500 dark:text-slate-400">
+        Atajos con foco fuera de campos: <kbd className="rounded bg-slate-200 px-1 dark:bg-slate-700">j</kbd> /{' '}
+        <kbd className="rounded bg-slate-200 px-1 dark:bg-slate-700">k</kbd> mensaje siguiente/anterior;{' '}
+        <kbd className="rounded bg-slate-200 px-1 dark:bg-slate-700">r</kbd> marcar revisado (solo este navegador).
+      </p>
 
       <div className={[standalone ? 'mt-auto shrink-0 border-t border-slate-200 pt-3 dark:border-slate-700' : 'pt-3 mt-1 border-t border-slate-200 dark:border-slate-700', 'flex flex-wrap items-center gap-4'].filter(Boolean).join(' ')}>
         <Button size="xs" color="light" onClick={downloadCurrentPageCsv} disabled={items.length === 0}>
