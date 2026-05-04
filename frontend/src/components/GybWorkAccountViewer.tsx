@@ -380,7 +380,7 @@ export default function GybWorkAccountViewer({
   const standalone = variant === 'standalone'
   const listBasePath = vaultMode ? '/gyb-vault-work' : '/gyb-work'
 
-  const shellClass = standalone ? 'flex min-h-0 flex-1 flex-col gap-2' : 'space-y-4'
+  const shellClass = standalone ? 'flex min-h-0 flex-1 flex-col gap-2 overflow-hidden' : 'space-y-4'
 
   return (
     <div className={shellClass}>
@@ -495,16 +495,16 @@ export default function GybWorkAccountViewer({
 
       <div
         className={[
-          'grid grid-cols-1 gap-4 lg:grid-cols-12 lg:items-stretch lg:gap-4',
-          standalone ? 'min-h-0 flex-1' : 'items-start',
+          'grid grid-cols-1 gap-4 lg:grid-cols-12 lg:gap-4',
+          standalone ? 'min-h-0 flex-1 lg:grid-rows-1 lg:items-stretch' : 'items-start',
         ]
           .filter(Boolean)
           .join(' ')}
       >
         <Card
           className={[
-            'lg:col-span-4 flex h-full min-h-0 flex-col overflow-hidden',
-            standalone ? 'min-h-[12rem]' : '',
+            'flex min-h-0 flex-col overflow-hidden lg:col-span-4 lg:min-h-0 lg:h-full',
+            standalone ? '' : 'max-lg:max-h-[min(70vh,520px)]',
           ]
             .filter(Boolean)
             .join(' ')}
@@ -570,12 +570,7 @@ export default function GybWorkAccountViewer({
               </p>
             ) : (
               <ul
-                className={[
-                  'min-h-0 flex-1 space-y-1 overflow-y-auto text-sm overscroll-contain',
-                  standalone ? '' : 'max-h-[min(70vh,480px)]',
-                ]
-                  .filter(Boolean)
-                  .join(' ')}
+                className="min-h-0 flex-1 space-y-1 overflow-y-auto overscroll-contain text-sm"
                 aria-label="Lista de mensajes"
               >
               {items.map((m: MailboxMessageSummary) => (
@@ -650,8 +645,8 @@ export default function GybWorkAccountViewer({
 
         <Card
           className={[
-            'lg:col-span-8 flex h-full min-h-0 flex-col overflow-hidden',
-            standalone ? 'min-h-[12rem]' : '',
+            'flex min-h-0 flex-col overflow-hidden lg:col-span-8 lg:min-h-0 lg:h-full',
+            standalone ? '' : 'max-lg:max-h-[min(85vh,640px)]',
           ]
             .filter(Boolean)
             .join(' ')}

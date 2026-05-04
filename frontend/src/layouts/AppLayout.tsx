@@ -183,11 +183,11 @@ export default function AppLayout() {
   const showHeaderLogo = Boolean(brand.logo_url && !brandLogoFailed)
 
   return (
-    <div className="flex min-h-screen bg-slate-50 dark:bg-slate-950">
+    <div className="flex h-[100dvh] max-h-[100dvh] overflow-hidden bg-slate-50 dark:bg-slate-950">
       <aside
         aria-label="Navegación principal"
         className={clsx(
-          'flex flex-col h-screen sticky top-0 z-30 shrink-0 border-r border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 transition-[width] duration-200 ease-out',
+          'flex flex-col h-full min-h-0 sticky top-0 z-30 shrink-0 border-r border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 transition-[width] duration-200 ease-out',
           sidebarExpanded ? 'w-60' : 'w-[4.25rem]',
         )}
       >
@@ -283,8 +283,13 @@ export default function AppLayout() {
           </ul>
         </nav>
       </aside>
-      <div className="flex min-w-0 flex-1 flex-col">
-        <header className="flex h-14 shrink-0 items-center justify-between border-b border-slate-200 bg-white px-4 dark:border-slate-800 dark:bg-slate-900 md:px-6">
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+        <header
+          className={clsx(
+            'flex h-14 shrink-0 items-center justify-between border-b border-slate-200 bg-white px-4 dark:border-slate-800 dark:bg-slate-900 md:px-6',
+            !sidebarExpanded && 'md:hidden',
+          )}
+        >
           <Link
             to="/dashboard"
             className="truncate text-sm font-medium text-slate-700 dark:text-slate-200 md:text-base"
@@ -316,8 +321,10 @@ export default function AppLayout() {
             </Dropdown.Item>
           </Dropdown>
         </header>
-        <main className="flex min-h-0 flex-1 flex-col p-2">
-          <Outlet />
+        <main className="flex min-h-0 flex-1 flex-col overflow-hidden p-2">
+          <div className="min-h-0 flex-1 overflow-y-auto">
+            <Outlet />
+          </div>
         </main>
         <SystemTimeFooter brand={brand} />
       </div>
