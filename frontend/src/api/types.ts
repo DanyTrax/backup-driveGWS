@@ -269,17 +269,14 @@ export interface MaildirRebuildFromGybResult {
   backup_log_id?: string | null
 }
 
-/** Request body for POST .../gyb-work/restore-from-vault */
 export interface GybWorkRestoreFromVaultPayload {
   purge_workdir_first?: boolean
 }
 
-/** Respuesta de POST /accounts/:id/gyb-work/restore-from-vault */
+/** Respuesta de POST /accounts/:id/gyb-work/restore-from-vault (HTTP 202) */
 export interface GybWorkRestoreFromVaultResult {
-  work_path: string
-  rclone_exit_code: number
-  log_tail?: string | null
-  purged_workdir_first?: boolean
+  backup_log_id: string
+  message?: string
 }
 
 export interface PurgeAllLocalMailResult {

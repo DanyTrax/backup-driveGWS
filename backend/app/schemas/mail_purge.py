@@ -51,10 +51,10 @@ class GybWorkRestoreFromVaultIn(BaseModel):
 
 
 class GybWorkRestoreFromVaultOut(BaseModel):
-    work_path: str
-    rclone_exit_code: int
-    log_tail: str | None = None
-    purged_workdir_first: bool = False
+    backup_log_id: str
+    message: str = (
+        "Operación iniciada. En Historial de ejecuciones abrí el detalle del log para ver porcentaje y salida de rclone en vivo."
+    )
 
 
 class AccountMailPurgeOut(BaseModel):

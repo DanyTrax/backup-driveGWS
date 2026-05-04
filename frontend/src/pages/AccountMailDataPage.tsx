@@ -195,11 +195,23 @@ export default function AccountMailDataPage() {
         accountId,
         purge_workdir_first: purgeBeforeVaultRestore,
       })
-      const extra =
-        r.purged_workdir_first === true ? ' La carpeta local se vació antes de copiar.' : ''
       toast.success(
-        `Copia aplicada en el servidor (${r.work_path}).${extra} Podés abrir «GYB local» o reorganizar el Maildir si aplica.`,
-        { duration: 8000 },
+        (t) => (
+          <div className="text-sm">
+            <p className="mb-1">
+              Restauración desde bóveda iniciada. El progreso (porcentaje y líneas de rclone) se actualiza en el
+              historial.
+            </p>
+            <Link
+              to={`/logs?log=${encodeURIComponent(r.backup_log_id)}`}
+              className="text-blue-600 dark:text-blue-400 underline font-medium"
+              onClick={() => toast.dismiss(t.id)}
+            >
+              Ver ejecución en Logs
+            </Link>
+          </div>
+        ),
+        { duration: 12000 },
       )
       void refetch()
     } catch (e) {
@@ -209,18 +221,14 @@ export default function AccountMailDataPage() {
         typeof raw === 'object' && raw !== null && 'error' in raw
           ? String((raw as { error: string }).error)
           : null
-      const tail =
-        typeof raw === 'object' && raw !== null && 'log_tail' in raw
-          ? String((raw as { log_tail?: string }).log_tail ?? '').slice(0, 500)
-          : ''
       if (ax.response?.status === 409) {
         toast.error('La cuenta no tiene bóveda Drive configurada (drive_vault_folder_id).')
       } else if (code === 'rclone_copy_failed') {
-        toast.error(tail ? `rclone falló: ${tail}` : 'rclone falló al copiar desde Drive.')
+        toast.error('La copia rclone falló; abrí el log en Historial para ver el detalle.')
       } else if (ax.response?.status === 403) {
         toast.error('Sin permiso (accounts.edit).')
       } else {
-        toast.error('No se pudo restaurar desde la bóveda.')
+        toast.error('No se pudo iniciar la restauración desde la bóveda.')
       }
     }
   }

@@ -580,12 +580,16 @@ export function useRestoreGybWorkFromVault() {
           { timeout: 0 },
         )
       ).data,
-    onSuccess: (_data, variables) => {
+    onSuccess: (data, variables) => {
       const accountId = variables.accountId
       void qc.invalidateQueries({ queryKey: ['accounts'] })
       void qc.invalidateQueries({ queryKey: ['mail-data-inventory', accountId] })
       void qc.invalidateQueries({ queryKey: ['gyb-work-accounts', 'gyb-work'] })
       void qc.invalidateQueries({ queryKey: ['gyb-work-accounts', 'gyb-vault-work'] })
+      void qc.invalidateQueries({ queryKey: ['backup-logs'] })
+      if (data?.backup_log_id) {
+        void qc.invalidateQueries({ queryKey: ['backup-log-detail', data.backup_log_id] })
+      }
     },
   })
 }

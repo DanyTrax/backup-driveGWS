@@ -55,6 +55,23 @@ function describeLiveProgress(p: Record<string, unknown> | null | undefined): st
     }
     return typeof p.message === 'string' && p.message ? p.message : 'Operación Maildir desde GYB (panel).'
   }
+  if (stage === 'vault_pull_queued') {
+    return 'Restauración GYB desde la bóveda 1-GMAIL: en curso en el servidor (rclone copy hacia la carpeta de trabajo local).'
+  }
+  if (stage === 'vault_pull_start') {
+    return typeof p.message === 'string' && p.message
+      ? p.message
+      : 'Iniciando copia desde 1-GMAIL/gyb_mbox en Drive hacia el servidor…'
+  }
+  if (stage === 'vault_pull_purge') {
+    return typeof p.message === 'string' && p.message
+      ? p.message
+      : 'Vaciando la carpeta de trabajo GYB local antes de restaurar desde Drive…'
+  }
+  if (stage === 'vault_pull_done') {
+    const wp = typeof p.work_path === 'string' ? p.work_path : ''
+    return `Restauración desde bóveda completada${wp ? ` → ${wp}` : ''}.`
+  }
   if (stage === 'gmail_progress') {
     const phase =
       p.phase === 'gyb'
@@ -109,7 +126,8 @@ function describeLiveProgress(p: Record<string, unknown> | null | undefined): st
     const raw = typeof p.raw === 'string' ? p.raw.trim() : ''
     const phase = String(p.phase ?? '')
     const isVault =
-      p.scope === 'gmail' && (phase === 'vault_copy' || phase === 'vault_check')
+      p.scope === 'gmail' &&
+      (phase === 'vault_copy' || phase === 'vault_check' || phase === 'vault_pull')
     const isDriveScope = p.scope === 'drive'
     const rcloneMode =
       typeof p.rclone_mode === 'string' ? (p.rclone_mode === 'sync' ? 'sync' : 'copy') : null
@@ -122,7 +140,9 @@ function describeLiveProgress(p: Record<string, unknown> | null | undefined): st
     const prefix = isVault
       ? phase === 'vault_check'
         ? 'Verificación vault 1-GMAIL (rclone check)'
-        : 'Subida vault 1-GMAIL (rclone copy)'
+        : phase === 'vault_pull'
+          ? 'Bajada vault 1-GMAIL → servidor (rclone copy)'
+          : 'Subida vault 1-GMAIL (rclone copy)'
       : isDriveScope
         ? `Respaldo Drive → bóveda (rclone ${rcloneMode ?? 'copy/sync'})${destShort ? ` → …/${destShort}` : ''}`
         : 'Drive (rclone)'

@@ -23,7 +23,7 @@ from app.core.database import AsyncSessionLocal
 from app.models.accounts import GwAccount
 from app.models.enums import AuditAction, BackupScope, BackupStatus
 from app.models.mailbox_delegation import SysUserMailboxDelegation
-from app.models.tasks import BackupLog
+from app.models.tasks import BackupLog, BackupTask
 from app.models.users import SysUser
 from app.schemas.accounts import (
     AccountAccessCheckOut,
@@ -48,7 +48,7 @@ from app.services.accounts_service import (
     sync_workspace_directory,
 )
 from app.services.audit_service import record_audit
-from app.services.gyb_vault_pull_service import restore_gyb_workdir_from_vault
+from app.services.gyb_vault_pull_service import finalize_gyb_vault_restore_backup_log
 from app.services.mail_purge_service import (
     AccountMailPurgeOptions,
     build_mail_inventory,
@@ -57,10 +57,35 @@ from app.services.mail_purge_service import (
 )
 from app.services.maildir_paths import maildir_home_from_email, maildir_root_for_account
 from app.services.maildir_service import rebuild_maildir_from_local_gyb_workdir
-from app.services.panel_synthetic_task import get_or_create_panel_maildir_gyb_rebuild_task
+from app.services.panel_synthetic_task import (
+    get_or_create_panel_gyb_vault_restore_task,
+    get_or_create_panel_maildir_gyb_rebuild_task,
+)
 from app.services.progress_bus import publish
 
 router = APIRouter(prefix="/accounts", tags=["accounts"])
+
+
+async def _run_gyb_vault_restore_background(
+    log_id: uuid.UUID,
+    account_id: uuid.UUID,
+    purge_workdir_first: bool,
+    actor_user_id: uuid.UUID,
+    actor_label: str,
+    ip_address: str | None,
+    user_agent: str | None,
+) -> None:
+    async with AsyncSessionLocal() as session:
+        await finalize_gyb_vault_restore_backup_log(
+            session,
+            log_id=log_id,
+            account_id=account_id,
+            purge_workdir_first=purge_workdir_first,
+            actor_user_id=actor_user_id,
+            actor_label=actor_label,
+            ip_address=ip_address,
+            user_agent=user_agent,
+        )
 
 
 def _maildir_ready(root: Path) -> bool:
@@ -516,89 +541,70 @@ async def maildir_rebuild_from_local_gyb(
 @router.post(
     "/{account_id}/gyb-work/restore-from-vault",
     response_model=GybWorkRestoreFromVaultOut,
+    status_code=status.HTTP_202_ACCEPTED,
     summary="Traer export GYB desde Drive (1-GMAIL/gyb_mbox) a la carpeta de trabajo local",
 )
 async def gyb_work_restore_from_vault_endpoint(
     account_id: uuid.UUID,
     request: Request,
+    background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
     current: SysUser = Depends(require_permission("accounts.edit")),
     payload: GybWorkRestoreFromVaultIn = Body(default=GybWorkRestoreFromVaultIn()),
 ) -> GybWorkRestoreFromVaultOut:
-    """Copia incremental vía rclone; opcionalmente vacía antes la carpeta local."""
+    """Encola restauración vía rclone; el progreso en vivo se ve en ``/backup/logs/{backup_log_id}`` (Redis)."""
     acc = await _load(db, account_id)
     if not (acc.drive_vault_folder_id or "").strip():
         raise HTTPException(
             status.HTTP_409_CONFLICT,
             detail={"error": "missing_drive_vault_folder_id"},
         )
-    try:
-        rc, out, work_root = await restore_gyb_workdir_from_vault(
-            db,
-            account=acc,
-            purge_workdir_first=payload.purge_workdir_first,
-        )
-    except ValueError as exc:
-        if str(exc) == "missing_drive_vault_folder_id":
-            raise HTTPException(
-                status.HTTP_409_CONFLICT,
-                detail={"error": "missing_drive_vault_folder_id"},
-            ) from exc
-        raise
-    tail = (out or "")[-4000:] if out else None
-    if rc != 0:
-        await record_audit(
-            db,
-            action=AuditAction.GYB_WORK_RESTORED_FROM_VAULT,
-            actor_user_id=current.id,
-            actor_label=current.email,
-            ip_address=get_client_ip(request),
-            user_agent=get_user_agent(request),
-            target_table="gw_accounts",
-            target_id=str(acc.id),
-            success=False,
-            message="gyb_restore_from_vault_rclone_failed",
-            metadata={
-                "email": acc.email,
-                "work_path": str(work_root),
-                "rclone_exit_code": rc,
-                "log_tail": tail,
-                "purge_workdir_first": payload.purge_workdir_first,
-            },
-        )
-        await db.commit()
-        raise HTTPException(
-            status.HTTP_502_BAD_GATEWAY,
-            detail={
-                "error": "rclone_copy_failed",
-                "rclone_exit_code": rc,
-                "log_tail": tail,
-            },
-        )
-    await record_audit(
-        db,
-        action=AuditAction.GYB_WORK_RESTORED_FROM_VAULT,
-        actor_user_id=current.id,
-        actor_label=current.email,
-        ip_address=get_client_ip(request),
-        user_agent=get_user_agent(request),
-        target_table="gw_accounts",
-        target_id=str(acc.id),
-        message="gyb_restored_from_vault",
-        metadata={
-            "email": acc.email,
-            "work_path": str(work_root),
-            "rclone_exit_code": rc,
+
+    panel_task = await get_or_create_panel_gyb_vault_restore_task(db)
+    work_root = gyb_work_root_for_email(acc.email)
+    log = BackupLog(
+        task_id=panel_task.id,
+        account_id=acc.id,
+        status=BackupStatus.RUNNING.value,
+        scope=BackupScope.GMAIL.value,
+        mode=panel_task.mode,
+        started_at=datetime.now(UTC),
+        finished_at=None,
+        pid=os.getpid(),
+        destination_path=str(work_root),
+    )
+    db.add(log)
+    await db.flush()
+    log_id_str = str(log.id)
+
+    await publish(
+        log_id_str,
+        {
+            "stage": "vault_pull_queued",
+            "scope": "gmail",
+            "message": "Restauración GYB desde bóveda 1-GMAIL: en cola en el servidor…",
+            "account": acc.email,
             "purge_workdir_first": payload.purge_workdir_first,
+            "subpath": "1-GMAIL/gyb_mbox",
         },
     )
+
+    ip = get_client_ip(request)
+    ua = get_user_agent(request)
     await db.commit()
-    return GybWorkRestoreFromVaultOut(
-        work_path=str(work_root),
-        rclone_exit_code=rc,
-        log_tail=tail,
-        purged_workdir_first=payload.purge_workdir_first,
+
+    background_tasks.add_task(
+        _run_gyb_vault_restore_background,
+        log.id,
+        acc.id,
+        payload.purge_workdir_first,
+        current.id,
+        current.email,
+        ip,
+        ua,
     )
+
+    return GybWorkRestoreFromVaultOut(backup_log_id=log_id_str)
 
 
 @router.post(
