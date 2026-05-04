@@ -8,6 +8,7 @@ from app.services.rclone_service import (
     RcloneConfig,
     build_rclone_check_local_vault_argv,
     build_rclone_local_to_vault_argv,
+    build_rclone_vault_to_local_argv,
 )
 
 
@@ -119,3 +120,23 @@ def test_check_vault_argv_includes_fast_list_and_settings_flags() -> None:
     assert argv[argv.index("--tpslimit") + 1] == "8"
     assert argv[argv.index("--checkers") + 1] == "12"
     assert "--tpslimit-burst" not in argv
+
+
+def test_vault_to_local_argv_mirrors_local_to_vault_flags() -> None:
+    cfg = RcloneConfig(
+        config_path="/tmp/rclone.test.conf",
+        remote_source="",
+        remote_dest="dest:",
+        cleanup_paths=[],
+    )
+    with patch("app.services.rclone_service.get_settings", return_value=_vault_mock()):
+        argv = build_rclone_vault_to_local_argv(
+            "/var/msa/work/gmail/u@x.com",
+            cfg,
+            source_subpath="1-GMAIL/gyb_mbox",
+        )
+    assert argv[0] == "copy"
+    assert argv[1] == "dest:1-GMAIL/gyb_mbox/"
+    assert argv[2] == str(Path("/var/msa/work/gmail/u@x.com").resolve())
+    assert argv[argv.index("--transfers") + 1] == "24"
+    assert "--fast-list" in argv

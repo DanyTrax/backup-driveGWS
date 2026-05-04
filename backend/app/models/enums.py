@@ -130,6 +130,7 @@ class AuditAction(str, enum.Enum):
     PLATFORM_BACKUP = "platform_backup"
     GIT_REFRESH = "git_refresh"
     MAIL_DATA_PURGED = "mail_data_purged"
+    GYB_WORK_RESTORED_FROM_VAULT = "gyb_work_restored_from_vault"
     HOST_DOCKER_PRUNE = "host_docker_prune"
     STACK_DEPLOY = "stack_deploy"
 

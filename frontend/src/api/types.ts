@@ -239,6 +239,8 @@ export interface MailDataInventory {
   webmail_tokens_count: number
   imap_enabled: boolean
   imap_password_configured: boolean
+  /** Carpeta bóveda 1-GMAIL en Drive (GYB en vault); null si no está configurada. */
+  drive_vault_folder_id: string | null
 }
 
 export interface AccountMailPurgePayload {
@@ -265,6 +267,19 @@ export interface MaildirRebuildFromGybResult {
   folders_touched: number
   skipped_duplicates: number
   backup_log_id?: string | null
+}
+
+/** Request body for POST .../gyb-work/restore-from-vault */
+export interface GybWorkRestoreFromVaultPayload {
+  purge_workdir_first?: boolean
+}
+
+/** Respuesta de POST /accounts/:id/gyb-work/restore-from-vault */
+export interface GybWorkRestoreFromVaultResult {
+  work_path: string
+  rclone_exit_code: number
+  log_tail?: string | null
+  purged_workdir_first?: boolean
 }
 
 export interface PurgeAllLocalMailResult {

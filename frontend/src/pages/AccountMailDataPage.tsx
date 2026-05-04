@@ -8,6 +8,7 @@ import {
   useMailDataInventory,
   usePurgeAccountMailData,
   useRebuildMaildirFromLocalGyb,
+  useRestoreGybWorkFromVault,
 } from '../api/hooks'
 import { useAuthStore } from '../stores/auth'
 
@@ -37,7 +38,20 @@ export default function AccountMailDataPage() {
   const { data: inv, isLoading, error, refetch } = useMailDataInventory(accountId ?? null, canSeeMailData)
   const purge = usePurgeAccountMailData()
   const rebuild = useRebuildMaildirFromLocalGyb()
+  const restoreVault = useRestoreGybWorkFromVault()
   const [exportingZip, setExportingZip] = useState(false)
+  /** Vacía la carpeta de trabajo GYB en el servidor antes del rclone (espejo limpio desde Drive). */
+  const [purgeBeforeVaultRestore, setPurgeBeforeVaultRestore] = useState(false)
+
+  const canOpenGybVaultMailbox = useMemo(() => {
+    if (!accountId || !inv) return false
+    if (!(inv.drive_vault_folder_id ?? '').trim()) return false
+    if (hasPermission('mailbox.view_all')) return true
+    return (
+      hasPermission('mailbox.view_delegated') &&
+      (profile?.mailbox_delegated_account_ids ?? []).includes(accountId)
+    )
+  }, [accountId, inv, hasPermission, profile?.mailbox_delegated_account_ids])
 
   const [maildir, setMaildir] = useState(false)
   const [gyb, setGyb] = useState(false)
@@ -167,6 +181,50 @@ export default function AccountMailDataPage() {
     }
   }
 
+  async function onRestoreGybFromVault() {
+    if (!accountId || !inv) return
+    const incrementalMsg =
+      'Se copiará el contenido de 1-GMAIL/gyb_mbox desde la bóveda hacia la carpeta de trabajo GYB sin vaciarla antes (copia incremental). ¿Continuar?'
+    const replaceMsg =
+      'Se VACIARÁ primero la carpeta de trabajo GYB en este servidor y después se copiará desde 1-GMAIL/gyb_mbox en Drive. Lo que quede solo en local y no en Drive se perderá. ¿Continuar?'
+    if (!window.confirm(purgeBeforeVaultRestore ? replaceMsg : incrementalMsg)) {
+      return
+    }
+    try {
+      const r = await restoreVault.mutateAsync({
+        accountId,
+        purge_workdir_first: purgeBeforeVaultRestore,
+      })
+      const extra =
+        r.purged_workdir_first === true ? ' La carpeta local se vació antes de copiar.' : ''
+      toast.success(
+        `Copia aplicada en el servidor (${r.work_path}).${extra} Podés abrir «GYB local» o reorganizar el Maildir si aplica.`,
+        { duration: 8000 },
+      )
+      void refetch()
+    } catch (e) {
+      const ax = e as { response?: { status?: number; data?: { detail?: unknown } } }
+      const raw = ax.response?.data?.detail
+      const code =
+        typeof raw === 'object' && raw !== null && 'error' in raw
+          ? String((raw as { error: string }).error)
+          : null
+      const tail =
+        typeof raw === 'object' && raw !== null && 'log_tail' in raw
+          ? String((raw as { log_tail?: string }).log_tail ?? '').slice(0, 500)
+          : ''
+      if (ax.response?.status === 409) {
+        toast.error('La cuenta no tiene bóveda Drive configurada (drive_vault_folder_id).')
+      } else if (code === 'rclone_copy_failed') {
+        toast.error(tail ? `rclone falló: ${tail}` : 'rclone falló al copiar desde Drive.')
+      } else if (ax.response?.status === 403) {
+        toast.error('Sin permiso (accounts.edit).')
+      } else {
+        toast.error('No se pudo restaurar desde la bóveda.')
+      }
+    }
+  }
+
   return (
     <div className="space-y-6 max-w-3xl">
       <div className="flex flex-wrap items-center gap-3">
@@ -249,6 +307,27 @@ export default function AccountMailDataPage() {
                 </dd>
               </div>
               <div className="flex flex-wrap justify-between gap-2 border-b border-slate-100 dark:border-slate-800 pb-2">
+                <dt className="text-slate-500">GYB en bóveda Drive (1-GMAIL)</dt>
+                <dd className="flex flex-wrap items-center gap-2">
+                  {(inv.drive_vault_folder_id ?? '').trim() ? (
+                    <>
+                      <Badge color="success">carpeta configurada</Badge>
+                      {canOpenGybVaultMailbox && accountId ? (
+                        <Link to={`/gyb-vault-work/${accountId}`}>
+                          <Button size="xs" color="light">
+                            Ver .eml en Drive
+                          </Button>
+                        </Link>
+                      ) : (
+                        <span className="text-xs text-slate-500">hace falta permiso de buzón delegado</span>
+                      )}
+                    </>
+                  ) : (
+                    <Badge color="gray">sin vault en cuenta</Badge>
+                  )}
+                </dd>
+              </div>
+              <div className="flex flex-wrap justify-between gap-2 border-b border-slate-100 dark:border-slate-800 pb-2">
                 <dt className="text-slate-500">Logs de backup Gmail (BD)</dt>
                 <dd>{inv.gmail_backup_logs_count}</dd>
               </div>
@@ -267,6 +346,41 @@ export default function AccountMailDataPage() {
               </div>
             </dl>
           </Card>
+
+          {canRebuild && (inv.drive_vault_folder_id ?? '').trim() ? (
+            <Card>
+              <h2 className="font-semibold mb-2">Traer copia GYB desde Drive al servidor</h2>
+              <p className="text-sm text-slate-600 dark:text-slate-400 mb-3">
+                Ejecuta <code className="text-xs">rclone copy</code> desde{' '}
+                <code className="text-xs">1-GMAIL/gyb_mbox</code> en la bóveda hacia la carpeta de trabajo GYB en este
+                equipo. <strong>No llama a Gmail.</strong> Marcá la opción de abajo si querés que primero se borre todo el
+                contenido local de esa carpeta y quede un reflejo de lo que hay en Drive (si no, la copia es incremental y
+                no borra en el servidor archivos que ya no estén en Drive).
+              </p>
+              <div className="flex items-center gap-2 mb-3">
+                <Checkbox
+                  id="purge-before-vault-restore"
+                  checked={purgeBeforeVaultRestore}
+                  onChange={(e) => setPurgeBeforeVaultRestore(e.target.checked)}
+                />
+                <Label htmlFor="purge-before-vault-restore" className="text-sm cursor-pointer">
+                  Vaciar antes la carpeta de trabajo GYB en el servidor y luego restaurar desde Drive (reemplazo
+                  completo)
+                </Label>
+              </div>
+              <p className="text-xs text-amber-700 dark:text-amber-300 mb-3">
+                En buzones grandes puede tardar mucho; mantené la sesión abierta hasta que finalice el navegador.
+              </p>
+              <Button
+                color="purple"
+                disabled={restoreVault.isPending}
+                isProcessing={restoreVault.isPending}
+                onClick={() => void onRestoreGybFromVault()}
+              >
+                Restaurar desde bóveda (1-GMAIL)
+              </Button>
+            </Card>
+          ) : null}
 
           {canRebuild ? (
             <Card>
@@ -292,9 +406,22 @@ export default function AccountMailDataPage() {
                       u omití la clave (por defecto no se borra la carpeta GYB).
                     </li>
                     <li>
-                      Si el export ya está en la bóveda (<code className="text-xs">1-GMAIL/</code>), podés copiar ese
-                      contenido a la ruta GYB indicada arriba y recargar esta página.
+                      Si el export ya está en la bóveda (<code className="text-xs">1-GMAIL/</code>), marcá{' '}
+                      <strong>Vaciar antes…</strong> en la sección de abajo y ejecutá restaurar, o purgá manualmente
+                      «Trabajo GYB» arriba antes de restaurar.
                     </li>
+                    {canOpenGybVaultMailbox && accountId ? (
+                      <li>
+                        También podés{' '}
+                        <Link
+                          to={`/gyb-vault-work/${accountId}`}
+                          className="text-blue-600 dark:text-blue-400 underline font-medium"
+                        >
+                          abrir los mensajes directamente desde la copia en Drive
+                        </Link>{' '}
+                        (no hace falta tener la carpeta de trabajo GYB llena en el servidor).
+                      </li>
+                    ) : null}
                   </ul>
                 </Alert>
               ) : null}

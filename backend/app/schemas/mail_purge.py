@@ -19,6 +19,7 @@ class MailDataInventoryOut(BaseModel):
     webmail_tokens_count: int
     imap_enabled: bool
     imap_password_configured: bool
+    drive_vault_folder_id: str | None = None
 
 
 class AccountMailPurgeIn(BaseModel):
@@ -41,6 +42,19 @@ class MaildirRebuildFromGybOut(BaseModel):
     folders_touched: int
     skipped_duplicates: int
     backup_log_id: str | None = None
+
+
+class GybWorkRestoreFromVaultIn(BaseModel):
+    """Si ``purge_workdir_first`` es True, se vacía la carpeta de trabajo GYB en disco antes de copiar desde Drive."""
+
+    purge_workdir_first: bool = False
+
+
+class GybWorkRestoreFromVaultOut(BaseModel):
+    work_path: str
+    rclone_exit_code: int
+    log_tail: str | None = None
+    purged_workdir_first: bool = False
 
 
 class AccountMailPurgeOut(BaseModel):

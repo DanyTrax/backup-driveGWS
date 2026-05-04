@@ -242,6 +242,52 @@ def build_rclone_local_to_vault_argv(
     return argv
 
 
+def build_rclone_vault_to_local_argv(
+    local_abs: str,
+    cfg: RcloneConfig,
+    *,
+    source_subpath: str,
+    dry_run: bool = False,
+    extra_flags: Iterable[str] = (),
+) -> list[str]:
+    """``rclone copy dest:<ruta> <local_dir>`` — copia desde bóveda (1-GMAIL/gyb_mbox) al trabajo GYB local."""
+    s = get_settings()
+    transfers = s.rclone_gmail_vault_transfers
+    checkers = s.rclone_gmail_vault_checkers
+    rel = source_subpath.strip().lstrip("/")
+    remote = f"{cfg.remote_dest.rstrip(':')}:{rel}/" if rel else cfg.remote_dest
+    argv = [
+        "copy",
+        remote,
+        str(Path(local_abs).resolve()),
+        "--config",
+        cfg.config_path,
+        "--stats",
+        "5s",
+        "--stats-one-line",
+        "--stats-log-level",
+        "NOTICE",
+        "--transfers",
+        str(transfers),
+        "--checkers",
+        str(checkers),
+        "--fast-list",
+        "--retries",
+        "3",
+        "--low-level-retries",
+        "10",
+    ]
+    if s.rclone_gmail_vault_no_traverse:
+        argv.append("--no-traverse")
+    argv += _gmail_vault_tps_argv_part(s)
+    argv += _gmail_vault_compare_argv_part(s)
+    argv += _gmail_vault_extra_flags_argv_part(s)
+    if dry_run:
+        argv.append("--dry-run")
+    argv += list(extra_flags)
+    return argv
+
+
 def build_rclone_mkdir_dest_argv(
     cfg: RcloneConfig,
     *,

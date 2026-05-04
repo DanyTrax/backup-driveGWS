@@ -37,6 +37,18 @@ function canOpenVaultDrive(
   return false
 }
 
+/** Mensajes GYB leídos desde 1-GMAIL/gyb_mbox vía rclone (no requiere carpeta de trabajo local). */
+function canOpenGybVaultMailbox(
+  account: WorkspaceAccount,
+  hasPermission: (code: string) => boolean,
+  delegatedMailboxIds: Set<string>,
+): boolean {
+  if (!(account.drive_vault_folder_id ?? '').trim()) return false
+  if (hasPermission('mailbox.view_all')) return true
+  if (hasPermission('mailbox.view_delegated') && delegatedMailboxIds.has(account.id)) return true
+  return false
+}
+
 function verifyAccessErrorMessage(err: unknown): string {
   const ax = err as AxiosError<{ detail?: unknown }>
   if (ax.code === 'ECONNABORTED') {
@@ -250,7 +262,7 @@ export default function AccountsPage() {
                   <th>Backup</th>
                   <th>IMAP</th>
                   <th>Bandeja local</th>
-                  <th>Ver Maildir</th>
+                  <th>GYB / bandeja</th>
                   <th>Bóveda Drive</th>
                   <th>Datos locales</th>
                   <th>Último backup</th>
@@ -300,15 +312,26 @@ export default function AccountsPage() {
                     </td>
                     <td>
                       {hideMaildirWebmailUi() ? (
-                        a.is_backup_enabled ? (
-                          <Link to={`/gyb-work/${a.id}`}>
-                            <Button size="xs" color="light">
-                              Mensajes GYB
-                            </Button>
-                          </Link>
-                        ) : (
-                          <span className="text-slate-400 text-xs">—</span>
-                        )
+                        <div className="flex flex-wrap gap-1 justify-start">
+                          {a.is_backup_enabled ? (
+                            <Link to={`/gyb-work/${a.id}`}>
+                              <Button size="xs" color="light">
+                                GYB local
+                              </Button>
+                            </Link>
+                          ) : null}
+                          {canOpenGybVaultMailbox(a, hasPermission, delegatedMailboxIds) ? (
+                            <Link to={`/gyb-vault-work/${a.id}`}>
+                              <Button size="xs" color="light">
+                                GYB en Drive
+                              </Button>
+                            </Link>
+                          ) : null}
+                          {!a.is_backup_enabled &&
+                          !canOpenGybVaultMailbox(a, hasPermission, delegatedMailboxIds) ? (
+                            <span className="text-slate-400 text-xs">—</span>
+                          ) : null}
+                        </div>
                       ) : canOpenMailbox(a, hasPermission, delegatedMailboxIds) ? (
                         <Link to={`/accounts/${a.id}/mailbox`}>
                           <Button size="xs" color="light">

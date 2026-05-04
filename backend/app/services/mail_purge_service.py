@@ -114,6 +114,7 @@ async def build_mail_inventory(db: AsyncSession, account: GwAccount) -> dict:
         "webmail_tokens_count": await count_webmail_tokens_for_account(db, account.id),
         "imap_enabled": account.imap_enabled,
         "imap_password_configured": bool((account.imap_password_hash or "").strip()),
+        "drive_vault_folder_id": (account.drive_vault_folder_id or "").strip() or None,
     }
 
 

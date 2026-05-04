@@ -7,7 +7,7 @@ import uuid
 from datetime import UTC, datetime
 from pathlib import Path
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, Response, status
+from fastapi import APIRouter, BackgroundTasks, Body, Depends, HTTPException, Request, Response, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -36,6 +36,8 @@ from app.schemas.accounts import (
 from app.schemas.mail_purge import (
     AccountMailPurgeIn,
     AccountMailPurgeOut,
+    GybWorkRestoreFromVaultIn,
+    GybWorkRestoreFromVaultOut,
     MailDataInventoryOut,
     MaildirRebuildFromGybOut,
 )
@@ -46,6 +48,7 @@ from app.services.accounts_service import (
     sync_workspace_directory,
 )
 from app.services.audit_service import record_audit
+from app.services.gyb_vault_pull_service import restore_gyb_workdir_from_vault
 from app.services.mail_purge_service import (
     AccountMailPurgeOptions,
     build_mail_inventory,
@@ -507,6 +510,94 @@ async def maildir_rebuild_from_local_gyb(
         folders_touched=stats.folders,
         skipped_duplicates=stats.skipped_duplicates,
         backup_log_id=log_id_str,
+    )
+
+
+@router.post(
+    "/{account_id}/gyb-work/restore-from-vault",
+    response_model=GybWorkRestoreFromVaultOut,
+    summary="Traer export GYB desde Drive (1-GMAIL/gyb_mbox) a la carpeta de trabajo local",
+)
+async def gyb_work_restore_from_vault_endpoint(
+    account_id: uuid.UUID,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    current: SysUser = Depends(require_permission("accounts.edit")),
+    payload: GybWorkRestoreFromVaultIn = Body(default=GybWorkRestoreFromVaultIn()),
+) -> GybWorkRestoreFromVaultOut:
+    """Copia incremental vía rclone; opcionalmente vacía antes la carpeta local."""
+    acc = await _load(db, account_id)
+    if not (acc.drive_vault_folder_id or "").strip():
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            detail={"error": "missing_drive_vault_folder_id"},
+        )
+    try:
+        rc, out, work_root = await restore_gyb_workdir_from_vault(
+            db,
+            account=acc,
+            purge_workdir_first=payload.purge_workdir_first,
+        )
+    except ValueError as exc:
+        if str(exc) == "missing_drive_vault_folder_id":
+            raise HTTPException(
+                status.HTTP_409_CONFLICT,
+                detail={"error": "missing_drive_vault_folder_id"},
+            ) from exc
+        raise
+    tail = (out or "")[-4000:] if out else None
+    if rc != 0:
+        await record_audit(
+            db,
+            action=AuditAction.GYB_WORK_RESTORED_FROM_VAULT,
+            actor_user_id=current.id,
+            actor_label=current.email,
+            ip_address=get_client_ip(request),
+            user_agent=get_user_agent(request),
+            target_table="gw_accounts",
+            target_id=str(acc.id),
+            success=False,
+            message="gyb_restore_from_vault_rclone_failed",
+            metadata={
+                "email": acc.email,
+                "work_path": str(work_root),
+                "rclone_exit_code": rc,
+                "log_tail": tail,
+                "purge_workdir_first": payload.purge_workdir_first,
+            },
+        )
+        await db.commit()
+        raise HTTPException(
+            status.HTTP_502_BAD_GATEWAY,
+            detail={
+                "error": "rclone_copy_failed",
+                "rclone_exit_code": rc,
+                "log_tail": tail,
+            },
+        )
+    await record_audit(
+        db,
+        action=AuditAction.GYB_WORK_RESTORED_FROM_VAULT,
+        actor_user_id=current.id,
+        actor_label=current.email,
+        ip_address=get_client_ip(request),
+        user_agent=get_user_agent(request),
+        target_table="gw_accounts",
+        target_id=str(acc.id),
+        message="gyb_restored_from_vault",
+        metadata={
+            "email": acc.email,
+            "work_path": str(work_root),
+            "rclone_exit_code": rc,
+            "purge_workdir_first": payload.purge_workdir_first,
+        },
+    )
+    await db.commit()
+    return GybWorkRestoreFromVaultOut(
+        work_path=str(work_root),
+        rclone_exit_code=rc,
+        log_tail=tail,
+        purged_workdir_first=payload.purge_workdir_first,
     )
 
 

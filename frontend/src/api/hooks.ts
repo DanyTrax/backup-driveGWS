@@ -21,6 +21,8 @@ import type {
   MailboxMessagesPage,
   MailDataInventory,
   PermissionCatalogEntry,
+  GybWorkRestoreFromVaultPayload,
+  GybWorkRestoreFromVaultResult,
   MaildirRebuildFromGybResult,
   PlatformBackupResult,
   PlatformRole,
@@ -563,6 +565,27 @@ export function useRebuildMaildirFromLocalGyb() {
       void qc.invalidateQueries({ queryKey: ['mail-data-inventory', accountId] })
       void qc.invalidateQueries({ queryKey: ['mailbox-folders', accountId] })
       void qc.invalidateQueries({ queryKey: ['backup-logs'] })
+    },
+  })
+}
+
+export function useRestoreGybWorkFromVault() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (args: { accountId: string; purge_workdir_first?: boolean }) =>
+      (
+        await api.post<GybWorkRestoreFromVaultResult>(
+          `/accounts/${args.accountId}/gyb-work/restore-from-vault`,
+          { purge_workdir_first: args.purge_workdir_first ?? false } satisfies GybWorkRestoreFromVaultPayload,
+          { timeout: 0 },
+        )
+      ).data,
+    onSuccess: (_data, variables) => {
+      const accountId = variables.accountId
+      void qc.invalidateQueries({ queryKey: ['accounts'] })
+      void qc.invalidateQueries({ queryKey: ['mail-data-inventory', accountId] })
+      void qc.invalidateQueries({ queryKey: ['gyb-work-accounts', 'gyb-work'] })
+      void qc.invalidateQueries({ queryKey: ['gyb-work-accounts', 'gyb-vault-work'] })
     },
   })
 }
