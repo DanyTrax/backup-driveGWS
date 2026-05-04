@@ -380,55 +380,69 @@ export default function GybWorkAccountViewer({
   const standalone = variant === 'standalone'
   const listBasePath = vaultMode ? '/gyb-vault-work' : '/gyb-work'
 
-  const shellClass = standalone ? 'flex min-h-0 flex-1 flex-col gap-2 overflow-hidden' : 'space-y-4'
+  const shellClass = standalone ? 'flex min-h-0 flex-1 flex-col gap-1.5 overflow-hidden' : 'space-y-4'
 
   return (
     <div className={shellClass}>
-      <div className="flex flex-wrap items-center gap-2 md:gap-3">
-        {standalone ? (
-          <Button color="light" size="sm" onClick={() => navigate(listBasePath)}>
-            <HiArrowLeft className="h-4 w-4 mr-2" /> Otra cuenta
-          </Button>
-        ) : (
-          <Button color="light" size="sm" onClick={() => navigate(`${listBasePath}/${id}`)}>
-            Abrir vista GYB completa
-          </Button>
-        )}
-        <h1 className="text-xl font-semibold">
-          {standalone
-            ? vaultMode
-              ? 'Mensajes GYB · copia en Google Drive'
-              : 'Mensajes GYB · carpeta de trabajo'
-            : vaultMode
-              ? 'Bandeja GYB · vault (Drive)'
-              : 'Bandeja de trabajo GYB'}
-        </h1>
-        <Badge color="info">{currentAccountEmail ?? id}</Badge>
-        {vaultMode ? (
-          <Badge color="gray">1-GMAIL/gyb_mbox · rclone</Badge>
-        ) : (
-          <div className="flex rounded-lg border border-slate-200 dark:border-slate-600 overflow-hidden text-sm">
-            <button
-              type="button"
-              className={`px-3 py-1.5 ${viewMode === 'disk' ? 'bg-blue-600 text-white' : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200'}`}
-              onClick={() => setInternalViewMode('disk')}
-            >
-              Carpetas en disco
-            </button>
-            <button
-              type="button"
-              className={`px-3 py-1.5 border-l border-slate-200 dark:border-slate-600 ${viewMode === 'labels' ? 'bg-blue-600 text-white' : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200'}`}
-              onClick={() => setInternalViewMode('labels')}
-            >
-              Etiquetas Gmail
-            </button>
-          </div>
-        )}
-      </div>
-
       <div
-        className={[standalone ? 'shrink-0' : '', 'w-full space-y-2'].filter(Boolean).join(' ')}
+        className={
+          standalone
+            ? 'flex shrink-0 flex-col gap-2 lg:flex-row lg:items-end lg:justify-between lg:gap-x-4 lg:gap-y-2'
+            : 'shrink-0 space-y-2'
+        }
       >
+        <div
+          className={`flex flex-wrap items-center gap-2 md:gap-3 ${standalone ? 'min-w-0 lg:min-w-[12rem] lg:flex-1' : ''}`}
+        >
+          {standalone ? (
+            <Button color="light" size="sm" onClick={() => navigate(listBasePath)}>
+              <HiArrowLeft className="h-4 w-4 mr-2" /> Otra cuenta
+            </Button>
+          ) : (
+            <Button color="light" size="sm" onClick={() => navigate(`${listBasePath}/${id}`)}>
+              Abrir vista GYB completa
+            </Button>
+          )}
+          <h1 className="text-xl font-semibold">
+            {standalone
+              ? vaultMode
+                ? 'Mensajes GYB · copia en Google Drive'
+                : 'Mensajes GYB · carpeta de trabajo'
+              : vaultMode
+                ? 'Bandeja GYB · vault (Drive)'
+                : 'Bandeja de trabajo GYB'}
+          </h1>
+          <Badge color="info">{currentAccountEmail ?? id}</Badge>
+          {vaultMode ? (
+            <Badge color="gray">1-GMAIL/gyb_mbox · rclone</Badge>
+          ) : (
+            <div className="flex rounded-lg border border-slate-200 dark:border-slate-600 overflow-hidden text-sm">
+              <button
+                type="button"
+                className={`px-3 py-1.5 ${viewMode === 'disk' ? 'bg-blue-600 text-white' : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200'}`}
+                onClick={() => setInternalViewMode('disk')}
+              >
+                Carpetas en disco
+              </button>
+              <button
+                type="button"
+                className={`px-3 py-1.5 border-l border-slate-200 dark:border-slate-600 ${viewMode === 'labels' ? 'bg-blue-600 text-white' : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200'}`}
+                onClick={() => setInternalViewMode('labels')}
+              >
+                Etiquetas Gmail
+              </button>
+            </div>
+          )}
+        </div>
+
+        <div
+          className={[
+            'w-full space-y-2',
+            standalone ? 'shrink-0 lg:w-auto lg:max-w-xl xl:max-w-2xl' : '',
+          ]
+            .filter(Boolean)
+            .join(' ')}
+        >
         <div className="flex flex-wrap items-end gap-2 gap-y-2">
           <div className="min-w-[min(100%,18rem)] flex-1">
             <TextInput
@@ -471,6 +485,7 @@ export default function GybWorkAccountViewer({
               : ' En «Etiquetas Gmail» se usa msg-db.sqlite; sin ese archivo la API devuelve error.'}
           </p>
         ) : null}
+        </div>
       </div>
 
       {msgsQ.isError && (
@@ -616,7 +631,14 @@ export default function GybWorkAccountViewer({
             </ul>
             )}
           </div>
-          <div className="mt-auto flex shrink-0 flex-wrap items-center justify-between gap-2 border-t border-slate-100 pt-3 dark:border-slate-700">
+          <div
+            className={[
+              'mt-auto flex shrink-0 flex-wrap items-center justify-between gap-2 border-t border-slate-100 dark:border-slate-700',
+              standalone ? 'pt-2' : 'pt-3',
+            ]
+              .filter(Boolean)
+              .join(' ')}
+          >
             <div className="flex gap-2">
               <Button
                 size="xs"
@@ -651,7 +673,7 @@ export default function GybWorkAccountViewer({
             .filter(Boolean)
             .join(' ')}
         >
-          <h2 className="mb-2 shrink-0 text-sm font-medium">Contenido</h2>
+          <h2 className={`shrink-0 text-sm font-medium ${standalone ? 'mb-1.5' : 'mb-2'}`}>Contenido</h2>
           {!selectedKey ? (
             <p className="text-sm text-slate-500">Seleccioná un mensaje</p>
           ) : bodyQ.isLoading ? (
@@ -718,7 +740,7 @@ export default function GybWorkAccountViewer({
                       </p>
                       <iframe
                         title="html"
-                        className="h-[min(55vh,560px)] min-h-[200px] w-full bg-white dark:bg-slate-900"
+                        className="h-[min(60.5vh,616px)] min-h-[200px] w-full bg-white dark:bg-slate-900"
                         sandbox="allow-popups allow-downloads"
                         srcDoc={iframeSrcDoc}
                       />
@@ -734,7 +756,7 @@ export default function GybWorkAccountViewer({
                         <span className="text-xs text-slate-400 group-open:hidden">Mostrar</span>
                         <span className="hidden text-xs text-slate-400 group-open:inline">Ocultar</span>
                       </summary>
-                      <pre className="m-0 max-h-[min(50vh,420px)] overflow-auto whitespace-pre-wrap border-t border-slate-200 bg-slate-50 p-3 text-sm dark:border-slate-700 dark:bg-slate-900">
+                      <pre className="m-0 max-h-[min(55vh,462px)] overflow-auto whitespace-pre-wrap border-t border-slate-200 bg-slate-50 p-3 text-sm dark:border-slate-700 dark:bg-slate-900">
                         {bodyQ.data.text_plain}
                       </pre>
                     </details>
@@ -774,21 +796,42 @@ export default function GybWorkAccountViewer({
         </Card>
       </div>
 
-      <p className="shrink-0 text-xs text-slate-500 dark:text-slate-400">
-        Atajos con foco fuera de campos: <kbd className="rounded bg-slate-200 px-1 dark:bg-slate-700">j</kbd> /{' '}
-        <kbd className="rounded bg-slate-200 px-1 dark:bg-slate-700">k</kbd> mensaje siguiente/anterior;{' '}
-        <kbd className="rounded bg-slate-200 px-1 dark:bg-slate-700">r</kbd> marcar revisado (solo este navegador).
-      </p>
+      {standalone ? (
+        <div className="mt-auto flex shrink-0 flex-col gap-2 border-t border-slate-200 pt-2 dark:border-slate-700 lg:flex-row lg:flex-wrap lg:items-center lg:justify-between lg:gap-x-4">
+          <p className="min-w-0 text-[11px] leading-snug text-slate-500 dark:text-slate-400 lg:max-w-[min(100%,28rem)]">
+            Atajos con foco fuera de campos: <kbd className="rounded bg-slate-200 px-1 dark:bg-slate-700">j</kbd> /{' '}
+            <kbd className="rounded bg-slate-200 px-1 dark:bg-slate-700">k</kbd> mensaje siguiente/anterior;{' '}
+            <kbd className="rounded bg-slate-200 px-1 dark:bg-slate-700">r</kbd> marcar revisado (solo este navegador).
+          </p>
+          <div className="flex min-w-0 flex-wrap items-center gap-2 sm:gap-3">
+            <Button size="xs" color="light" onClick={downloadCurrentPageCsv} disabled={items.length === 0}>
+              CSV (esta página)
+            </Button>
+            <span className="max-w-2xl text-xs text-slate-500 dark:text-slate-400">
+              El CSV incluye solo los mensajes de esta página. El alcance lo define el desplegable de carpeta o «Todo el
+              export».
+            </span>
+          </div>
+        </div>
+      ) : (
+        <>
+          <p className="shrink-0 text-xs text-slate-500 dark:text-slate-400">
+            Atajos con foco fuera de campos: <kbd className="rounded bg-slate-200 px-1 dark:bg-slate-700">j</kbd> /{' '}
+            <kbd className="rounded bg-slate-200 px-1 dark:bg-slate-700">k</kbd> mensaje siguiente/anterior;{' '}
+            <kbd className="rounded bg-slate-200 px-1 dark:bg-slate-700">r</kbd> marcar revisado (solo este navegador).
+          </p>
 
-      <div className={[standalone ? 'mt-auto shrink-0 border-t border-slate-200 pt-3 dark:border-slate-700' : 'pt-3 mt-1 border-t border-slate-200 dark:border-slate-700', 'flex flex-wrap items-center gap-4'].filter(Boolean).join(' ')}>
-        <Button size="xs" color="light" onClick={downloadCurrentPageCsv} disabled={items.length === 0}>
-          CSV (esta página)
-        </Button>
-        <span className="text-xs text-slate-500 dark:text-slate-400 max-w-2xl">
-          El CSV incluye solo los mensajes de esta página. El alcance lo define el desplegable de carpeta o «Todo el
-          export».
-        </span>
-      </div>
+          <div className="mt-1 flex flex-wrap items-center gap-4 border-t border-slate-200 pt-3 dark:border-slate-700">
+            <Button size="xs" color="light" onClick={downloadCurrentPageCsv} disabled={items.length === 0}>
+              CSV (esta página)
+            </Button>
+            <span className="max-w-2xl text-xs text-slate-500 dark:text-slate-400">
+              El CSV incluye solo los mensajes de esta página. El alcance lo define el desplegable de carpeta o «Todo el
+              export».
+            </span>
+          </div>
+        </>
+      )}
     </div>
   )
 }
