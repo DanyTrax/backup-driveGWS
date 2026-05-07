@@ -27,6 +27,8 @@ async def sync_workspace_directory(
     - Inserts new users as DISCOVERED (is_backup_enabled=False).
     - Updates names, status and org unit for existing users.
     - Marks users missing from the directory as DELETED_IN_WORKSPACE.
+    - Before inserting new rows: frees ``google_user_id`` on stale emails so a renamed Workspace user
+      (same Directory ``id``, new primaryEmail) does not hit unique constraint ``uq_gw_accounts_google_user_id``.
     """
     started = datetime.now(timezone.utc)
     try:
@@ -51,6 +53,17 @@ async def sync_workspace_directory(
     new_count = 0
     updated_count = 0
     suspended_count = 0
+
+    # Primero: correos que ya no vienen como primaryEmail en Directory. Hay que liberar
+    # google_user_id *antes* del bucle de altas; si no, el alta del nuevo correo (mismo id Google)
+    # choca con la fila vieja.
+    deleted_count = 0
+    for email, acc in existing_by_email.items():
+        if email not in by_email:
+            if acc.workspace_status != AccountStatus.DELETED_IN_WORKSPACE.value:
+                acc.workspace_status = AccountStatus.DELETED_IN_WORKSPACE.value
+                deleted_count += 1
+            acc.google_user_id = None
 
     now = datetime.now(timezone.utc)
     for email, u in by_email.items():
@@ -88,12 +101,6 @@ async def sync_workspace_directory(
                 updated_count += 1
         if new_status == AccountStatus.SUSPENDED_IN_WORKSPACE.value:
             suspended_count += 1
-
-    deleted_count = 0
-    for email, acc in existing_by_email.items():
-        if email not in by_email and acc.workspace_status != AccountStatus.DELETED_IN_WORKSPACE.value:
-            acc.workspace_status = AccountStatus.DELETED_IN_WORKSPACE.value
-            deleted_count += 1
 
     finished = datetime.now(timezone.utc)
     log_row = GwSyncLog(
