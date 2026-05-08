@@ -1,8 +1,44 @@
-# Especificación Fase 0 — Gmail → servidor → ZIP → vault + visor
+# Plan Gmail vault (ZIP) + visor — Especificación y fases
 
-Documento vivo para **congelar decisiones** antes de implementar. Completar cada tabla; marcar **DECIDIDO** y fecha cuando se cierre el ítem.
+Documento **vivo**: decisiones de producto (Fase 0) + **checklist de ejecución** técnica (Fases 1–8).
 
-**Referencia del plan de ejecución:** conversación acordada (fases 1–8). Este archivo es el **anexo operativo** de la Fase 0.
+---
+
+## 0. Resumen acordado (conversación)
+
+- **Tarea Gmail:** GYB en servidor con una cadencia; **subida al vault** en ZIP con otra (día de semana anclaje, semana o mes). Parámetros en `filters_json` / formulario.
+- **Bootstrap:** Si en vault/BD **no** hay sellado previo → **completo** GYB; opción de subida inmediata del primer ZIP o esperar al día anclaje (`bootstrap_upload_immediate`).
+- **Tras borrar workdir local:** Reconstruir desde Gmail solo el tramo **después del último sellado en vault** (watermark/fecha + `overlap_days` configurable, default recomendado `1`).
+- **Visor “GYB en Drive”:** **Por cuenta**; alcance: **día**, **rango inicio–fin**, **mes** (atajo), **todo** lo disponible compatible; progreso, TTL en servidor, **unificar** zips → misma UX que bandeja de trabajo GYB.
+- **Legacy:** Convivencia con `1-GMAIL/gyb_mbox` (eml) hasta migración; modo `gmail_vault_packaging`: `legacy_eml` | `zip_only` | `mixed`.
+
+---
+
+## 0.1 Modos de restauración / materialización (visor vault)
+
+| Modo API/UI | Descripción |
+|-------------|-------------|
+| `single_day` | Un `YYYY-MM-DD`; bajar ZIP(s) que cubran ese día. |
+| `date_range` | `date_from` … `date_to` explícitos. |
+| `month` | Atajo: mes calendario (equivale a rango prellenado). |
+| `all` | Todo lo indexado en vault para la cuenta (límites de cuota/TTL). |
+
+Siempre parametrizado por **`account_id`** y opcionalmente **`task_id`** si el layout en Drive depende de la definición de tarea.
+
+---
+
+## 0.2 Checklist de fases de implementación
+
+| Fase | Contenido | Estado |
+|------|-----------|--------|
+| **1** | Modelo BD: estado vault por `(cuenta, tarea)` + sesiones de materialización; migración Alembic. | ✅ hecho (`0015_*`, `gmail_vault.py`) |
+| **2** | Esquema JSON manifiesto ZIP + rutas bajo `1-GMAIL/zips/…` (doc + validador). | ☐ |
+| **3** | Motor backup: `resolve_gmail_backup_plan`, GYB, empaquetado, subida, actualización estado. | ☐ |
+| **4** | API tareas (schemas) + beat/Celery según diseño de jobs. | ☐ |
+| **5** | APIs `materialize` + progreso + purge TTL. | ☐ |
+| **6** | Frontend: formulario tarea + pestaña vault. | ☐ |
+| **7** | Migración legacy → zip (opcional, documentada). | ☐ |
+| **8** | Tests integración, límites disco, métricas. | ☐ |
 
 ---
 
@@ -21,26 +57,20 @@ Documento vivo para **congelar decisiones** antes de implementar. Completar cada
 
 ## 2. Sellado y watermark (crítico)
 
-**Pregunta:** ¿Cómo sabemos con exactitud “hasta dónde llega lo ya resguardado en vault”?
-
 | Opción | Descripción | ¿Elegida? |
 |--------|-------------|-----------|
 | A | Solo **fecha fin** (`last_sealed_date`) en TZ definida. | ☐ |
-| B | **Fecha fin** + **solapamiento** configurable (0–N días). | ☐ |
-| C | **Watermark fino Gmail**: `historyId` / estado interno GYB guardado en manifiesto + BD. | ☐ |
-| D | Lista de **Message-Ids** o UIDs incluidos en cada ZIP (manifiesto pesado pero preciso). | ☐ |
+| B | **Fecha fin** + **solapamiento** configurable (0–N días). | ☑ **B** (impl. default `overlap_days=1` en tarea) |
+| C | **Watermark fino Gmail**: `historyId` / estado GYB en manifiesto + BD (`watermark_json`). | ☑ **C** (campo `watermark_json`) |
+| D | Lista exhaustiva Message-Ids en manifiesto | ☐ opcional futuro |
+
+**Timezone “día D”:** alineado a `backup_tasks.timezone` (default `America/Bogota`).
 
 **Decisión final (texto):**
 
 ```
-(ej.: Combinamos C + B con overlap_days=1 por defecto, sobreescribible en la tarea)
+B + C: last_sealed_at en BD + watermark_json evolutivo; overlap_days en filters_json (default 1).
 ```
-
-**Timezone “día D” para nombres de periodo y sellado:**
-
-| Valor | Notas |
-|-------|--------|
-| TZ fija tarea: `________________` | Debe alinearse con carpetas por fecha de GYB si aplica. |
 
 ---
 
@@ -50,24 +80,17 @@ Documento vivo para **congelar decisiones** antes de implementar. Completar cada
 
 | Opción | Definición | ¿Elegida? |
 |--------|------------|-----------|
-| S1 | Calendario **lun–dom** (o dom–sáb) en TZ de la tarea. | ☐ |
-| S2 | **Rodante**: desde `last_sealed` hasta `last_sealed + 7 días`. | ☐ |
-| S3 | Otra: `________________________________` | ☐ |
+| S1 | Calendario en TZ de tarea (definir lun–dom vs dom–sáb en implementación). | ☑ **S1** (detalle en Fase 3) |
+| S2 | Rodante desde `last_sealed`. | ☐ |
 
 ### 3.2 Mes
 
 | Opción | Definición | ¿Elegida? |
 |--------|------------|-----------|
-| M1 | **Mes calendario** (día 1 → último día del mes). | ☐ |
-| M2 | Desde **último sellado** hasta el **día de anclaje** que cae en el mes. | ☐ |
-| M3 | Otra: `________________________________` | ☐ |
+| M1 | Mes calendario. | ☑ **M1** preferido; M2 si se expone flag |
+| M2 | Desde último sellado hasta anclaje. | ☐ |
 
-### 3.3 Varias subidas por mes (opcional)
-
-| Parámetro | Valor |
-|-----------|--------|
-| ¿Cuántos ZIPs máx. por mes? | p. ej. 1 / 4 / N: ____ |
-| Si N>1, franjas fijas | p. ej. 1–7, 8–14, … o `________________` |
+### 3.3 Varias subidas por mes — TBD en Fase 3 si hace falta `vault_zip_slices_per_month`.
 
 ---
 
@@ -75,9 +98,9 @@ Documento vivo para **congelar decisiones** antes de implementar. Completar cada
 
 | Campo | Valor / regla |
 |-------|----------------|
-| Día de semana de **cierre + subida** (0=dom … 6=sáb o convención acordada) | ____ |
-| Si cadencia es **mensual**, ¿subida solo si el anclaje cae en día D o cualquier ejecución del día 1? | ____ |
-| ¿El mismo run hace **GYB** + **ZIP** + **upload** o jobs separados? | ____ |
+| Día de semana | `vault_anchor_dow` 0–6 en `filters_json` (convención Python `weekday()` documentada) |
+| Mensual | `vault_anchor_dom` opcional 1–28 |
+| Mismo run | GYB + zip + upload en una corrida si “toca” día de subida; si no, solo GYB cuando aplique schedule |
 
 ---
 
@@ -85,125 +108,93 @@ Documento vivo para **congelar decisiones** antes de implementar. Completar cada
 
 | Pregunta | Respuesta |
 |----------|-----------|
-| Si **no hay** ZIP/manifiesto en vault ni registro en BD para la cuenta, ¿full GYB siempre? | Sí / No / Condición: ____ |
-| Tras primer full en disco, ¿subida **inmediata** o **esperar** al primer día de anclaje? | Inmediata / Esperar / Flag tarea: ____ |
-| Nombre del primer ZIP / carpeta FULL | `________________` |
+| Sin ZIP/registro en vault | Full GYB |
+| Tras primer full | `bootstrap_upload_immediate` en `filters_json` |
 
 ---
 
 ## 6. Tras borrado del workdir en servidor
 
-| Comportamiento | Confirmado (Sí/No) |
-|----------------|---------------------|
-| Consultar vault/BD → descendente solo desde `last_sealed − overlap`. | ☐ |
-| No re-full del buzón salvo “re-semilla” explícita. | ☐ |
-| Primer ZIP tras rehidratación incluye el **tramo faltante** hasta el cierre del periodo actual. | ☐ |
+| Comportamiento | Confirmado |
+|----------------|------------|
+| Tramo desde vault sellado − overlap | Sí |
+| No re-full sin re-semilla | Sí |
+| Primer ZIP post-wipe cubre hueco hasta cierre de periodo | Sí |
 
 ---
 
 ## 7. Layout en Google Drive (bajo `1-GMAIL/`)
 
-**Propuesta base (editar si se decide otra):**
-
 ```text
 1-GMAIL/
   zips/
-    {identificador_cuenta}/     # email normalizado o account_id
-      manifest-index.json       # opcional: índice de periodos
-      WEEKLY/ o MONTHLY/ o BOTH/
-        YYYY-MM-DD__YYYY-MM-DD.zip
-        YYYY-MM-DD__YYYY-MM-DD.manifest.json
-  gyb_mbox/                     # LEGACY: eml sueltos (convivencia o solo lectura)
+    {account_id}/                 # UUID estable (recomendado)
+      …                           # WEEKLY/MONTHLY + manifiestos (Fase 2–3)
+  gyb_mbox/                       # LEGACY
 ```
 
-| Decisión | Valor |
-|----------|--------|
-| Identificador de carpeta por cuenta | email / uuid / otro: ____ |
-| ¿Se elimina o congela escritura en `gyb_mbox` para cuentas en modo ZIP? | ____ |
+Identificador de carpeta por cuenta: **`account_id`** (UUID) en árbol zip; email en manifiesto legible.
 
 ---
 
 ## 8. Formato ZIP y manifiesto
 
-| Campo manifiesto | Incluir (Sí/No) |
-|------------------|-----------------|
-| `manifest_version` | ☐ |
-| `account_id` / `email` | ☐ |
-| `task_id` | ☐ |
-| `period_start`, `period_end` (ISO + TZ) | ☐ |
-| `overlap_days_applied` | ☐ |
-| `gmail_watermark` (objeto libre) | ☐ |
-| Lista de archivos rel_path + size + sha256 | ☐ |
-| `gyb_version` / build | ☐ |
-
-| Compresión | `deflate` / `store` / otra: ____ |
-|------------|-------------------------------------|
-| Límite tamaño ZIP antes de dividir | ____ GB o N ficheros |
+Versión inicial `manifest_version: 1` — campos: cuenta, tarea, periodo, overlap, watermark, lista archivos (sha256 opcional). Compresión default `deflate`; `store` si se expone flag más adelante.
 
 ---
 
 ## 9. Retención y materialización (visor vault)
 
-| Parámetro | Default | Máximo permitido |
-|-----------|---------|------------------|
-| TTL materialización servidor | 15 días | ____ |
-| Override por solicitud en UI | Sí / No | máx ____ |
-| Cuota GB por cuenta en temp | ____ | ____ |
-| ¿Reset de TTL al ampliar rango en la misma sesión? | Sí / No | Regla: ____ |
+| Parámetro | Default | Notas |
+|-----------|---------|--------|
+| TTL | 15 días | configurable por solicitud con tope máx (Fase 5) |
+| Reset TTL al ampliar | Sí | misma sesión documentada en Fase 5 |
 
 ---
 
 ## 10. Unificación “como bandeja GYB”
 
-| Pregunta | Respuesta |
-|----------|-----------|
-| Directorio destino unificado | p. ej. `/var/msa/work/gmail-vault-pull/{email}/{session}/` |
-| ¿Misma estructura que GYB actual para abrir msg-db / visor? | Sí / No: ____ |
-| ¿Límite de zips a fusionar en una sola sesión? | N = ____ |
+Directorio base: `/var/msa/work/gmail-vault-pull/{account_id}/{session_id}/` (email opcional en log). Estructura compatible con visor GYB existente (Fase 5–6).
 
 ---
 
-## 11. Tarea Gmail — parámetros nuevos (`filters_json` / columnas)
+## 11. Tarea Gmail — `filters_json` (claves previstas)
 
-Listar claves exactas para implementación (rellenar):
-
-| Clave JSON | Tipo | Descripción |
-|------------|------|-------------|
-| `gmail_vault_packaging` | enum | `legacy_eml \| zip_only \| mixed` |
-| `vault_zip_cadence` | enum | `weekly \| monthly \| …` |
-| `vault_anchor_dow` | int | día semana anclaje |
-| `vault_anchor_dom` | int? | día del mes si aplica |
+| Clave | Tipo | Descripción |
+|-------|------|-------------|
+| `gmail_vault_packaging` | string | `legacy_eml` \| `zip_only` \| `mixed` |
+| `vault_zip_cadence` | string | `weekly` \| `monthly` |
+| `vault_anchor_dow` | int | 0–6 |
+| `vault_anchor_dom` | int? | 1–28 |
 | `bootstrap_upload_immediate` | bool | |
-| `overlap_days` | int | default 0 o 1 |
-| `retention_local_gyb_days` | int? | purge opcional post-upload |
-| `…` | | |
+| `overlap_days` | int | default `1` |
+| `retention_local_gyb_days` | int? | opcional |
 
 ---
 
-## 12. API — borrador de superficie
+## 12. API — superficie
 
-| Método | Ruta | Propósito |
-|--------|------|-----------|
-| GET | `/tasks/{id}/backup-wave-status` | ✅ existente |
-| POST | `/vault/gmail/materialize` | Nueva sesión descarga+unión |
-| GET | `/vault/gmail/materialize/{session_id}` | Estado / progreso |
-| DELETE | `/vault/gmail/materialize/{session_id}` | Cancelar / purga manual |
-
-*(Ajustar prefijos al router real del proyecto.)*
+| Método | Ruta | Estado |
+|--------|------|--------|
+| GET | `/tasks/{id}/backup-wave-status` | ✅ |
+| POST | `/vault/gmail/materialize` | Fase 5 |
+| GET | `/vault/gmail/materialize/{session_id}` | Fase 5 |
+| DELETE | `/vault/gmail/materialize/{session_id}` | Fase 5 |
 
 ---
 
 ## 13. Criterios de salida Fase 0
 
-- [ ] Todas las tablas **2, 3, 4, 5, 7, 8** tienen al menos una opción **DECIDIDO**.
-- [ ] Redactado un párrafo “**Comportamiento tras borrado local**” firmado por producto/ops.
-- [ ] Decisión explícita **legacy vs zip-only** para cuentas nuevas.
-- [ ] Fecha de congelación: `____-____-____`
+- [x] Plan maestro y modos visor reflejados en §0–0.1.
+- [ ] Congelación fecha: al cerrar Fase 3 núcleo.
+- [ ] Tablas 3.3 / 4 finos tras primera implementación.
 
 ---
 
 ## 14. Historial de cambios
 
-| Fecha | Autor | Cambio |
-|-------|-------|--------|
-| | | Creación plantilla |
+| Fecha | Cambio |
+|-------|--------|
+| — | Creación plantilla |
+| 2026-05-08 | Añadido plan maestro, modos visor, decisiones por defecto B+C+S1+M1 |
+| 2026-05-08 | Fase 1: tablas y modelos ORM `gmail_vault_account_state`, `gmail_vault_materialization` (`0015`). |

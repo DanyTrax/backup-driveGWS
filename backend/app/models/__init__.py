@@ -13,6 +13,7 @@ from app.models.vault_drive_delegation import SysUserVaultDriveDelegation
 from app.models.notifications import Notification, SysUserNotificationPref
 from app.models.restore import RestoreJob
 from app.models.settings import SysSetting
+from app.models.gmail_vault import GmailVaultAccountState, GmailVaultMaterialization
 from app.models.tasks import BackupLog, BackupTask, backup_task_accounts
 from app.models.users import SysPermission, SysRole, SysSession, SysUser, sys_role_permissions
 from app.models.webmail import WebmailAccessToken
@@ -37,6 +38,8 @@ __all__ = [
     "BackupTask",
     "BackupLog",
     "backup_task_accounts",
+    "GmailVaultAccountState",
+    "GmailVaultMaterialization",
     # restore
     "RestoreJob",
     # webmail
