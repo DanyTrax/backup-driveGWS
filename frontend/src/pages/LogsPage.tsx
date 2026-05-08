@@ -96,6 +96,15 @@ function describeLiveProgress(p: Record<string, unknown> | null | undefined): st
     const sub = typeof p.subpath === 'string' ? p.subpath : '1-GMAIL/…'
     return `Verificando vault con rclone check (${sub}): comparación de hashes; puede ir mucho tiempo; el panel se actualiza con las líneas de estadísticas de rclone.`
   }
+  if (stage === 'vault_drive_file_limit') {
+    const hint = typeof p.hint_es === 'string' ? p.hint_es : ''
+    const raw = typeof p.raw === 'string' ? p.raw.trim() : ''
+    return hint
+      ? `${hint}${raw ? ` · Detalle: ${raw.slice(0, 200)}${raw.length > 200 ? '…' : ''}` : ''}`
+      : raw
+        ? `Google rechazó la subida al vault (límite de archivos en unidad compartida). ${raw.slice(0, 220)}`
+        : 'Google rechazó la subida: límite de cantidad de archivos en la unidad compartida (~400 000 ítems).'
+  }
   if (stage === 'vault_ensure_dest') {
     const sub = typeof p.subpath === 'string' ? p.subpath : '1-GMAIL/…'
     return `Comprobando o recreando la carpeta en el vault antes de subir (${sub}).`
@@ -148,8 +157,14 @@ function describeLiveProgress(p: Record<string, unknown> | null | undefined): st
         : 'Drive (rclone)'
     const pctN = typeof p.progress_pct === 'number' ? p.progress_pct : null
     const pct = pctN != null ? ` · ~${Math.round(pctN)}%` : ''
+    const driveLimit =
+      raw &&
+      (raw.includes('teamDriveFileLimitExceeded') ||
+        raw.toLowerCase().includes('file limit for this shared drive'))
+        ? ' · [Google: límite de ~400k archivos en la unidad compartida; cada .eml cuenta como 1 archivo.]'
+        : ''
     if (raw) {
-      return `${prefix}: ${raw.slice(0, 260)}${raw.length > 260 ? '…' : ''}${pct}`
+      return `${prefix}: ${raw.slice(0, 260)}${raw.length > 260 ? '…' : ''}${pct}${driveLimit}`
     }
     return `${prefix} en curso…${pct}`
   }

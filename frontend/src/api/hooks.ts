@@ -6,6 +6,7 @@ import type {
   AccountMailPurgeResult,
   BackupLog,
   BackupTask,
+  BackupWaveStatusOut,
   BrandingConfig,
   BrandingPublic,
   GitRefreshResult,
@@ -384,6 +385,22 @@ export function useTasks() {
   })
 }
 
+/** Estado del lote según BD (logs activos por cuenta). */
+export function useTaskBackupWaveStatus(taskId: string | undefined) {
+  return useQuery({
+    queryKey: ['task-wave', taskId],
+    queryFn: async () =>
+      (await api.get<BackupWaveStatusOut>(`/tasks/${taskId}/backup-wave-status`)).data,
+    enabled: Boolean(taskId),
+    refetchInterval: (q) => {
+      const d = q.state.data
+      if (!d) return 15000 as const
+      const busy = d.wave_in_progress || (d.active_jobs?.length ?? 0) > 0
+      return busy ? 8000 : false
+    },
+  })
+}
+
 export function useRunTask() {
   const qc = useQueryClient()
   return useMutation({
@@ -391,6 +408,7 @@ export function useRunTask() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['tasks'] })
       qc.invalidateQueries({ queryKey: ['backup-logs'] })
+      qc.invalidateQueries({ queryKey: ['task-wave'] })
     },
   })
 }

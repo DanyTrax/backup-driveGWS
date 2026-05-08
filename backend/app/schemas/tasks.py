@@ -111,6 +111,32 @@ class RunEstimateOut(BaseModel):
     disclaimer: str
 
 
+class BackupWaveActiveItem(BaseModel):
+    log_id: str
+    account_id: str
+    email: str | None
+    scope: str
+    status: str
+    started_at: datetime | None
+    run_batch_id: str | None
+    celery_task_id: str | None
+
+    @field_serializer("started_at")
+    def _started_app_tz(self, v: datetime | None) -> datetime | None:
+        return _dt_in_app_tz(v)
+
+
+class BackupWaveStatusOut(BaseModel):
+    task_id: str
+    task_name: str
+    task_scope: str
+    wave_in_progress: bool
+    accounts_enabled: int
+    active_jobs: list[BackupWaveActiveItem]
+    idle_account_emails: list[str]
+    note: str
+
+
 class BackupLogOut(BaseModel):
     id: str
     task_id: str

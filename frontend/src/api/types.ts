@@ -333,6 +333,28 @@ export interface RunEstimateOut {
   disclaimer: string
 }
 
+export interface BackupWaveActiveItem {
+  log_id: string
+  account_id: string
+  email: string | null
+  scope: string
+  status: string
+  started_at: string | null
+  run_batch_id: string | null
+  celery_task_id: string | null
+}
+
+export interface BackupWaveStatusOut {
+  task_id: string
+  task_name: string
+  task_scope: string
+  wave_in_progress: boolean
+  accounts_enabled: number
+  active_jobs: BackupWaveActiveItem[]
+  idle_account_emails: string[]
+  note: string
+}
+
 export interface BackupLog {
   id: string
   task_id: string

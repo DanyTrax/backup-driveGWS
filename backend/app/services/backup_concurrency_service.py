@@ -11,12 +11,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.enums import BackupScope, BackupStatus
 from app.models.tasks import BackupLog
 
-# Estados considerados «en curso» para deduplicar encolados.
-_ACTIVE: tuple[str, ...] = (
+# Estados considerados «en curso» para deduplicar encolados y estado de lote.
+BACKUP_ACTIVE_STATUSES: tuple[str, ...] = (
     BackupStatus.PENDING.value,
     BackupStatus.QUEUED.value,
     BackupStatus.RUNNING.value,
 )
+_ACTIVE: tuple[str, ...] = BACKUP_ACTIVE_STATUSES
 
 
 def drive_scope_stored_in_log(task_scope: str) -> str:
@@ -45,8 +46,8 @@ async def active_backup_log_id(
     return (await db.execute(stmt)).scalar_one_or_none()
 
 
-def _log_scopes_for_task_definition(task_scope: str) -> tuple[str, ...]:
-    """Ámbitos en ``BackupLog`` que cubre una definición de tarea (para comprobar «lote» activo)."""
+def task_backup_log_scopes(task_scope: str) -> tuple[str, ...]:
+    """Ámbitos en ``BackupLog`` que cubre una definición de tarea (lote activo / lista de jobs)."""
     if task_scope == BackupScope.FULL.value:
         return (BackupScope.FULL.value, BackupScope.GMAIL.value)
     return (task_scope,)
@@ -64,7 +65,7 @@ async def any_active_backup_for_task_definition(
     cualquier backup de un lote anterior (p. ej. dos cuentas lentas >24 h). Sin esto solo se
     omiten las cuentas con log duplicado y el resto se re-encola al día siguiente.
     """
-    scopes = _log_scopes_for_task_definition(task_scope)
+    scopes = task_backup_log_scopes(task_scope)
     stmt = (
         select(BackupLog.id)
         .where(

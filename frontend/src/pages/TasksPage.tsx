@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { Fragment, useEffect, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import type { AxiosError } from 'axios'
 import { Badge, Button, Card, Checkbox, Label, Modal, Select, TextInput, Textarea } from 'flowbite-react'
@@ -10,11 +10,70 @@ import {
   useCreateTask,
   useDeleteTask,
   useRunTask,
+  useTaskBackupWaveStatus,
   useTasks,
   useUpdateTask,
   type TaskPayload,
 } from '../api/hooks'
-import type { BackupTask, RunEstimateOut, WorkspaceAccount } from '../api/types'
+import type { BackupTask, BackupWaveStatusOut, RunEstimateOut, WorkspaceAccount } from '../api/types'
+
+function TaskWaveSummary({ taskId }: { taskId: string }) {
+  const { data, isLoading, isError } = useTaskBackupWaveStatus(taskId)
+  if (isLoading)
+    return <span className="text-xs text-slate-400">Consultando estado del lote…</span>
+  if (isError || !data)
+    return <span className="text-xs text-amber-600">No se pudo cargar el estado del lote.</span>
+  return <TaskWaveSummaryBody data={data} />
+}
+
+function TaskWaveSummaryBody({ data }: { data: BackupWaveStatusOut }) {
+  const busy = data.wave_in_progress || (data.active_jobs?.length ?? 0) > 0
+  const aj = data.active_jobs ?? []
+  if (!busy) {
+    return (
+      <div className="text-xs text-slate-500 dark:text-slate-400">
+        Sin backups activos registrados en base de datos para esta tarea. Si acabás de encolar, el
+        worker puede tardar unos segundos en crear el log.
+      </div>
+    )
+  }
+  return (
+    <div className="text-xs space-y-2">
+      <div className="font-medium text-slate-700 dark:text-slate-200">
+        Lote en curso ({aj.length} job{aj.length === 1 ? '' : 's'} con estado running/queued/pending en
+        BD)
+      </div>
+      <ul className="list-disc pl-4 space-y-1 text-slate-600 dark:text-slate-300">
+        {aj.map((j) => (
+          <li key={j.log_id}>
+            <span className="font-mono">{j.email ?? j.account_id}</span> · {j.scope} ·{' '}
+            <span className="uppercase">{j.status}</span>
+            {j.started_at ? (
+              <>
+                {' '}
+                · desde {j.started_at}
+              </>
+            ) : null}
+            {' · '}
+            <a
+              className="text-blue-600 dark:text-blue-400 underline"
+              href={`/logs?log=${encodeURIComponent(j.log_id)}`}
+            >
+              ver log
+            </a>
+          </li>
+        ))}
+      </ul>
+      {data.idle_account_emails.length > 0 ? (
+        <p className="text-slate-500 dark:text-slate-400">
+          Cuentas sin job activo en BD todavía: {data.idle_account_emails.length} (p. ej. en cola de
+          worker o pendientes cuando haya hueco).
+        </p>
+      ) : null}
+      <p className="text-slate-400 dark:text-slate-500">{data.note}</p>
+    </div>
+  )
+}
 
 function formatApiDetail(d: unknown): string | null {
   if (d == null) return null
@@ -349,45 +408,52 @@ export default function TasksPage() {
               </thead>
               <tbody>
                 {tasks.map((t) => (
-                  <tr key={t.id} className="border-t border-slate-100 dark:border-slate-800">
-                    <td className="py-2 font-medium">{t.name}</td>
-                    <td>{t.scope}</td>
-                    <td>{t.mode}</td>
-                    <td className="text-xs">
-                      {t.schedule_kind === 'daily'
-                        ? `Diario ${String(t.run_at_hour ?? 0).padStart(2, '0')}:${String(
-                            t.run_at_minute ?? 0,
-                          ).padStart(2, '0')}`
-                        : t.schedule_kind === 'custom_cron'
-                          ? t.cron_expression
-                          : t.schedule_kind}
-                    </td>
-                    <td>{t.account_ids.length}</td>
-                    <td>
-                      {t.is_enabled ? (
-                        <Badge color="success">activa</Badge>
-                      ) : (
-                        <Badge color="gray">pausada</Badge>
-                      )}
-                    </td>
-                    <td className="text-xs text-slate-500">{t.last_run_at ?? '—'}</td>
-                    <td className="text-right space-x-2 whitespace-nowrap">
-                      <Button size="xs" color="light" onClick={() => openEdit(t)}>
-                        <HiPencil className="h-4 w-4 mr-1" /> Editar
-                      </Button>
-                      <Button
-                        size="xs"
-                        onClick={() => {
-                          void runTaskWithFeedback(t.id)
-                        }}
-                      >
-                        <HiPlay className="h-4 w-4 mr-1" /> Ejecutar
-                      </Button>
-                      <Button size="xs" color="failure" onClick={() => setTaskToDelete(t)}>
-                        <HiTrash className="h-4 w-4 mr-1" /> Eliminar
-                      </Button>
-                    </td>
-                  </tr>
+                  <Fragment key={t.id}>
+                    <tr className="border-t border-slate-100 dark:border-slate-800">
+                      <td className="py-2 font-medium">{t.name}</td>
+                      <td>{t.scope}</td>
+                      <td>{t.mode}</td>
+                      <td className="text-xs">
+                        {t.schedule_kind === 'daily'
+                          ? `Diario ${String(t.run_at_hour ?? 0).padStart(2, '0')}:${String(
+                              t.run_at_minute ?? 0,
+                            ).padStart(2, '0')}`
+                          : t.schedule_kind === 'custom_cron'
+                            ? t.cron_expression
+                            : t.schedule_kind}
+                      </td>
+                      <td>{t.account_ids.length}</td>
+                      <td>
+                        {t.is_enabled ? (
+                          <Badge color="success">activa</Badge>
+                        ) : (
+                          <Badge color="gray">pausada</Badge>
+                        )}
+                      </td>
+                      <td className="text-xs text-slate-500">{t.last_run_at ?? '—'}</td>
+                      <td className="text-right space-x-2 whitespace-nowrap">
+                        <Button size="xs" color="light" onClick={() => openEdit(t)}>
+                          <HiPencil className="h-4 w-4 mr-1" /> Editar
+                        </Button>
+                        <Button
+                          size="xs"
+                          onClick={() => {
+                            void runTaskWithFeedback(t.id)
+                          }}
+                        >
+                          <HiPlay className="h-4 w-4 mr-1" /> Ejecutar
+                        </Button>
+                        <Button size="xs" color="failure" onClick={() => setTaskToDelete(t)}>
+                          <HiTrash className="h-4 w-4 mr-1" /> Eliminar
+                        </Button>
+                      </td>
+                    </tr>
+                    <tr className="border-t border-slate-50 dark:border-slate-900">
+                      <td colSpan={8} className="py-2 px-3 bg-slate-50/80 dark:bg-slate-900/40">
+                        <TaskWaveSummary taskId={t.id} />
+                      </td>
+                    </tr>
+                  </Fragment>
                 ))}
               </tbody>
             </table>

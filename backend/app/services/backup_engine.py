@@ -208,6 +208,18 @@ async def run_gmail_vault_push_phase(
                     "phase": phase,
                     "raw": s,
                 }
+                if (
+                    "teamDriveFileLimitExceeded" in s
+                    or "file limit for this shared drive has been exceeded" in s.lower()
+                ):
+                    payload["stage"] = "vault_drive_file_limit"
+                    payload["severity"] = "error"
+                    payload["hint_es"] = (
+                        "Límite de cantidad de archivos en la unidad compartida de Google "
+                        "(≈400 000 ítems). Cada .eml cuenta como un archivo; por eso el uso en GB "
+                        "puede ser bajo pero igual se bloquea. Hay que liberar ítems, dividir en "
+                        "otra unidad compartida o cambiar la estrategia de export (p. ej. mbox)."
+                    )
                 pct = _rclone_line_progress_pct(s)
                 if pct is not None:
                     payload["progress_pct"] = round(pct, 2)

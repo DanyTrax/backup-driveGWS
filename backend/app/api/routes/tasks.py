@@ -18,9 +18,11 @@ from app.api.deps import (
 from app.core.logging import get_logger
 from app.models.accounts import GwAccount
 from app.models.enums import AuditAction, BackupScope
-from app.models.tasks import BackupTask, backup_task_accounts
+from app.models.tasks import BackupLog, BackupTask, backup_task_accounts
 from app.models.users import SysUser
 from app.schemas.tasks import (
+    BackupWaveActiveItem,
+    BackupWaveStatusOut,
     RunEstimateOut,
     RunResultOut,
     SkippedActiveBackupOut,
@@ -31,9 +33,11 @@ from app.schemas.tasks import (
 from app.services.audit_service import record_audit
 from app.services.backup_batch_registry import store_batch_celery_ids
 from app.services.backup_concurrency_service import (
+    BACKUP_ACTIVE_STATUSES,
     active_backup_log_id,
     any_active_backup_for_task_definition,
     drive_scope_stored_in_log,
+    task_backup_log_scopes,
 )
 from app.services.backup_estimate_service import run_estimate_payload
 
@@ -270,6 +274,60 @@ async def run_task_estimate(
     task = await _load(db, task_id)
     data = await run_estimate_payload(db, task)
     return RunEstimateOut.model_validate(data)
+
+
+@router.get("/{task_id}/backup-wave-status", response_model=BackupWaveStatusOut)
+async def backup_wave_status(
+    task_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _u: SysUser = Depends(require_any_permission("tasks.view", "tasks.run")),
+) -> BackupWaveStatusOut:
+    """Quién tiene backup activo en esta tarea (BD). No incluye jobs solo en cola de Celery sin log aún."""
+    task = await _load(db, task_id)
+    accounts = [a for a in (task.accounts or []) if a.is_backup_enabled]
+    scopes = task_backup_log_scopes(task.scope)
+    wave_in_progress = await any_active_backup_for_task_definition(
+        db, task_id=task.id, task_scope=task.scope
+    )
+    stmt = (
+        select(BackupLog, GwAccount.email)
+        .join(GwAccount, BackupLog.account_id == GwAccount.id)
+        .where(
+            BackupLog.task_id == task.id,
+            BackupLog.scope.in_(scopes),
+            BackupLog.status.in_(BACKUP_ACTIVE_STATUSES),
+        )
+        .order_by(BackupLog.started_at.asc().nullslast(), BackupLog.id)
+    )
+    rows = (await db.execute(stmt)).all()
+    active = [
+        BackupWaveActiveItem(
+            log_id=str(log.id),
+            account_id=str(log.account_id),
+            email=email,
+            scope=log.scope,
+            status=log.status,
+            started_at=log.started_at,
+            run_batch_id=str(log.run_batch_id) if log.run_batch_id else None,
+            celery_task_id=log.celery_task_id,
+        )
+        for log, email in rows
+    ]
+    busy_emails = {item.email for item in active if item.email}
+    idle_emails = sorted(a.email for a in accounts if a.email not in busy_emails)
+    return BackupWaveStatusOut(
+        task_id=str(task.id),
+        task_name=task.name,
+        task_scope=task.scope,
+        wave_in_progress=wave_in_progress,
+        accounts_enabled=len(accounts),
+        active_jobs=active,
+        idle_account_emails=idle_emails,
+        note=(
+            "Solo se listan jobs con registro en base de datos. Trabajos encolados en Celery que aún "
+            "no crearon BackupLog no aparecen como «activos» hasta que arranca el worker."
+        ),
+    )
 
 
 @router.post("/{task_id}/run", response_model=RunResultOut)
