@@ -8,7 +8,7 @@ import uuid
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.enums import BackupStatus
+from app.models.enums import BackupScope, BackupStatus
 from app.models.tasks import BackupLog
 
 # Estados considerados «en curso» para deduplicar encolados.
@@ -43,6 +43,38 @@ async def active_backup_log_id(
         .limit(1)
     )
     return (await db.execute(stmt)).scalar_one_or_none()
+
+
+def _log_scopes_for_task_definition(task_scope: str) -> tuple[str, ...]:
+    """Ámbitos en ``BackupLog`` que cubre una definición de tarea (para comprobar «lote» activo)."""
+    if task_scope == BackupScope.FULL.value:
+        return (BackupScope.FULL.value, BackupScope.GMAIL.value)
+    return (task_scope,)
+
+
+async def any_active_backup_for_task_definition(
+    db: AsyncSession,
+    *,
+    task_id: uuid.UUID,
+    task_scope: str,
+) -> bool:
+    """True si **alguna** cuenta tiene un log activo para esta tarea y su ámbito.
+
+    El disparo programado usa esto para no abrir un segundo lote mientras sigue en curso
+    cualquier backup de un lote anterior (p. ej. dos cuentas lentas >24 h). Sin esto solo se
+    omiten las cuentas con log duplicado y el resto se re-encola al día siguiente.
+    """
+    scopes = _log_scopes_for_task_definition(task_scope)
+    stmt = (
+        select(BackupLog.id)
+        .where(
+            BackupLog.task_id == task_id,
+            BackupLog.scope.in_(scopes),
+            BackupLog.status.in_(_ACTIVE),
+        )
+        .limit(1)
+    )
+    return (await db.execute(stmt)).scalar_one_or_none() is not None
 
 
 def _advisory_int_pair(task_id: uuid.UUID, account_id: uuid.UUID, namespace: str) -> tuple[int, int]:

@@ -76,17 +76,27 @@ def dispatch_scheduled_backups() -> dict[str, Any]:
             .where(BackupTask.is_enabled.is_(True))
         )
         from app.models.enums import BackupScope
-        from app.services.backup_concurrency_service import active_backup_log_id, drive_scope_stored_in_log
+        from app.services.backup_concurrency_service import (
+            active_backup_log_id,
+            any_active_backup_for_task_definition,
+            drive_scope_stored_in_log,
+        )
 
         tasks = (await db.execute(stmt)).scalars().all()
         queued = 0
         skipped_active = 0
+        skipped_task_busy = 0
         from app.services.backup_batch_registry import store_batch_celery_ids
 
         for task in tasks:
             if task.schedule_kind != "daily":
                 continue
             if task.run_at_hour != now.hour or (task.run_at_minute or 0) != now.minute:
+                continue
+            if await any_active_backup_for_task_definition(
+                db, task_id=task.id, task_scope=task.scope
+            ):
+                skipped_task_busy += 1
                 continue
             accounts = (
                 [a for a in task.accounts if a.is_backup_enabled]
@@ -123,6 +133,10 @@ def dispatch_scheduled_backups() -> dict[str, Any]:
                     queued += 1
             if celery_ids:
                 await store_batch_celery_ids(batch_str, celery_ids)
-        return {"dispatched": queued, "skipped_active": skipped_active}
+        return {
+            "dispatched": queued,
+            "skipped_active": skipped_active,
+            "skipped_task_busy": skipped_task_busy,
+        }
 
     return run_async(with_session(inner))
