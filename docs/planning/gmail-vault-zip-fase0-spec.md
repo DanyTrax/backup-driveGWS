@@ -32,7 +32,7 @@ Siempre parametrizado por **`account_id`** y opcionalmente **`task_id`** si el l
 | Fase | Contenido | Estado |
 |------|-----------|--------|
 | **1** | Modelo BD: estado vault por `(cuenta, tarea)` + sesiones de materialización; migración Alembic. | ✅ hecho (`0015_*`, `gmail_vault.py`) |
-| **2** | Esquema JSON manifiesto ZIP + rutas bajo `1-GMAIL/zips/…` (doc + validador). | ☐ |
+| **2** | Esquema JSON manifiesto ZIP + rutas bajo `1-GMAIL/zips/…` (doc + validador). | ✅ hecho (`gmail_vault_manifest`, `gmail_vault_zip_layout`, tests) |
 | **3** | Motor backup: `resolve_gmail_backup_plan`, GYB, empaquetado, subida, actualización estado. | ☐ |
 | **4** | API tareas (schemas) + beat/Celery según diseño de jobs. | ☐ |
 | **5** | APIs `materialize` + progreso + purge TTL. | ☐ |
@@ -139,7 +139,13 @@ Identificador de carpeta por cuenta: **`account_id`** (UUID) en árbol zip; emai
 
 ## 8. Formato ZIP y manifiesto
 
-Versión inicial `manifest_version: 1` — campos: cuenta, tarea, periodo, overlap, watermark, lista archivos (sha256 opcional). Compresión default `deflate`; `store` si se expone flag más adelante.
+Versión inicial **`manifest_version: 1`** implementada en `app/schemas/gmail_vault_manifest.py`:
+
+- `account_id`, `account_email`, `task_id`, `timezone`, `period_start` / `period_end`, `overlap_days_applied`, `seal_kind`, `gmail_watermark`, `backup_log_id`, `created_at`, `gyb_version_note`, `zip_basename`, `files[]` con `rel_path`, `size_bytes`, `sha256` opcional.
+
+Rutas relativas al vault (`dest:` carpeta cuenta): `app/services/gmail_vault_zip_layout.py` — `1-GMAIL/zips/{account_id}/{BOOTSTRAP|WEEKLY|MONTHLY|MANUAL}/YYYY-MM-DD__YYYY-MM-DD.zip` + `.manifest.json`.
+
+Compresión del `.zip`: pendiente Fase 3 (default previsto `deflate`).
 
 ---
 
@@ -197,4 +203,4 @@ Directorio base: `/var/msa/work/gmail-vault-pull/{account_id}/{session_id}/` (em
 |-------|--------|
 | — | Creación plantilla |
 | 2026-05-08 | Añadido plan maestro, modos visor, decisiones por defecto B+C+S1+M1 |
-| 2026-05-08 | Fase 1: tablas y modelos ORM `gmail_vault_account_state`, `gmail_vault_materialization` (`0015`). |
+| 2026-05-08 | Fase 2: Pydantic `GmailVaultZipManifestV1`, rutas `gmail_vault_zip_layout`, tests. |
