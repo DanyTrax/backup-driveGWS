@@ -949,38 +949,116 @@ async def run_gmail_backup(
         files, total_bytes = await asyncio.to_thread(_write_manifest, manifest_root, manifest_path)
 
         if not task.dry_run:
-            ok, verr = await run_gmail_vault_push_phase(
-                db,
-                log=log,
-                task=task,
-                account=account,
-                work_root=work_root,
-                log_id_str=log_id,
-                want_vault_push=want_vault_push,
-                vault_id=vault_id,
+            packaging_mode = vault_layout.gmail_vault_packaging_mode(task.filters_json)
+            want_zip = (
+                vault_layout.use_gmail_vault_zip_upload(task.filters_json) and want_vault_push
             )
-            await db.refresh(log)
-            if log.status == BackupStatus.CANCELLED.value:
-                await publish(log_id, {"stage": "cancelled"})
-                await db.commit()
-                return log
-            if not ok:
-                if verr == "cancelled":
+            want_legacy_push = (
+                vault_layout.use_gmail_legacy_eml_vault_push(task.filters_json)
+                and want_vault_push
+            )
+
+            if want_zip:
+                from app.services.gmail_vault_plan_service import resolve_gmail_zip_upload_plan
+                from app.services.gmail_vault_zip_service import (
+                    ensure_gmail_vault_account_state,
+                    load_gmail_vault_account_state,
+                    run_gmail_zip_vault_push_phase,
+                )
+
+                st_existing = await load_gmail_vault_account_state(
+                    db, account_id=account.id, task_id=task.id
+                )
+                last_sealed = st_existing.last_sealed_at if st_existing else None
+                dec = resolve_gmail_zip_upload_plan(
+                    task.filters_json or {},
+                    last_sealed_at=last_sealed,
+                    now_utc=datetime.now(UTC),
+                    task_timezone=task.timezone,
+                )
+                await ensure_gmail_vault_account_state(
+                    db,
+                    account_id=account.id,
+                    task_id=task.id,
+                    packaging_mode=packaging_mode,
+                )
+                if not dec.should_upload:
+                    await publish(
+                        log_id,
+                        {
+                            "stage": "vault_zip_skipped",
+                            "reason": dec.reason,
+                            "period_end": dec.period_end.isoformat(),
+                        },
+                    )
+                else:
+                    zok, zerr = await run_gmail_zip_vault_push_phase(
+                        db,
+                        log=log,
+                        task=task,
+                        account=account,
+                        work_root=work_root,
+                        log_id_str=log_id,
+                        vault_id=vault_id,
+                        decision=dec,
+                        packaging_mode=packaging_mode,
+                    )
+                    await db.refresh(log)
+                    if log.status == BackupStatus.CANCELLED.value:
+                        await publish(log_id, {"stage": "cancelled"})
+                        await db.commit()
+                        return log
+                    if not zok:
+                        if zerr == "cancelled":
+                            await publish(log_id, {"stage": "cancelled"})
+                            await db.commit()
+                            return log
+                        await _finalise_log(
+                            db,
+                            log,
+                            status=BackupStatus.FAILED,
+                            error_summary=zerr or "vault_zip_failed",
+                        )
+                        await publish(
+                            log_id,
+                            {"stage": "failed", "scope": "vault_zip"},
+                        )
+                        await db.commit()
+                        return log
+
+            if want_legacy_push:
+                ok, verr = await run_gmail_vault_push_phase(
+                    db,
+                    log=log,
+                    task=task,
+                    account=account,
+                    work_root=work_root,
+                    log_id_str=log_id,
+                    want_vault_push=want_vault_push,
+                    vault_id=vault_id,
+                )
+                await db.refresh(log)
+                if log.status == BackupStatus.CANCELLED.value:
                     await publish(log_id, {"stage": "cancelled"})
                     await db.commit()
                     return log
-                await _finalise_log(
-                    db,
-                    log,
-                    status=BackupStatus.FAILED,
-                    error_summary=verr,
-                )
-                await publish(
-                    log_id,
-                    {"stage": "failed", "scope": "vault_push"},
-                )
-                await db.commit()
-                return log
+                if not ok:
+                    if verr == "cancelled":
+                        await publish(log_id, {"stage": "cancelled"})
+                        await db.commit()
+                        return log
+                    await _finalise_log(
+                        db,
+                        log,
+                        status=BackupStatus.FAILED,
+                        error_summary=verr,
+                    )
+                    await publish(
+                        log_id,
+                        {"stage": "failed", "scope": "vault_push"},
+                    )
+                    await db.commit()
+                    return log
     except Exception as exc:  # pragma: no cover
         await _finalise_log(db, log, status=BackupStatus.FAILED, error_summary=str(exc))
         await publish(log_id, {"stage": "failed", "error": str(exc)})

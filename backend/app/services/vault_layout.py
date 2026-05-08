@@ -38,6 +38,39 @@ def vault_success_reports_enabled(filters: dict[str, Any] | None) -> bool:
 # Ruta relativa bajo 1-GMAIL donde vuelca GYB (single bucket incremental en Drive)
 GMAIL_VAULT_GYB_SUBDIR = "gyb_mbox"
 
+# Modo de empaquetado hacia vault (Fase 3+ ZIP)
+GMAIL_VAULT_PACKAGING_LEGACY = "legacy_eml"
+GMAIL_VAULT_PACKAGING_ZIP_ONLY = "zip_only"
+GMAIL_VAULT_PACKAGING_MIXED = "mixed"
+
+
+def gmail_vault_packaging_mode(filters: dict[str, Any] | None) -> str:
+    """``filters_json.gmail_vault_packaging``: por defecto solo árbol ``gyb_mbox`` (legacy)."""
+    v = (filters or {}).get("gmail_vault_packaging")
+    if v in (
+        GMAIL_VAULT_PACKAGING_LEGACY,
+        GMAIL_VAULT_PACKAGING_ZIP_ONLY,
+        GMAIL_VAULT_PACKAGING_MIXED,
+    ):
+        return str(v)
+    return GMAIL_VAULT_PACKAGING_LEGACY
+
+
+def use_gmail_vault_zip_upload(filters: dict[str, Any] | None) -> bool:
+    """Si True, evaluar plan ZIP y opcionalmente subir bajo ``1-GMAIL/zips/``."""
+    return gmail_vault_packaging_mode(filters) in (
+        GMAIL_VAULT_PACKAGING_ZIP_ONLY,
+        GMAIL_VAULT_PACKAGING_MIXED,
+    )
+
+
+def use_gmail_legacy_eml_vault_push(filters: dict[str, Any] | None) -> bool:
+    """Subida tradicional ``rclone copy`` de workdir → ``1-GMAIL/gyb_mbox``."""
+    return gmail_vault_packaging_mode(filters) in (
+        GMAIL_VAULT_PACKAGING_LEGACY,
+        GMAIL_VAULT_PACKAGING_MIXED,
+    )
+
 # Sincronización continua (sin ``dated_run``) bajo 2-DRIVE
 DRIVE_VAULT_CONTINUOUS_DIR = "_sync"
 # Copias desde Drive for desktop («Computadoras» / «Computers», etc.) — separado de ``_sync`` (Mi unidad).

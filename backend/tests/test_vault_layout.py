@@ -152,3 +152,10 @@ def test_drive_dest_legacy_dated_computadoras() -> None:
         backup_scope="drive_computadoras",
     )
     assert s == "MSA_Runs/2025-06-01T12-00/computadoras"
+
+
+def test_gmail_vault_packaging_modes() -> None:
+    assert vault_layout.gmail_vault_packaging_mode({}) == vault_layout.GMAIL_VAULT_PACKAGING_LEGACY
+    assert vault_layout.use_gmail_vault_zip_upload({"gmail_vault_packaging": "zip_only"}) is True
+    assert vault_layout.use_gmail_legacy_eml_vault_push({"gmail_vault_packaging": "zip_only"}) is False
+    assert vault_layout.use_gmail_legacy_eml_vault_push({"gmail_vault_packaging": "mixed"}) is True

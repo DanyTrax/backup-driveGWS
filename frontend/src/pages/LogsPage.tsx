@@ -96,6 +96,25 @@ function describeLiveProgress(p: Record<string, unknown> | null | undefined): st
     const sub = typeof p.subpath === 'string' ? p.subpath : '1-GMAIL/…'
     return `Verificando vault con rclone check (${sub}): comparación de hashes; puede ir mucho tiempo; el panel se actualiza con las líneas de estadísticas de rclone.`
   }
+  if (stage === 'vault_zip_start') {
+    const ps = typeof p.period_start === 'string' ? p.period_start : ''
+    const pe = typeof p.period_end === 'string' ? p.period_end : ''
+    const sk = typeof p.seal_kind === 'string' ? p.seal_kind : ''
+    return `Empaquetado ZIP para el vault (periodo ${ps || '—'} → ${pe || '—'}, tipo: ${sk || '—'}).`
+  }
+  if (stage === 'vault_zip_built') {
+    const n = typeof p.files_in_zip === 'number' ? p.files_in_zip : '—'
+    const zb = typeof p.zip_basename === 'string' ? p.zip_basename : ''
+    return `ZIP generado (${zb || '…'}): ${n} archivos. Subiendo bajo 1-GMAIL/zips/…`
+  }
+  if (stage === 'vault_zip_done') {
+    const vr = typeof p.vault_rel_zip === 'string' ? p.vault_rel_zip : ''
+    return `Subida ZIP al vault completada${vr ? `: ${vr}` : ''}.`
+  }
+  if (stage === 'vault_zip_skipped') {
+    const r = typeof p.reason === 'string' ? p.reason : ''
+    return `Subida ZIP omitida en esta corrida (${r || 'sin motivo'}). El trabajo local (GYB) sigue; el vault ZIP espera el próximo día anclaje.`
+  }
   if (stage === 'vault_drive_file_limit') {
     const hint = typeof p.hint_es === 'string' ? p.hint_es : ''
     const raw = typeof p.raw === 'string' ? p.raw.trim() : ''
