@@ -30,7 +30,11 @@ from app.schemas.tasks import (
 )
 from app.services.audit_service import record_audit
 from app.services.backup_batch_registry import store_batch_celery_ids
-from app.services.backup_concurrency_service import active_backup_log_id, drive_scope_stored_in_log
+from app.services.backup_concurrency_service import (
+    active_backup_log_id,
+    any_active_backup_for_task_definition,
+    drive_scope_stored_in_log,
+)
 from app.services.backup_estimate_service import run_estimate_payload
 
 router = APIRouter(prefix="/tasks", tags=["tasks"])
@@ -282,6 +286,19 @@ async def run_task(
     accounts = [a for a in (task.accounts or []) if a.is_backup_enabled]
     if not accounts:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "no_enabled_accounts")
+
+    if await any_active_backup_for_task_definition(db, task_id=task.id, task_scope=task.scope):
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            detail={
+                "error": "task_wave_in_progress",
+                "message": (
+                    "Esta tarea aún tiene backups en curso para alguna cuenta asignada. "
+                    "No se encola un nuevo lote hasta que no quede ninguno en curso; dejá que "
+                    "continúe el lote actual o cancelalo desde el panel."
+                ),
+            },
+        )
 
     skipped: list[SkippedActiveBackupOut] = []
     celery_ids: list[str] = []
