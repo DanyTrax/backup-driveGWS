@@ -16,6 +16,7 @@ celery_app = Celery(
         "app.workers.tasks.backup_drive",
         "app.workers.tasks.backup_gmail",
         "app.workers.tasks.backup_gmail_vault_retry",
+        "app.workers.tasks.gmail_vault_materialize",
         "app.workers.tasks.restore",
         "app.workers.tasks.maintenance",
         "app.workers.tasks.notify",

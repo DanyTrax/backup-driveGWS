@@ -21,6 +21,7 @@ from app.api.routes import (
     tasks,
     users,
     vault_drive_browser,
+    vault_gmail_materialize,
     webmail,
 )
 
@@ -35,6 +36,7 @@ api_router.include_router(setup.router)
 api_router.include_router(accounts.router)
 api_router.include_router(mailbox.router, prefix="/accounts")
 api_router.include_router(vault_drive_browser.router, prefix="/accounts")
+api_router.include_router(vault_gmail_materialize.router, prefix="/vault/gmail")
 api_router.include_router(tasks.router)
 api_router.include_router(backup.router)
 api_router.include_router(restore.router)

@@ -121,6 +121,11 @@ class Settings(BaseSettings):
     # Export ZIP del Maildir desde el panel. 0 = sin límite de tamaño (proveedor/ops asume el riesgo).
     maildir_export_max_bytes: int = 0
 
+    # Visor vault Gmail (ZIP): materialización local bajo esta raíz: ``{base}/{account_id}/{session_id}/``.
+    gmail_vault_materialize_base_path: str = "/var/msa/work/gmail-vault-pull"
+    gmail_vault_materialize_ttl_days_default: int = Field(default=15, ge=1, le=365)
+    gmail_vault_materialize_ttl_days_max: int = Field(default=90, ge=1, le=365)
+
     host_docker_control_enabled: bool = False
     host_stack_deploy_enabled: bool = False
     host_docker_socket_path: str = "/var/run/docker.sock"

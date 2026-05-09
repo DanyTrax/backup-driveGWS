@@ -45,7 +45,12 @@ def cleanup_expired_sessions() -> dict[str, Any]:
             | (SysSession.revoked_at < cutoff)
         )
         result = await db.execute(stmt)
-        return {"deleted": result.rowcount or 0}
+        from app.services.gmail_vault_materialize_service import (
+            cleanup_all_expired_materializations,
+        )
+
+        mat_purged = await cleanup_all_expired_materializations(db)
+        return {"deleted": result.rowcount or 0, "gmail_vault_materializations_purged": mat_purged}
 
     return run_async(with_session(inner))
 

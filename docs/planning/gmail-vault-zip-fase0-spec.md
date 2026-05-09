@@ -35,7 +35,7 @@ Siempre parametrizado por **`account_id`** y opcionalmente **`task_id`** si el l
 | **2** | Esquema JSON manifiesto ZIP + rutas bajo `1-GMAIL/zips/…` (doc + validador). | ✅ hecho (`gmail_vault_manifest`, `gmail_vault_zip_layout`, tests) |
 | **3** | Motor backup: ZIP al vault, planificación semanal/mensual, integración `run_gmail_backup`. | ✅ hecho (v1: GYB workdir → zip + manifiesto + rclone; estado en BD) |
 | **4** | Schemas/API tareas: validación `filters_json` vault ZIP + formulario UI (Gmail/Full). | ✅ |
-| **5** | APIs `materialize` + progreso + purge TTL. | ☐ |
+| **5** | APIs `materialize` + progreso + purge TTL. | ✅ |
 | **6** | Frontend: pestaña vault materialización / visor. | ☐ |
 | **7** | Migración legacy → zip (opcional, documentada). | ☐ |
 | **8** | Tests integración, límites disco, métricas. | ☐ |
@@ -183,9 +183,9 @@ Directorio base: `/var/msa/work/gmail-vault-pull/{account_id}/{session_id}/` (em
 | Método | Ruta | Estado |
 |--------|------|--------|
 | GET | `/tasks/{id}/backup-wave-status` | ✅ |
-| POST | `/vault/gmail/materialize` | Fase 5 |
-| GET | `/vault/gmail/materialize/{session_id}` | Fase 5 |
-| DELETE | `/vault/gmail/materialize/{session_id}` | Fase 5 |
+| POST | `/vault/gmail/materialize` | ✅ |
+| GET | `/vault/gmail/materialize/{session_id}` | ✅ |
+| DELETE | `/vault/gmail/materialize/{session_id}` | ✅ |
 
 ---
 
@@ -203,4 +203,5 @@ Directorio base: `/var/msa/work/gmail-vault-pull/{account_id}/{session_id}/` (em
 |-------|--------|
 | — | Creación plantilla |
 | 2026-05-08 | Añadido plan maestro, modos visor, decisiones por defecto B+C+S1+M1 |
-| 2026-05-08 | **Fase 4:** `task_filters_gmail_vault.normalize_task_filters_for_scope` en `TaskCreate`/`TaskUpdate`; plan ZIP acepta `vault_zip_cadence: none`; UI Tareas (Gmail + Full): empaquetado, cadencia, anclaje, bootstrap, overlap. |
+| 2026-05-08 | **Fase 4:** validación `filters_json` vault ZIP en tareas + UI Gmail/Full. |
+| 2026-05-08 | **Fase 5:** rutas `/api/vault/gmail/materialize*`; sesión en `gmail_vault_materialization`; disco bajo `gmail_vault_materialize_base_path`; Celery `gmail_vault_materialize`; TTL + limpieza en `cleanup_expired_sessions`; listado rclone `lsjson` + `copy` + unzip. |
