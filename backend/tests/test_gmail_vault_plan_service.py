@@ -55,6 +55,18 @@ def test_weekly_wrong_dow_skips() -> None:
     assert d.should_upload is False
 
 
+def test_cadence_none_skips_after_first_seal() -> None:
+    sealed = datetime(2026, 5, 1, 12, 0, tzinfo=ZoneInfo("America/Bogota"))
+    d = resolve_gmail_zip_upload_plan(
+        {"vault_zip_cadence": "none", "vault_anchor_dow": 6},
+        last_sealed_at=sealed,
+        now_utc=datetime(2026, 5, 10, 15, 0, tzinfo=timezone.utc),
+        task_timezone="America/Bogota",
+    )
+    assert d.should_upload is False
+    assert "cadence_none" in d.reason
+
+
 def test_same_day_no_double_seal() -> None:
     sealed = datetime(2026, 5, 10, 8, 0, tzinfo=ZoneInfo("America/Bogota"))
     d = resolve_gmail_zip_upload_plan(

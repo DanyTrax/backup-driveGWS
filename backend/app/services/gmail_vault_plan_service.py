@@ -52,8 +52,12 @@ def resolve_gmail_zip_upload_plan(
 ) -> GmailZipUploadDecision:
     """Sin filas en BD: ``last_sealed_at`` es None."""
     f = filters or {}
-    cadence = str(f.get("vault_zip_cadence") or "weekly").strip().lower()
-    if cadence not in ("weekly", "monthly"):
+    cadence_raw = str(f.get("vault_zip_cadence") or "weekly").strip().lower()
+    if cadence_raw == "none":
+        cadence = "none"
+    elif cadence_raw in ("weekly", "monthly"):
+        cadence = cadence_raw
+    else:
         cadence = "weekly"
 
     anchor_dow = _filters_int(f, "vault_anchor_dow", 6)  # domingo por defecto
@@ -91,13 +95,29 @@ def resolve_gmail_zip_upload_plan(
 
     # Evitar dos sellados el mismo día civil (TZ tarea).
     if last_local >= today:
+        if cadence == "none":
+            sk, cd = "bootstrap", seal_kind_to_zip_cadence_dir("bootstrap")
+        elif cadence == "weekly":
+            sk, cd = "weekly", "WEEKLY"
+        else:
+            sk, cd = "monthly", "MONTHLY"
         return GmailZipUploadDecision(
             should_upload=False,
             period_start=today,
             period_end=today,
-            seal_kind="weekly" if cadence == "weekly" else "monthly",
-            cadence_dir="WEEKLY" if cadence == "weekly" else "MONTHLY",
+            seal_kind=sk,
+            cadence_dir=cd,
             reason="already_sealed_today",
+        )
+
+    if cadence == "none":
+        return GmailZipUploadDecision(
+            should_upload=False,
+            period_start=today,
+            period_end=today,
+            seal_kind="bootstrap",
+            cadence_dir="BOOTSTRAP",
+            reason="vault_zip_cadence_none",
         )
 
     if cadence == "weekly":

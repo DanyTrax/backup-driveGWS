@@ -34,9 +34,9 @@ Siempre parametrizado por **`account_id`** y opcionalmente **`task_id`** si el l
 | **1** | Modelo BD: estado vault por `(cuenta, tarea)` + sesiones de materialización; migración Alembic. | ✅ hecho (`0015_*`, `gmail_vault.py`) |
 | **2** | Esquema JSON manifiesto ZIP + rutas bajo `1-GMAIL/zips/…` (doc + validador). | ✅ hecho (`gmail_vault_manifest`, `gmail_vault_zip_layout`, tests) |
 | **3** | Motor backup: ZIP al vault, planificación semanal/mensual, integración `run_gmail_backup`. | ✅ hecho (v1: GYB workdir → zip + manifiesto + rclone; estado en BD) |
-| **4** | API tareas (schemas) + beat/Celery según diseño de jobs. | ☐ |
+| **4** | Schemas/API tareas: validación `filters_json` vault ZIP + formulario UI (Gmail/Full). | ✅ |
 | **5** | APIs `materialize` + progreso + purge TTL. | ☐ |
-| **6** | Frontend: formulario tarea + pestaña vault. | ☐ |
+| **6** | Frontend: pestaña vault materialización / visor. | ☐ |
 | **7** | Migración legacy → zip (opcional, documentada). | ☐ |
 | **8** | Tests integración, límites disco, métricas. | ☐ |
 
@@ -169,7 +169,7 @@ Directorio base: `/var/msa/work/gmail-vault-pull/{account_id}/{session_id}/` (em
 | Clave | Tipo | Descripción |
 |-------|------|-------------|
 | `gmail_vault_packaging` | string | `legacy_eml` \| `zip_only` \| `mixed` |
-| `vault_zip_cadence` | string | `weekly` \| `monthly` |
+| `vault_zip_cadence` | string | `weekly` \| `monthly` \| `none` (solo bootstrap, sin recurrencia) |
 | `vault_anchor_dow` | int | 0–6 |
 | `vault_anchor_dom` | int? | 1–28 |
 | `bootstrap_upload_immediate` | bool | |
@@ -203,4 +203,4 @@ Directorio base: `/var/msa/work/gmail-vault-pull/{account_id}/{session_id}/` (em
 |-------|--------|
 | — | Creación plantilla |
 | 2026-05-08 | Añadido plan maestro, modos visor, decisiones por defecto B+C+S1+M1 |
-| 2026-05-08 | Fase 3: plan `resolve_gmail_zip_upload_plan`, `run_gmail_zip_vault_push_phase`, flags `filters_json.gmail_vault_packaging`, integración en `backup_engine.run_gmail_backup`. |
+| 2026-05-08 | **Fase 4:** `task_filters_gmail_vault.normalize_task_filters_for_scope` en `TaskCreate`/`TaskUpdate`; plan ZIP acepta `vault_zip_cadence: none`; UI Tareas (Gmail + Full): empaquetado, cadencia, anclaje, bootstrap, overlap. |

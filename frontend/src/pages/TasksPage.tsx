@@ -135,9 +135,17 @@ function toastTaskSaveError(err: unknown) {
   }
   if (st === 422) {
     const msg = formatApiDetail(d)
+    const hint =
+      typeof msg === 'string' &&
+      (msg.includes('gmail_vault') ||
+        msg.includes('vault_zip') ||
+        msg.includes('overlap_days') ||
+        msg.includes('vault_gmail_disable_push'))
+        ? ' Revisá empaquetado vault Gmail (ZIP vs legacy) y que el alcance sea Gmail o Full.'
+        : ''
     toast.error(
       msg
-        ? `Revisá el formulario: ${msg.slice(0, 400)}`
+        ? `Revisá el formulario: ${msg.slice(0, 400)}${hint}`
         : 'Datos de la tarea inválidos. Revisá hora, modo y campos obligatorios.',
     )
     return
@@ -230,6 +238,13 @@ export default function TasksPage() {
   const [datedRun, setDatedRun] = useState(false)
   const [driveIncrementalChain, setDriveIncrementalChain] = useState(false)
   const [gmailSkipMaildir, setGmailSkipMaildir] = useState(true)
+  const [gmailVaultPackaging, setGmailVaultPackaging] = useState<
+    'legacy_eml' | 'zip_only' | 'mixed'
+  >('legacy_eml')
+  const [vaultZipCadence, setVaultZipCadence] = useState<'weekly' | 'monthly' | 'none'>('weekly')
+  const [vaultAnchorDow, setVaultAnchorDow] = useState(6)
+  const [bootstrapUploadImmediate, setBootstrapUploadImmediate] = useState(true)
+  const [overlapDays, setOverlapDays] = useState(1)
   const [runAfterSave, setRunAfterSave] = useState(false)
 
   useEffect(() => {
@@ -258,11 +273,29 @@ export default function TasksPage() {
       setDatedRun(f?.drive_layout === 'dated_run')
       setDriveIncrementalChain(f?.drive_dated_incremental_chain === true)
       setGmailSkipMaildir(f?.gmail_skip_maildir_import === true)
+      const pkg = f?.gmail_vault_packaging
+      setGmailVaultPackaging(
+        pkg === 'zip_only' || pkg === 'mixed' || pkg === 'legacy_eml' ? pkg : 'legacy_eml',
+      )
+      const cad = f?.vault_zip_cadence
+      setVaultZipCadence(
+        cad === 'monthly' || cad === 'none' || cad === 'weekly' ? cad : 'weekly',
+      )
+      const ad = Number(f?.vault_anchor_dow)
+      setVaultAnchorDow(Number.isFinite(ad) ? Math.min(6, Math.max(0, ad)) : 6)
+      setBootstrapUploadImmediate(f?.bootstrap_upload_immediate !== false)
+      const od = Number(f?.overlap_days)
+      setOverlapDays(Number.isFinite(od) ? Math.min(366, Math.max(0, od)) : 1)
     } else {
       setForm(emptyPayload())
       setDatedRun(false)
       setDriveIncrementalChain(false)
       setGmailSkipMaildir(true)
+      setGmailVaultPackaging('legacy_eml')
+      setVaultZipCadence('weekly')
+      setVaultAnchorDow(6)
+      setBootstrapUploadImmediate(true)
+      setOverlapDays(1)
     }
   }, [editing, modalOpen])
 
@@ -304,10 +337,27 @@ export default function TasksPage() {
       delete filters.drive_dated_incremental_chain
     }
 
-    if (form.scope === 'gmail') {
+    if (form.scope === 'gmail' || form.scope === 'full') {
       filters.gmail_skip_maildir_import = gmailSkipMaildir
+      filters.gmail_vault_packaging = gmailVaultPackaging
+      if (gmailVaultPackaging === 'zip_only' || gmailVaultPackaging === 'mixed') {
+        filters.vault_zip_cadence = vaultZipCadence
+        filters.vault_anchor_dow = vaultAnchorDow
+        filters.bootstrap_upload_immediate = bootstrapUploadImmediate
+        filters.overlap_days = overlapDays
+      } else {
+        delete filters.vault_zip_cadence
+        delete filters.vault_anchor_dow
+        delete filters.bootstrap_upload_immediate
+        delete filters.overlap_days
+      }
     } else {
       delete filters.gmail_skip_maildir_import
+      delete filters.gmail_vault_packaging
+      delete filters.vault_zip_cadence
+      delete filters.vault_anchor_dow
+      delete filters.bootstrap_upload_immediate
+      delete filters.overlap_days
     }
 
     let freshEnabled: WorkspaceAccount[] = enabledAccounts
@@ -509,20 +559,110 @@ export default function TasksPage() {
               </Select>
             </div>
           </div>
-          {form.scope === 'gmail' ? (
-            <div className="space-y-1">
-              <div className="flex items-center gap-2">
-                <Checkbox
-                  id="gmail-skip-maildir"
-                  checked={gmailSkipMaildir}
-                  onChange={(e) => setGmailSkipMaildir(e.target.checked)}
-                />
-                <Label htmlFor="gmail-skip-maildir" value="Solo carpeta de trabajo GYB + vault (omitir Maildir)" />
+          {form.scope === 'gmail' || form.scope === 'full' ? (
+            <div className="space-y-4 border border-slate-200 dark:border-slate-600 rounded-lg p-3">
+              <div className="space-y-1">
+                <div className="flex items-center gap-2">
+                  <Checkbox
+                    id="gmail-skip-maildir"
+                    checked={gmailSkipMaildir}
+                    onChange={(e) => setGmailSkipMaildir(e.target.checked)}
+                  />
+                  <Label
+                    htmlFor="gmail-skip-maildir"
+                    value="Solo carpeta de trabajo GYB + vault (omitir Maildir)"
+                  />
+                </div>
+                <p className="text-xs text-slate-500 pl-7">
+                  Recomendado: un solo directorio local y la misma copia hacia 1-GMAIL en Drive. Desmarcá
+                  si necesitás importar a Dovecot/IMAP en el servidor.
+                </p>
               </div>
-              <p className="text-xs text-slate-500 pl-7">
-                Recomendado: un solo directorio local y la misma copia hacia 1-GMAIL en Drive. Desmarcá si necesitás
-                importar a Dovecot/IMAP en el servidor.
-              </p>
+              <div>
+                <Label value="Vault Gmail — empaquetado hacia 1-GMAIL" />
+                <Select
+                  value={gmailVaultPackaging}
+                  onChange={(e) =>
+                    setGmailVaultPackaging(e.target.value as 'legacy_eml' | 'zip_only' | 'mixed')
+                  }
+                  className="mt-1"
+                >
+                  <option value="legacy_eml">
+                    Solo árbol .eml incremental (gyb_mbox), sin ZIP periódico
+                  </option>
+                  <option value="zip_only">Solo ZIP al vault (1-GMAIL/zips/…), sin copia eml</option>
+                  <option value="mixed">ZIP periódico + copia eml (gyb_mbox)</option>
+                </Select>
+                <p className="text-xs text-slate-500 mt-1">
+                  El ZIP reduce cantidad de ítems en Shared Drive. Requiere que el push al vault Gmail
+                  esté habilitado (no uses «desactivar push vault» en filtros avanzados sin saberlo).
+                </p>
+              </div>
+              {gmailVaultPackaging !== 'legacy_eml' ? (
+                <div className="space-y-3 pl-0 md:pl-1 border-t border-slate-100 dark:border-slate-700 pt-3">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <Label value="Cadencia de sellado ZIP" />
+                      <Select
+                        value={vaultZipCadence}
+                        onChange={(e) =>
+                          setVaultZipCadence(e.target.value as 'weekly' | 'monthly' | 'none')
+                        }
+                      >
+                        <option value="weekly">Semanal (día de anclaje)</option>
+                        <option value="monthly">Mensual (día de anclaje)</option>
+                        <option value="none">Solo bootstrap (un primer ZIP; sin recurrencia)</option>
+                      </Select>
+                    </div>
+                    <div>
+                      <Label value="Día de anclaje (subida ZIP)" />
+                      <Select
+                        value={String(vaultAnchorDow)}
+                        onChange={(e) => setVaultAnchorDow(parseInt(e.target.value, 10) || 0)}
+                      >
+                        <option value="0">Lunes</option>
+                        <option value="1">Martes</option>
+                        <option value="2">Miércoles</option>
+                        <option value="3">Jueves</option>
+                        <option value="4">Viernes</option>
+                        <option value="5">Sábado</option>
+                        <option value="6">Domingo</option>
+                      </Select>
+                      <p className="text-xs text-slate-500 mt-1">
+                        Convención Python (0=lunes … 6=domingo), en la zona horaria de la tarea.
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Checkbox
+                      id="vault-bootstrap-immediate"
+                      checked={bootstrapUploadImmediate}
+                      onChange={(e) => setBootstrapUploadImmediate(e.target.checked)}
+                    />
+                    <Label
+                      htmlFor="vault-bootstrap-immediate"
+                      value="Primer ZIP sin sellado previo: subir en cuanto corra (no esperar día de anclaje)"
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor="vault-overlap" value="Solapamiento (días) en manifiesto ZIP" />
+                    <TextInput
+                      id="vault-overlap"
+                      type="number"
+                      min={0}
+                      max={366}
+                      value={overlapDays}
+                      onChange={(e) =>
+                        setOverlapDays(Math.min(366, Math.max(0, parseInt(e.target.value, 10) || 0)))
+                      }
+                    />
+                    <p className="text-xs text-slate-500 mt-1">
+                      Típico 1. Usado en metadatos del ZIP; la límite fina GYB/watermark es trabajo
+                      aparte.
+                    </p>
+                  </div>
+                </div>
+              ) : null}
             </div>
           ) : null}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">

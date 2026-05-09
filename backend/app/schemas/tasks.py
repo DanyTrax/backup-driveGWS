@@ -6,7 +6,7 @@ from datetime import datetime
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from pydantic import BaseModel, Field, field_serializer
+from pydantic import BaseModel, Field, field_serializer, model_validator
 
 from app.models.enums import BackupMode, BackupScope, ScheduleKind
 
@@ -41,6 +41,13 @@ class TaskCreate(BaseModel):
     checksum_enabled: bool = True
     max_parallel_accounts: int = Field(default=2, ge=1, le=32)
     account_ids: list[str] = []
+
+    @model_validator(mode="after")
+    def _normalize_and_validate_filters(self) -> TaskCreate:
+        from app.schemas.task_filters_gmail_vault import normalize_task_filters_for_scope
+
+        self.filters = normalize_task_filters_for_scope(self.filters, scope=self.scope.value)
+        return self
 
 
 class TaskUpdate(TaskCreate):
