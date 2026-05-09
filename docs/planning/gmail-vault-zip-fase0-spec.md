@@ -37,8 +37,8 @@ Siempre parametrizado por **`account_id`** y opcionalmente **`task_id`** si el l
 | **4** | Schemas/API tareas: validación `filters_json` vault ZIP + formulario UI (Gmail/Full). | ✅ |
 | **5** | APIs `materialize` + progreso + purge TTL. | ✅ |
 | **6** | Frontend: pestaña vault materialización / visor. | ✅ |
-| **7** | Migración legacy → zip (opcional, documentada). | ☐ |
-| **8** | Tests integración, límites disco, métricas. | ☐ |
+| **7** | Migración legacy → zip (opcional, documentada). | ✅ ver §7.1 |
+| **8** | Tests automatizados (suite pytest) + verificación despliegue §14. | ✅ pytest |
 
 ---
 
@@ -135,6 +135,16 @@ B + C: last_sealed_at en BD + watermark_json evolutivo; overlap_days en filters_
 
 Identificador de carpeta por cuenta: **`account_id`** (UUID) en árbol zip; email en manifiesto legible.
 
+### 7.1 Migración operativa `gyb_mbox` → ZIP (Fase 7)
+
+Proceso manual, sin script único obligatorio:
+
+1. Configurar tarea con `gmail_vault_packaging` `zip_only` o `mixed` y cadencia ZIP acorde.
+2. Permitir varios backups hasta tener ZIPs válidos bajo `1-GMAIL/zips/{account_id}/…`.
+3. Pasar de `mixed` a `zip_only` cuando no haga falta seguir subiendo `.eml` al vault.
+4. No borrar `gyb_mbox` en Drive hasta tener política clara y ZIPs que cubran el histórico necesario.
+5. Usar **ZIP vault Gmail** en el panel o la API materialize para inspección en VPS.
+
 ---
 
 ## 8. Formato ZIP y manifiesto
@@ -197,7 +207,20 @@ Directorio base: `/var/msa/work/gmail-vault-pull/{account_id}/{session_id}/` (em
 
 ---
 
-## 14. Historial de cambios
+## 14. Verificación post-despliegue
+
+| Paso | Comprobación |
+|------|----------------|
+| Migración BD | `alembic upgrade head` (incluye `0015_*` tablas vault). |
+| Docker | Volúmenes `gmail_vault_pull` montados en **app** y **worker** en `docker-compose.yml` → `/var/msa/work/gmail-vault-pull`. |
+| Celery | Worker con `app.workers.tasks.gmail_vault_materialize` cargado; beat activo para `cleanup_expired_sessions` (purge TTL materializaciones). |
+| Tests | En `backend/`: `python3.12 -m venv .venv && .venv/bin/pip install -r requirements.txt pytest pytest-asyncio && .venv/bin/python -m pytest tests/ -q`. |
+| Front | `cd frontend && npm run build`. |
+| Manual | Tarea Gmail con ZIP → corrida backup → comprobar en Drive `1-GMAIL/zips/…`; panel **ZIP vault Gmail** → sesión `ready` y ruta local; GET sesión expirada → 404 tras TTL. |
+
+---
+
+## 15. Historial de cambios
 
 | Fecha | Cambio |
 |-------|--------|
@@ -206,3 +229,4 @@ Directorio base: `/var/msa/work/gmail-vault-pull/{account_id}/{session_id}/` (em
 | 2026-05-08 | **Fase 4:** validación `filters_json` vault ZIP en tareas + UI Gmail/Full. |
 | 2026-05-08 | **Fase 5:** APIs `/api/vault/gmail/materialize*`; Celery materialize; TTL + limpieza en `cleanup_expired_sessions`. |
 | 2026-05-08 | **Fase 6:** UI «ZIP vault Gmail» (`/vault-gmail-zip`), hooks API materialize, accesos desde Bóveda Drive. |
+| 2026-05-08 | Doc: §7.1 migración bajo layout Drive; §14 verificación / §15 historial; checklist fase 8 → §14. |

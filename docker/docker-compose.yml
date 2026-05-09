@@ -42,6 +42,7 @@ services:
       - platform_backups:/platform_backups
       # Export GYB (.eml): mismo path en app y worker (reintento vault; sin esto la API no ve los archivos del worker).
       - gyb_work_gmail:/var/msa/work/gmail
+      - gmail_vault_pull:/var/msa/work/gmail-vault-pull
       # Mantenimiento Docker / despliegue desde el panel: activar HOST_* en ../.env y usar
       # ``docker compose --env-file ../.env`` (interpola HOST_STACK_MOUNT_PATH en este archivo).
       - /var/run/docker.sock:/var/run/docker.sock
@@ -86,7 +87,7 @@ services:
       - maildirs:/var/mail/vhosts
       - platform_backups:/platform_backups
       - gyb_work_gmail:/var/msa/work/gmail
-      # Limpieza Docker programada (Celery): misma regla que ``app`` — sin esto el tick no ve el socket.
+      - gmail_vault_pull:/var/msa/work/gmail-vault-pull
       - /var/run/docker.sock:/var/run/docker.sock
     depends_on:
       postgres:
@@ -269,3 +270,4 @@ volumes:
   secrets:
   platform_backups:
   gyb_work_gmail:
+  gmail_vault_pull:
