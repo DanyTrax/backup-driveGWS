@@ -173,6 +173,35 @@ export interface VaultDriveSearchResult {
   truncated: boolean
 }
 
+export type GmailVaultMaterializeMode = 'single_day' | 'date_range' | 'month' | 'all'
+
+export interface GmailVaultMaterializeCreatePayload {
+  account_id: string
+  task_id?: string | null
+  mode: GmailVaultMaterializeMode
+  anchor_date?: string | null
+  date_from?: string | null
+  date_to?: string | null
+  calendar_month?: string | null
+  ttl_days?: number | null
+}
+
+/** POST/GET /vault/gmail/materialize* */
+export interface GmailVaultMaterializeSession {
+  id: string
+  account_id: string
+  task_id: string | null
+  requested_mode: string
+  date_from: string | null
+  date_to: string | null
+  ttl_expires_at: string
+  path_local: string
+  status: string
+  progress_json: Record<string, unknown>
+  error_summary: string | null
+  created_at: string
+}
+
 /** GET /accounts/{id}/gyb-work/messages */
 export interface GybWorkMessagesPage {
   view: string

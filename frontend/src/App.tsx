@@ -20,6 +20,7 @@ import GybVaultWorkBrowserPage from './pages/GybVaultWorkBrowserPage'
 import AccountMailDataPage from './pages/AccountMailDataPage'
 import MaintenancePage from './pages/MaintenancePage'
 import VaultDriveBrowserPage from './pages/VaultDriveBrowserPage'
+import GmailVaultZipMaterializePage from './pages/GmailVaultZipMaterializePage'
 
 import { hideMaildirWebmailUi } from './config/ui'
 
@@ -59,6 +60,8 @@ export default function App() {
         <Route path="/gyb-vault-work/:accountId" element={<GybVaultWorkBrowserPage />} />
         <Route path="/vault-drive" element={<VaultDriveBrowserPage />} />
         <Route path="/vault-drive/:accountId" element={<VaultDriveBrowserPage />} />
+        <Route path="/vault-gmail-zip" element={<GmailVaultZipMaterializePage />} />
+        <Route path="/vault-gmail-zip/:accountId" element={<GmailVaultZipMaterializePage />} />
         <Route path="/accounts/:accountId/mail-data" element={<AccountMailDataPage />} />
         <Route path="/tasks" element={<TasksPage />} />
         <Route path="/logs" element={<LogsPage />} />

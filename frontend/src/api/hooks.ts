@@ -35,6 +35,8 @@ import type {
   VaultDriveAccount,
   VaultDriveChildrenPage,
   VaultDriveSearchResult,
+  GmailVaultMaterializeCreatePayload,
+  GmailVaultMaterializeSession,
   WorkspaceAccount,
 } from './types'
 import {
@@ -157,6 +159,43 @@ export function useVaultDriveSearch(accountId: string | null, q: string) {
           params: { q: trimmed },
         })
       ).data,
+  })
+}
+
+export function useGmailVaultMaterializeSession(sessionId: string | null) {
+  return useQuery({
+    queryKey: ['gmail-vault-materialize', sessionId],
+    queryFn: async () =>
+      (await api.get<GmailVaultMaterializeSession>(`/vault/gmail/materialize/${sessionId}`)).data,
+    enabled: Boolean(sessionId),
+    refetchInterval: (q) => {
+      const st = q.state.data?.status
+      if (st === 'pending' || st === 'downloading') return 2500
+      return false
+    },
+  })
+}
+
+export function useCreateGmailVaultMaterialize() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (payload: GmailVaultMaterializeCreatePayload) =>
+      (await api.post<GmailVaultMaterializeSession>('/vault/gmail/materialize', payload)).data,
+    onSuccess: (data) => {
+      void qc.invalidateQueries({ queryKey: ['gmail-vault-materialize', data.id] })
+    },
+  })
+}
+
+export function useDeleteGmailVaultMaterialize() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (sessionId: string) => {
+      await api.delete(`/vault/gmail/materialize/${sessionId}`)
+    },
+    onSuccess: (_void, sessionId) => {
+      void qc.removeQueries({ queryKey: ['gmail-vault-materialize', sessionId] })
+    },
   })
 }
 
@@ -378,9 +417,10 @@ export function useStartVerifyAccessStream() {
   })
 }
 
-export function useTasks() {
+export function useTasks(options?: { enabled?: boolean }) {
   return useQuery({
     queryKey: ['tasks'],
+    enabled: options?.enabled !== false,
     queryFn: async () => (await api.get<BackupTask[]>('/tasks')).data,
   })
 }

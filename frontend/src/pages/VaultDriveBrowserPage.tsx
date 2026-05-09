@@ -99,6 +99,12 @@ function BrowserForAccount({ accountId, email }: { accountId: string; email: str
         </Button>
         <h1 className="text-xl font-semibold">Bóveda en Drive</h1>
         <Badge color="info">{email}</Badge>
+        <Link
+          to={`/vault-gmail-zip/${accountId}`}
+          className="text-sm text-blue-600 dark:text-blue-400 hover:underline ml-1"
+        >
+          Materializar ZIPs Gmail
+        </Link>
       </div>
 
       <p className="text-sm text-slate-500 dark:text-slate-400 max-w-3xl">
@@ -297,9 +303,14 @@ export default function VaultDriveBrowserPage() {
                   </Link>
                   <div className="text-xs text-slate-500 mt-0.5">Google Drive · bóveda de respaldos</div>
                 </div>
-                <Button size="xs" color="light" onClick={() => navigate(`/vault-drive/${a.id}`)}>
-                  Abrir
-                </Button>
+                <div className="flex flex-wrap gap-2">
+                  <Button size="xs" color="light" onClick={() => navigate(`/vault-drive/${a.id}`)}>
+                    Abrir
+                  </Button>
+                  <Button size="xs" color="gray" onClick={() => navigate(`/vault-gmail-zip/${a.id}`)}>
+                    ZIP servidor
+                  </Button>
+                </div>
               </li>
             ))}
           </ul>
