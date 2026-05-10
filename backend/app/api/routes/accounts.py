@@ -36,11 +36,14 @@ from app.schemas.accounts import (
 from app.schemas.mail_purge import (
     AccountMailPurgeIn,
     AccountMailPurgeOut,
+    GmailVaultManualZipFromWorkIn,
+    GmailVaultManualZipFromWorkOut,
     GybWorkRestoreFromVaultIn,
     GybWorkRestoreFromVaultOut,
     MailDataInventoryOut,
     MaildirRebuildFromGybOut,
 )
+from app.services.backup_job_context import load_task_account_for_backup
 from app.services.account_access_service import verify_account_access
 from app.services.accounts_service import (
     approve_account,
@@ -48,7 +51,9 @@ from app.services.accounts_service import (
     sync_workspace_directory,
 )
 from app.services.audit_service import record_audit
+from app.services import vault_layout
 from app.services.gyb_vault_pull_service import finalize_gyb_vault_restore_backup_log
+from app.services.gmail_vault_manual_zip_service import account_has_active_gmail_like_backup
 from app.services.mail_purge_service import (
     AccountMailPurgeOptions,
     build_mail_inventory,
@@ -56,7 +61,7 @@ from app.services.mail_purge_service import (
     purge_account_mail_local,
 )
 from app.services.maildir_paths import maildir_home_from_email, maildir_root_for_account
-from app.services.maildir_service import rebuild_maildir_from_local_gyb_workdir
+from app.services.maildir_service import gyb_workdir_has_eml_or_mbox, rebuild_maildir_from_local_gyb_workdir
 from app.services.panel_synthetic_task import (
     get_or_create_panel_gyb_vault_restore_task,
     get_or_create_panel_maildir_gyb_rebuild_task,
@@ -287,6 +292,103 @@ async def mail_data_inventory(
     acc = await _load(db, account_id)
     data = await build_mail_inventory(db, acc)
     return MailDataInventoryOut.model_validate(data)
+
+
+@router.post(
+    "/{account_id}/gmail-vault-zip/from-local-work",
+    response_model=GmailVaultManualZipFromWorkOut,
+    status_code=status.HTTP_202_ACCEPTED,
+    summary="ZIP vault manual desde export GYB local (sin backup Gmail completo)",
+)
+async def gmail_vault_manual_zip_from_local_work(
+    account_id: uuid.UUID,
+    payload: GmailVaultManualZipFromWorkIn,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    current: SysUser = Depends(require_permission("accounts.edit")),
+) -> GmailVaultManualZipFromWorkOut:
+    """Comprime la carpeta de trabajo GYB actual y sube ZIP+manifiesto como ``seal_kind=manual``.
+
+    Requiere tarea con ``gmail_vault_packaging`` zip_only o mixed; actualiza ``GmailVaultAccountState``
+    como una corrida programada (el plan automático sigue según ``last_sealed_at``).
+    """
+    acc = await _load(db, account_id)
+    pair = await load_task_account_for_backup(
+        db,
+        task_id=payload.task_id,
+        account_id=account_id,
+    )
+    if pair is None:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            detail="task_account_not_eligible",
+        )
+    task, _elig_acc = pair
+
+    filters = task.filters_json or {}
+    if not vault_layout.use_gmail_vault_zip_upload(filters):
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            detail="manual_zip_requires_zip_only_or_mixed_packaging",
+        )
+    if not vault_layout.use_gmail_vault_push(filters):
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            detail="manual_zip_requires_gmail_vault_push_enabled",
+        )
+    if not (acc.drive_vault_folder_id or "").strip():
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            detail="missing_drive_vault_folder_id",
+        )
+
+    work_root = gyb_work_root_for_email(acc.email)
+    if not gyb_workdir_has_eml_or_mbox(work_root):
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            detail="gyb_work_no_eml_or_mbox",
+        )
+    if await account_has_active_gmail_like_backup(db, acc.id):
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            detail="gmail_or_full_backup_already_active",
+        )
+
+    log = BackupLog(
+        task_id=task.id,
+        account_id=acc.id,
+        status=BackupStatus.RUNNING.value,
+        scope=BackupScope.GMAIL.value,
+        mode=task.mode,
+        started_at=datetime.now(UTC),
+        pid=os.getpid(),
+    )
+    db.add(log)
+    await db.flush()
+    log_id_str = str(log.id)
+
+    from app.workers.tasks.gmail_vault_manual_zip import run as manual_gmail_vault_zip_run
+
+    manual_gmail_vault_zip_run.delay(log_id_str)
+
+    await record_audit(
+        db,
+        action=AuditAction.SETTING_CHANGED,
+        actor_user_id=current.id,
+        actor_label=current.email,
+        ip_address=get_client_ip(request),
+        user_agent=get_user_agent(request),
+        target_table="gw_accounts",
+        target_id=str(acc.id),
+        message="gmail_vault_manual_zip_from_local_work",
+        metadata={
+            "email": acc.email,
+            "backup_log_id": log_id_str,
+            "task_id": str(task.id),
+        },
+    )
+    await db.commit()
+    return GmailVaultManualZipFromWorkOut(backup_log_id=log_id_str)
 
 
 @router.post(

@@ -262,6 +262,9 @@ export interface MailDataInventory {
   gyb_work_path: string
   gyb_work_has_content: boolean
   gyb_work_size_bytes: number | null
+  /** Suma solo archivos .eml/.mbox (útil si el total en disco difiere). */
+  gyb_work_export_size_bytes?: number | null
+  gyb_work_export_file_count?: number
   gyb_work_has_msg_db: boolean
   gyb_work_has_eml_export: boolean
   gmail_backup_logs_count: number
@@ -304,6 +307,12 @@ export interface GybWorkRestoreFromVaultPayload {
 
 /** Respuesta de POST /accounts/:id/gyb-work/restore-from-vault (HTTP 202) */
 export interface GybWorkRestoreFromVaultResult {
+  backup_log_id: string
+  message?: string
+}
+
+/** POST /accounts/:id/gmail-vault-zip/from-local-work (HTTP 202) */
+export interface GmailVaultManualZipFromWorkResult {
   backup_log_id: string
   message?: string
 }

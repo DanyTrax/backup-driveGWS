@@ -1,14 +1,16 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
-import { Alert, Badge, Button, Card, Checkbox, Label, TextInput } from 'flowbite-react'
+import { Alert, Badge, Button, Card, Checkbox, Label, Select, TextInput } from 'flowbite-react'
 import toast from 'react-hot-toast'
 import { HiArrowLeft, HiDownload, HiRefresh } from 'react-icons/hi'
 import { downloadMaildirExportZip, maildirExportErrorMessage } from '../api/maildirExport'
 import {
+  useGmailVaultManualZipFromWork,
   useMailDataInventory,
   usePurgeAccountMailData,
   useRebuildMaildirFromLocalGyb,
   useRestoreGybWorkFromVault,
+  useTasks,
 } from '../api/hooks'
 import { useAuthStore } from '../stores/auth'
 
@@ -39,6 +41,37 @@ export default function AccountMailDataPage() {
   const purge = usePurgeAccountMailData()
   const rebuild = useRebuildMaildirFromLocalGyb()
   const restoreVault = useRestoreGybWorkFromVault()
+  const manualZip = useGmailVaultManualZipFromWork()
+  const tasksQ = useTasks({ enabled: canRebuild && Boolean(accountId) })
+  const [manualZipTaskId, setManualZipTaskId] = useState('')
+
+  const zipPackagingTasks = useMemo(() => {
+    const list = tasksQ.data ?? []
+    if (!accountId) return []
+    return list.filter((t) => {
+      const pkg =
+        t.filters && typeof t.filters === 'object' && 'gmail_vault_packaging' in t.filters
+          ? (t.filters as Record<string, unknown>).gmail_vault_packaging
+          : undefined
+      return (
+        (t.scope === 'gmail' || t.scope === 'full') &&
+        (pkg === 'zip_only' || pkg === 'mixed') &&
+        (t.account_ids ?? []).includes(accountId)
+      )
+    })
+  }, [tasksQ.data, accountId])
+
+  useEffect(() => {
+    if (manualZipTaskId && !zipPackagingTasks.some((t) => t.id === manualZipTaskId)) {
+      setManualZipTaskId('')
+    }
+  }, [zipPackagingTasks, manualZipTaskId])
+
+  useEffect(() => {
+    if (!manualZipTaskId && zipPackagingTasks.length === 1) {
+      setManualZipTaskId(zipPackagingTasks[0].id)
+    }
+  }, [manualZipTaskId, zipPackagingTasks])
   const [exportingZip, setExportingZip] = useState(false)
   /** Vacía la carpeta de trabajo GYB en el servidor antes del rclone (espejo limpio desde Drive). */
   const [purgeBeforeVaultRestore, setPurgeBeforeVaultRestore] = useState(false)
@@ -233,6 +266,47 @@ export default function AccountMailDataPage() {
     }
   }
 
+  async function onManualGybVaultZip() {
+    if (!accountId || !inv || !manualZipTaskId.trim()) {
+      toast.error('Elegí una tarea con ZIP al vault.')
+      return
+    }
+    try {
+      const r = await manualZip.mutateAsync({ accountId, taskId: manualZipTaskId.trim() })
+      toast.success(
+        (t) => (
+          <div className="text-sm">
+            <p className="mb-1">ZIP manual encolado (worker). Seguimiento en Historial.</p>
+            <Link
+              to={`/logs?log=${encodeURIComponent(r.backup_log_id)}`}
+              className="text-blue-600 dark:text-blue-400 underline font-medium"
+              onClick={() => toast.dismiss(t.id)}
+            >
+              Abrir log {r.backup_log_id.slice(0, 8)}…
+            </Link>
+          </div>
+        ),
+        { duration: 12000 },
+      )
+      void refetch()
+    } catch (e) {
+      const ax = e as { response?: { status?: number; data?: { detail?: unknown } } }
+      const d = ax.response?.data?.detail
+      const code = typeof d === 'string' ? d : null
+      if (ax.response?.status === 409 && code === 'gmail_or_full_backup_already_active') {
+        toast.error('Ya hay un backup Gmail/Full en curso para esta cuenta; esperá a que termine.')
+      } else if (ax.response?.status === 409 && code === 'gyb_work_no_eml_or_mbox') {
+        toast.error('No hay .eml/.mbox en la carpeta de trabajo GYB.')
+      } else if (ax.response?.status === 400 && code === 'manual_zip_requires_zip_only_or_mixed_packaging') {
+        toast.error('La tarea debe tener empaquetado «Solo ZIP» o «ZIP + eml» en la definición.')
+      } else if (ax.response?.status === 400 && code === 'task_account_not_eligible') {
+        toast.error('La tarea no incluye esta cuenta o el backup de la cuenta no está activo.')
+      } else {
+        toast.error('No se pudo encolar el ZIP manual.')
+      }
+    }
+  }
+
   return (
     <div className="space-y-6 max-w-3xl">
       <div className="flex flex-wrap items-center gap-3">
@@ -295,6 +369,18 @@ export default function AccountMailDataPage() {
                 </dd>
               </div>
               <div className="flex flex-wrap justify-between gap-2 border-b border-slate-100 dark:border-slate-800 pb-2">
+                <dt className="text-slate-500">Export .eml / .mbox (tamaño)</dt>
+                <dd className="text-slate-700 dark:text-slate-300">
+                  {fmtBytes(inv.gyb_work_export_size_bytes ?? null)}
+                  {typeof inv.gyb_work_export_file_count === 'number' ? (
+                    <span className="text-slate-500 ml-2">
+                      · {inv.gyb_work_export_file_count} archivo
+                      {inv.gyb_work_export_file_count === 1 ? '' : 's'}
+                    </span>
+                  ) : null}
+                </dd>
+              </div>
+              <div className="flex flex-wrap justify-between gap-2 border-b border-slate-100 dark:border-slate-800 pb-2">
                 <dt className="text-slate-500">msg-db.sqlite (etiquetas GYB)</dt>
                 <dd>
                   {inv.gyb_work_has_msg_db ? (
@@ -354,6 +440,70 @@ export default function AccountMailDataPage() {
               </div>
             </dl>
           </Card>
+
+          {canRebuild && inv.gyb_work_has_eml_export && (inv.drive_vault_folder_id ?? '').trim() ? (
+            <Card>
+              <h2 className="font-semibold mb-2">ZIP vault Gmail (manual, desde trabajo local)</h2>
+              <p className="text-sm text-slate-600 dark:text-slate-400 mb-3">
+                Comprime todo lo que hay hoy en <code className="text-xs">Trabajo GYB</code> y sube ZIP + manifiesto a{' '}
+                <code className="text-xs">1-GMAIL/zips/…/MANUAL/</code>. <strong>No ejecuta GYB ni descarga Gmail.</strong>{' '}
+                Usá la misma tarea que tenés para ZIP programado: así se actualiza el sellado en base de datos y los
+                próximos backups automáticos siguen el plan (sin duplicar descarga desde Gmail; sí podés tener otro ZIP
+                completo en Drive con el estado actual del workdir).
+              </p>
+              {tasksQ.isError ? (
+                <Alert color="failure" className="mb-3">
+                  No se pudieron cargar las tareas ({(tasksQ.error as Error)?.message ?? 'error'}). Hace falta permiso para
+                  listar tareas o revisá la sesión. Podés usar la API{' '}
+                  <code className="text-xs">POST /accounts/&lt;id&gt;/gmail-vault-zip/from-local-work</code> con cuerpo{' '}
+                  <code className="text-xs">{`{ "task_id": "…" }`}</code>.
+                </Alert>
+              ) : tasksQ.isLoading ? (
+                <p className="text-xs text-slate-500 mb-2">Cargando tareas…</p>
+              ) : zipPackagingTasks.length === 0 ? (
+                <Alert color="warning" className="mb-3">
+                  No hay tareas Gmail/Full con empaquetado «Solo ZIP» o «ZIP + eml» que incluyan esta cuenta. Configuralo
+                  en <strong>Tareas de backup</strong> y guardá; después volvé a esta pantalla.
+                </Alert>
+              ) : (
+                <div className="mb-3 max-w-xl">
+                  <Label value="Tarea (ZIP al vault)" className="mb-1" />
+                  <Select
+                    className="mt-1"
+                    value={manualZipTaskId}
+                    onChange={(e) => setManualZipTaskId(e.target.value)}
+                  >
+                    <option value="">— Elegir —</option>
+                    {zipPackagingTasks.map((t) => (
+                      <option key={t.id} value={t.id}>
+                        {t.name} ({t.scope})
+                      </option>
+                    ))}
+                  </Select>
+                </div>
+              )}
+              <Button
+                color="purple"
+                disabled={
+                  !manualZipTaskId.trim() ||
+                  zipPackagingTasks.length === 0 ||
+                  manualZip.isPending ||
+                  tasksQ.isLoading
+                }
+                isProcessing={manualZip.isPending}
+                onClick={() => void onManualGybVaultZip()}
+              >
+                Encolar ZIP manual al vault
+              </Button>
+              <p className="text-xs text-slate-500 mt-2">
+                No podés lanzarlo si ya hay un backup Gmail o Full «en curso» para esta cuenta. Progreso en{' '}
+                <Link to="/logs" className="text-blue-600 dark:text-blue-400 underline">
+                  Historial
+                </Link>
+                .
+              </p>
+            </Card>
+          ) : null}
 
           {canRebuild && (inv.drive_vault_folder_id ?? '').trim() ? (
             <Card>

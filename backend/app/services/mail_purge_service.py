@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import asyncio
-import asyncio
+import os
 import shutil
 import uuid
 from dataclasses import dataclass
@@ -38,17 +38,65 @@ def _purge_gyb_workdir_contents(work_root: Path) -> None:
             shutil.rmtree(child, ignore_errors=False)
 
 
-def _dir_size(path: Path) -> int | None:
+def _dir_size_walk(path: Path) -> int | None:
+    """Suma ``st_size`` de archivos bajo ``path`` (``os.walk``, sin seguir symlinks)."""
     if not path.is_dir():
         return None
     total = 0
     try:
-        for f in path.rglob("*"):
-            if f.is_file():
-                total += f.stat().st_size
+        for dirpath, _dirnames, filenames in os.walk(path, followlinks=False):
+            for name in filenames:
+                fp = Path(dirpath) / name
+                try:
+                    if not fp.is_file():
+                        continue
+                    total += int(fp.stat().st_size)
+                except OSError:
+                    continue
     except OSError:
         return None
     return total
+
+
+def compute_gyb_work_disk_totals(work_root: Path) -> tuple[int | None, int | None, int]:
+    """Totales bajo la carpeta GYB local.
+
+    Returns
+    -------
+    total_bytes
+        Todos los archivos regulares; ``None`` si no existe la carpeta.
+    export_bytes
+        Solo ``.eml`` y ``.mbox`` (mismo criterio que el visor).
+    export_count
+        Cantidad de archivos ``.eml``/``.mbox``.
+    """
+    if not work_root.is_dir():
+        return None, None, 0
+    total_all = 0
+    export_bytes = 0
+    export_count = 0
+    try:
+        for dirpath, _dirnames, filenames in os.walk(work_root, followlinks=False):
+            for name in filenames:
+                fp = Path(dirpath) / name
+                try:
+                    if not fp.is_file():
+                        continue
+                    sz = int(fp.stat().st_size)
+                except OSError:
+                    continue
+                total_all += sz
+                low = name.lower()
+                if low.endswith(".eml") or low.endswith(".mbox"):
+                    export_bytes += sz
+                    export_count += 1
+    except OSError:
+        return None, (export_bytes if export_count else None), export_count
+    return total_all, export_bytes, export_count
+
+
+# Alias legado (maildir / otros callers)
+_dir_size = _dir_size_walk
 
 
 def _maildir_has_layout(root: Path) -> bool:
@@ -79,10 +127,13 @@ def _inventory_disk_sizes(
     *,
     maildir_has_layout: bool,
     gyb_is_dir: bool,
-) -> tuple[int | None, int | None]:
-    maildir_sz = _dir_size(root) if maildir_has_layout else None
-    gyb_sz = _dir_size(gyb) if gyb_is_dir else None
-    return maildir_sz, gyb_sz
+) -> tuple[int | None, int | None, int | None, int]:
+    maildir_sz = _dir_size_walk(root) if maildir_has_layout else None
+    if not gyb_is_dir:
+        return maildir_sz, None, None, 0
+    gyb_total, gyb_export_b, gyb_export_n = compute_gyb_work_disk_totals(gyb)
+    display_sz = gyb_total if gyb_total is not None else gyb_export_b
+    return maildir_sz, display_sz, gyb_export_b, gyb_export_n
 
 
 async def build_mail_inventory(db: AsyncSession, account: GwAccount) -> dict:
@@ -92,7 +143,7 @@ async def build_mail_inventory(db: AsyncSession, account: GwAccount) -> dict:
     has_msg_db = (gyb / "msg-db.sqlite").is_file()
     has_eml = gyb_workdir_has_eml_or_mbox(gyb)
     gyb_exists = gyb.is_dir()
-    maildir_size_bytes, gyb_work_size_bytes = await asyncio.to_thread(
+    maildir_size_bytes, gyb_work_size_bytes, gyb_export_bytes, gyb_export_count = await asyncio.to_thread(
         _inventory_disk_sizes,
         root,
         gyb,
@@ -108,6 +159,8 @@ async def build_mail_inventory(db: AsyncSession, account: GwAccount) -> dict:
         "gyb_work_path": str(gyb),
         "gyb_work_has_content": gyb_exists and any(gyb.iterdir()),
         "gyb_work_size_bytes": gyb_work_size_bytes,
+        "gyb_work_export_size_bytes": gyb_export_bytes,
+        "gyb_work_export_file_count": gyb_export_count,
         "gyb_work_has_msg_db": has_msg_db,
         "gyb_work_has_eml_export": has_eml,
         "gmail_backup_logs_count": await count_gmail_logs_for_account(db, account.id),

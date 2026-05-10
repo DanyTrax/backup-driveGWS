@@ -54,7 +54,7 @@ from app.services.gyb_work_browser_service import (
     read_gyb_eml_message,
 )
 from app.services.rclone_service import build_rclone_vault_dest_only_config
-from app.services.mail_purge_service import _dir_size, gyb_work_root_for_email
+from app.services.mail_purge_service import compute_gyb_work_disk_totals, gyb_work_root_for_email
 from app.services.mailbox_browser_service import (
     list_maildir_folders,
     list_messages,
@@ -99,11 +99,13 @@ async def gyb_work_list_accounts(
         gyb = gyb_work_root_for_email(a.email)
         if not gyb_workdir_has_eml_or_mbox(gyb):
             continue
+        total_b, export_b, _n = compute_gyb_work_disk_totals(gyb)
+        sz = total_b if total_b is not None else export_b
         out.append(
             GybWorkAccountOut(
                 id=str(a.id),
                 email=a.email,
-                work_size_bytes=_dir_size(gyb) if gyb.is_dir() else None,
+                work_size_bytes=sz,
                 has_msg_db=(gyb / "msg-db.sqlite").is_file(),
             )
         )

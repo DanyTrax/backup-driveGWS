@@ -24,6 +24,7 @@ import type {
   PermissionCatalogEntry,
   GybWorkRestoreFromVaultPayload,
   GybWorkRestoreFromVaultResult,
+  GmailVaultManualZipFromWorkResult,
   MaildirRebuildFromGybResult,
   PlatformBackupResult,
   PlatformRole,
@@ -623,6 +624,26 @@ export function useRebuildMaildirFromLocalGyb() {
       void qc.invalidateQueries({ queryKey: ['mail-data-inventory', accountId] })
       void qc.invalidateQueries({ queryKey: ['mailbox-folders', accountId] })
       void qc.invalidateQueries({ queryKey: ['backup-logs'] })
+    },
+  })
+}
+
+export function useGmailVaultManualZipFromWork() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (args: { accountId: string; taskId: string }) =>
+      (
+        await api.post<GmailVaultManualZipFromWorkResult>(
+          `/accounts/${args.accountId}/gmail-vault-zip/from-local-work`,
+          { task_id: args.taskId },
+        )
+      ).data,
+    onSuccess: (_data, args) => {
+      void qc.invalidateQueries({ queryKey: ['accounts'] })
+      void qc.invalidateQueries({ queryKey: ['mail-data-inventory', args.accountId] })
+      void qc.invalidateQueries({ queryKey: ['gyb-work-accounts'] })
+      void qc.invalidateQueries({ queryKey: ['backup-logs'] })
+      void qc.invalidateQueries({ queryKey: ['tasks'] })
     },
   })
 }

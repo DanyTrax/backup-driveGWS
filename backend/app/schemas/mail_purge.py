@@ -1,6 +1,8 @@
 """Schemas para inventario y purga de datos locales de correo."""
 from __future__ import annotations
 
+import uuid
+
 from pydantic import BaseModel, Field
 
 
@@ -13,6 +15,8 @@ class MailDataInventoryOut(BaseModel):
     gyb_work_path: str
     gyb_work_has_content: bool
     gyb_work_size_bytes: int | None = None
+    gyb_work_export_size_bytes: int | None = None
+    gyb_work_export_file_count: int = 0
     gyb_work_has_msg_db: bool = False
     gyb_work_has_eml_export: bool = False
     gmail_backup_logs_count: int
@@ -54,6 +58,19 @@ class GybWorkRestoreFromVaultOut(BaseModel):
     backup_log_id: str
     message: str = (
         "Operación iniciada. En Historial de ejecuciones abrí el detalle del log para ver porcentaje y salida de rclone en vivo."
+    )
+
+
+class GmailVaultManualZipFromWorkIn(BaseModel):
+    """Tarea Gmail/Full con empaquetado ZIP al vault; se usa su política y actualiza estado de sellado."""
+
+    task_id: uuid.UUID
+
+
+class GmailVaultManualZipFromWorkOut(BaseModel):
+    backup_log_id: str
+    message: str = (
+        "ZIP manual encolado. Seguimiento en Historial de ejecuciones (WebSocket igual que un backup Gmail)."
     )
 
 
