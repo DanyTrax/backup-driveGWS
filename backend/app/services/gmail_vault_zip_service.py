@@ -180,13 +180,55 @@ async def run_gmail_zip_vault_push_phase(
             if mk_rc != 0:
                 return False, f"vault_zip_mkdir_rc={mk_rc}\n{mk_out[-4000:]}"
 
+            async def _emit_zip_vault_rclone(line: str) -> None:
+                s = line.strip()
+                if not s:
+                    return
+                try:
+                    payload: dict[str, Any] = {
+                        "stage": "progress",
+                        "scope": "gmail",
+                        "phase": "vault_zip_upload",
+                        "raw": s,
+                    }
+                    if (
+                        "teamDriveFileLimitExceeded" in s
+                        or "file limit for this shared drive has been exceeded"
+                        in s.lower()
+                    ):
+                        payload["stage"] = "vault_drive_file_limit"
+                        payload["severity"] = "error"
+                        payload["hint_es"] = (
+                            "Límite de cantidad de archivos en la unidad compartida de Google "
+                            "(≈400 000 ítems). Cada .eml cuenta como un archivo; por eso el uso en GB "
+                            "puede ser bajo pero igual se bloquea. Hay que liberar ítems, dividir en "
+                            "otra unidad compartida o cambiar la estrategia de export (p. ej. mbox)."
+                        )
+                    pct = rclone_service.rclone_stats_line_progress_pct(s)
+                    if pct is not None:
+                        payload["progress_pct"] = round(pct, 2)
+                    await publish(log_id_str, payload)
+                except Exception:
+                    pass
+
+            def _zip_vault_on_line(line: str) -> None:
+                if not line.strip():
+                    return
+                try:
+                    loop = asyncio.get_running_loop()
+                except RuntimeError:
+                    return
+                loop.create_task(_emit_zip_vault_rclone(line))
+
             argv = rclone_service.build_rclone_local_to_vault_argv(
                 str(staging),
                 push_cfg,
                 dest_subpath=parent_rel,
                 dry_run=bool(task.dry_run),
             )
-            vrc, vout = await rclone_service.run_rclone(argv, cancel_log_id=log_id_str)
+            vrc, vout = await rclone_service.run_rclone(
+                argv, on_line=_zip_vault_on_line, cancel_log_id=log_id_str
+            )
             await db.refresh(log)
             if log.status == BackupStatus.CANCELLED.value:
                 return False, "cancelled"

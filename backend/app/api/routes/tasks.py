@@ -31,7 +31,7 @@ from app.schemas.tasks import (
     TaskUpdate,
 )
 from app.services.audit_service import record_audit
-from app.services.backup_batch_registry import store_batch_celery_ids
+from app.services.backup_batch_registry import init_gmail_wave_queue, store_batch_celery_ids
 from app.services.backup_concurrency_service import (
     BACKUP_ACTIVE_STATUSES,
     active_backup_log_id,
@@ -363,6 +363,34 @@ async def run_task(
     batch_id = uuid.uuid4()
     batch_str = str(batch_id)
 
+    gmail_eligible_ids: list[uuid.UUID] = []
+    for account in accounts:
+        if task.scope not in (BackupScope.GMAIL.value, BackupScope.FULL.value):
+            continue
+        active_g = await active_backup_log_id(
+            db,
+            task_id=task.id,
+            account_id=account.id,
+            log_scope=BackupScope.GMAIL.value,
+        )
+        if active_g is not None:
+            skipped.append(
+                SkippedActiveBackupOut(
+                    account_id=str(account.id),
+                    email=account.email,
+                    kind="gmail",
+                    active_log_id=str(active_g),
+                )
+            )
+        else:
+            gmail_eligible_ids.append(account.id)
+
+    parallel = max(1, int(task.max_parallel_accounts or 2))
+    pending_gmail_ids = [str(aid) for aid in gmail_eligible_ids[parallel:]]
+    await init_gmail_wave_queue(batch_str, pending_gmail_ids)
+    gmail_queued = set(pending_gmail_ids)
+    gmail_eligible_set = set(gmail_eligible_ids)
+
     for account in accounts:
         if task.scope in (
             BackupScope.DRIVE_ROOT.value,
@@ -388,24 +416,12 @@ async def run_task(
                 res = run_drive.delay(str(task.id), str(account.id), batch_str)
                 celery_ids.append(res.id)
         if task.scope in (BackupScope.GMAIL.value, BackupScope.FULL.value):
-            active_g = await active_backup_log_id(
-                db,
-                task_id=task.id,
-                account_id=account.id,
-                log_scope=BackupScope.GMAIL.value,
-            )
-            if active_g is not None:
-                skipped.append(
-                    SkippedActiveBackupOut(
-                        account_id=str(account.id),
-                        email=account.email,
-                        kind="gmail",
-                        active_log_id=str(active_g),
-                    )
-                )
-            else:
-                res = run_gmail.delay(str(task.id), str(account.id), batch_str)
-                celery_ids.append(res.id)
+            if account.id not in gmail_eligible_set:
+                continue
+            if str(account.id) in gmail_queued:
+                continue
+            res = run_gmail.delay(str(task.id), str(account.id), batch_str)
+            celery_ids.append(res.id)
 
     if not celery_ids:
         raise HTTPException(

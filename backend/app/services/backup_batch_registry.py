@@ -21,6 +21,57 @@ async def store_batch_celery_ids(batch_id: str, celery_ids: list[str]) -> None:
     await r.setex(f"backup:batch:{batch_id}:celery_ids", 7200, json.dumps(celery_ids))
 
 
+async def extend_batch_celery_ids(batch_id: str, more: list[str]) -> None:
+    """Añade ids Celery (p. ej. segunda oleada al liberar hueco del wave Gmail)."""
+    if not more:
+        return
+    r = get_redis()
+    key = f"backup:batch:{batch_id}:celery_ids"
+    raw = await r.get(key)
+    cur: list[str] = json.loads(raw) if raw else []
+    cur.extend(more)
+    await r.setex(key, 7200, json.dumps(cur))
+
+
+def _gmail_wave_queue_key(batch_id: str) -> str:
+    return f"backup:wave:{batch_id}:gmail:accounts"
+
+
+async def init_gmail_wave_queue(batch_id: str, pending_account_ids: list[str]) -> None:
+    """Cuentas Gmail pendientes (FIFO); los primeros N ya se dispararon con Celery."""
+    r = get_redis()
+    key = _gmail_wave_queue_key(batch_id)
+    await r.delete(key)
+    if pending_account_ids:
+        await r.rpush(key, *pending_account_ids)
+        await r.expire(key, 7200)
+
+
+async def pop_next_gmail_wave_account(batch_id: str) -> str | None:
+    r = get_redis()
+    raw = await r.lpop(_gmail_wave_queue_key(batch_id))
+    if not raw:
+        return None
+    return raw.decode() if isinstance(raw, (bytes, bytearray)) else str(raw)
+
+
+async def clear_gmail_wave_queue(batch_id: str) -> None:
+    await get_redis().delete(_gmail_wave_queue_key(batch_id))
+
+
+async def maybe_dispatch_next_gmail_in_wave(*, task_id: str, batch_id: str) -> None:
+    """Al terminar un job Gmail (éxito o error), arranca el siguiente de la cola del lote."""
+    if await is_batch_cancelled(batch_id):
+        return
+    next_acc = await pop_next_gmail_wave_account(batch_id)
+    if not next_acc:
+        return
+    from app.workers.tasks.backup_gmail import run as run_gmail
+
+    res = run_gmail.delay(task_id, next_acc, batch_id)
+    await extend_batch_celery_ids(batch_id, [res.id])
+
+
 async def fetch_batch_celery_ids(batch_id: str) -> list[str]:
     raw = await get_redis().get(f"backup:batch:{batch_id}:celery_ids")
     if not raw:
@@ -54,6 +105,7 @@ async def cancel_entire_batch(
 
     bid = str(batch_id)
     await set_batch_cancelled(bid)
+    await clear_gmail_wave_queue(bid)
     celery_ids = await fetch_batch_celery_ids(bid)
     revoked = 0
     for cid in celery_ids:

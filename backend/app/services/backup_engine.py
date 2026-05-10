@@ -12,7 +12,6 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import os
-import re
 import shutil
 import uuid
 from datetime import UTC, datetime
@@ -42,19 +41,6 @@ from app.services.maildir_paths import maildir_home_from_email, maildir_root_for
 from app.services.progress_bus import publish
 from app.services.vault_report_upload import upload_backup_success_report
 from app.utils.gmail_export_counts import count_gyb_export
-
-_RCLONE_STATS_PCT = re.compile(r"(\d+(?:\.\d+)?)\s*%")
-
-
-def _rclone_line_progress_pct(line: str) -> float | None:
-    """Porcentaje en líneas ``Transferred: …, 12%, …`` de rclone (--stats-one-line)."""
-    m = _RCLONE_STATS_PCT.search(line)
-    if not m:
-        return None
-    try:
-        return max(0.0, min(100.0, float(m.group(1))))
-    except ValueError:
-        return None
 
 
 def _purge_gyb_workdir_contents(work_root: Path) -> None:
@@ -220,7 +206,7 @@ async def run_gmail_vault_push_phase(
                         "puede ser bajo pero igual se bloquea. Hay que liberar ítems, dividir en "
                         "otra unidad compartida o cambiar la estrategia de export (p. ej. mbox)."
                     )
-                pct = _rclone_line_progress_pct(s)
+                pct = rclone_service.rclone_stats_line_progress_pct(s)
                 if pct is not None:
                     payload["progress_pct"] = round(pct, 2)
                 await publish(log_id_str, payload)
@@ -691,7 +677,7 @@ async def run_drive_backup(
                     }
                     if dest_subpath:
                         payload["dest_subpath"] = dest_subpath
-                    pct = _rclone_line_progress_pct(s)
+                    pct = rclone_service.rclone_stats_line_progress_pct(s)
                     if pct is not None:
                         payload["progress_pct"] = round(pct, 2)
                     await publish(log_id, payload)

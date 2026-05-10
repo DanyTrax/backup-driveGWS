@@ -91,7 +91,7 @@ def dispatch_scheduled_backups() -> dict[str, Any]:
         queued = 0
         skipped_active = 0
         skipped_task_busy = 0
-        from app.services.backup_batch_registry import store_batch_celery_ids
+        from app.services.backup_batch_registry import init_gmail_wave_queue, store_batch_celery_ids
 
         for task in tasks:
             if task.schedule_kind != "daily":
@@ -111,6 +111,27 @@ def dispatch_scheduled_backups() -> dict[str, Any]:
             batch_id = uuid.uuid4()
             batch_str = str(batch_id)
             celery_ids: list[str] = []
+            parallel = max(1, int(task.max_parallel_accounts or 2))
+
+            gmail_eligible_ids: list[uuid.UUID] = []
+            for account in accounts:
+                if task.scope not in ("gmail", "full"):
+                    continue
+                if await active_backup_log_id(
+                    db,
+                    task_id=task.id,
+                    account_id=account.id,
+                    log_scope=BackupScope.GMAIL.value,
+                ):
+                    skipped_active += 1
+                    continue
+                gmail_eligible_ids.append(account.id)
+
+            pending_gmail = [str(aid) for aid in gmail_eligible_ids[parallel:]]
+            await init_gmail_wave_queue(batch_str, pending_gmail)
+            gmail_queued = set(pending_gmail)
+            gmail_eligible_set = set(gmail_eligible_ids)
+
             for account in accounts:
                 if task.scope in ("drive_root", "drive_computadoras", "full"):
                     if await active_backup_log_id(
@@ -125,13 +146,9 @@ def dispatch_scheduled_backups() -> dict[str, Any]:
                     celery_ids.append(r.id)
                     queued += 1
                 if task.scope in ("gmail", "full"):
-                    if await active_backup_log_id(
-                        db,
-                        task_id=task.id,
-                        account_id=account.id,
-                        log_scope=BackupScope.GMAIL.value,
-                    ):
-                        skipped_active += 1
+                    if account.id not in gmail_eligible_set:
+                        continue
+                    if str(account.id) in gmail_queued:
                         continue
                     r = run_gmail.delay(str(task.id), str(account.id), batch_str)
                     celery_ids.append(r.id)

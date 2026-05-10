@@ -155,7 +155,10 @@ function describeLiveProgress(p: Record<string, unknown> | null | undefined): st
     const phase = String(p.phase ?? '')
     const isVault =
       p.scope === 'gmail' &&
-      (phase === 'vault_copy' || phase === 'vault_check' || phase === 'vault_pull')
+      (phase === 'vault_copy' ||
+        phase === 'vault_check' ||
+        phase === 'vault_pull' ||
+        phase === 'vault_zip_upload')
     const isDriveScope = p.scope === 'drive'
     const rcloneMode =
       typeof p.rclone_mode === 'string' ? (p.rclone_mode === 'sync' ? 'sync' : 'copy') : null
@@ -170,7 +173,9 @@ function describeLiveProgress(p: Record<string, unknown> | null | undefined): st
         ? 'Verificación vault 1-GMAIL (rclone check)'
         : phase === 'vault_pull'
           ? 'Bajada vault 1-GMAIL → servidor (rclone copy)'
-          : 'Subida vault 1-GMAIL (rclone copy)'
+          : phase === 'vault_zip_upload'
+            ? 'Subida ZIP al vault 1-GMAIL/zips/… (rclone copy)'
+            : 'Subida vault 1-GMAIL (rclone copy)'
       : isDriveScope
         ? `Respaldo Drive → bóveda (rclone ${rcloneMode ?? 'copy/sync'})${destShort ? ` → …/${destShort}` : ''}`
         : 'Drive (rclone)'

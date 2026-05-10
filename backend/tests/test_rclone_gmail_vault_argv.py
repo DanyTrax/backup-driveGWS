@@ -9,6 +9,7 @@ from app.services.rclone_service import (
     build_rclone_check_local_vault_argv,
     build_rclone_local_to_vault_argv,
     build_rclone_vault_to_local_argv,
+    rclone_stats_line_progress_pct,
 )
 
 
@@ -24,6 +25,12 @@ def _vault_mock(**kwargs: object) -> MagicMock:
     )
     base.update(kwargs)
     return MagicMock(**base)
+
+
+def test_rclone_stats_line_progress_pct_parses_transferred_line() -> None:
+    line = "* ... Transferred: 1.234 GiB / 10 GiB, 12%, 1.2 MiB/s, ETA 5m"
+    assert rclone_stats_line_progress_pct(line) == 12.0
+    assert rclone_stats_line_progress_pct("") is None
 
 
 def test_local_to_vault_argv_uses_parallelism_and_fast_list() -> None:

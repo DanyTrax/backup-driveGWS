@@ -7,6 +7,7 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.services.backup_batch_registry import maybe_dispatch_next_gmail_in_wave
 from app.services.backup_engine import run_gmail_backup
 from app.services.backup_job_context import load_task_account_for_backup
 from app.workers.celery_app import celery_app
@@ -18,6 +19,13 @@ logger = logging.getLogger(__name__)
 async def _execute(
     task_id: str, account_id: str, celery_task_id: str, run_batch_id: str | None
 ) -> dict[str, Any]:
+    batch_uuid: uuid.UUID | None = None
+    if run_batch_id:
+        try:
+            batch_uuid = uuid.UUID(run_batch_id)
+        except ValueError:
+            batch_uuid = None
+
     async def inner(db: AsyncSession) -> dict[str, Any]:
         pair = await load_task_account_for_backup(
             db,
@@ -27,12 +35,8 @@ async def _execute(
         if pair is None:
             return {"ok": False, "error": "task_account_not_eligible"}
         task, account = pair
-        batch_uuid = None
-        if run_batch_id:
-            try:
-                batch_uuid = uuid.UUID(run_batch_id)
-            except ValueError:
-                return {"ok": False, "error": "invalid_batch_id"}
+        if batch_uuid is None and run_batch_id:
+            return {"ok": False, "error": "invalid_batch_id"}
         logger.info(
             "backup_gmail start task_id=%s account_id=%s email=%s",
             task_id,
@@ -53,7 +57,13 @@ async def _execute(
         )
         return {"ok": True, "log_id": str(log.id), "status": log.status}
 
-    return await with_session(inner)
+    try:
+        return await with_session(inner)
+    finally:
+        if batch_uuid is not None:
+            await maybe_dispatch_next_gmail_in_wave(
+                task_id=task_id, batch_id=str(batch_uuid)
+            )
 
 
 @celery_app.task(bind=True, name="app.workers.tasks.backup_gmail.run")

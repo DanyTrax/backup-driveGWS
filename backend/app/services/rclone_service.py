@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import re
 import shlex
 import tempfile
 from contextlib import asynccontextmanager, suppress
@@ -29,6 +30,19 @@ from app.services.settings_service import (
     KEY_VAULT_SHARED_DRIVE_ID,
     get_value,
 )
+
+_RCLONE_STATS_PCT = re.compile(r"(\d+(?:\.\d+)?)\s*%")
+
+
+def rclone_stats_line_progress_pct(line: str) -> float | None:
+    """Porcentaje en líneas ``Transferred: …, 12%, …`` de rclone (--stats-one-line)."""
+    m = _RCLONE_STATS_PCT.search(line)
+    if not m:
+        return None
+    try:
+        return max(0.0, min(100.0, float(m.group(1))))
+    except ValueError:
+        return None
 
 
 @dataclass(slots=True)
