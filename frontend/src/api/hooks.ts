@@ -746,7 +746,12 @@ export type GybWorkApiScope = 'gyb-work' | 'gyb-vault-work'
 export function useGybWorkAccounts(scope: GybWorkApiScope = 'gyb-work') {
   return useQuery({
     queryKey: ['gyb-work-accounts', scope],
-    queryFn: async () => (await api.get<GybWorkAccount[]>(`/accounts/${scope}/accounts`)).data,
+    queryFn: async () =>
+      (
+        await api.get<GybWorkAccount[]>(`/accounts/${scope}/accounts`, {
+          timeout: MAILBOX_LIST_TIMEOUT_MS,
+        })
+      ).data,
   })
 }
 
@@ -758,8 +763,12 @@ export function useGybWorkFolders(
   return useQuery({
     queryKey: ['gyb-work-folders', scope, accountId, view],
     queryFn: async () =>
-      (await api.get<MailboxFolder[]>(`/accounts/${accountId}/${scope}/folders`, { params: { view } }))
-        .data,
+      (
+        await api.get<MailboxFolder[]>(`/accounts/${accountId}/${scope}/folders`, {
+          params: { view },
+          timeout: MAILBOX_LIST_TIMEOUT_MS,
+        })
+      ).data,
     enabled: Boolean(accountId),
   })
 }

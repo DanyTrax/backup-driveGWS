@@ -54,7 +54,10 @@ from app.services.gyb_work_browser_service import (
     read_gyb_eml_message,
 )
 from app.services.rclone_service import build_rclone_vault_dest_only_config
-from app.services.mail_purge_service import gyb_work_root_for_email, scan_gyb_work_for_list_row
+from app.services.mail_purge_service import (
+    gyb_work_root_for_email,
+    scan_gyb_work_for_list_row,
+)
 from app.services.mailbox_browser_service import (
     list_maildir_folders,
     list_messages,
@@ -389,9 +392,20 @@ async def gyb_work_list_folders(
     _u: SysUser = Depends(mailbox_reader_for_path_account),
 ) -> list[MailboxFolderOut]:
     acc = await _load(db, account_id)
-    gyb = gyb_work_root_for_email(acc.email)
-    if not gyb_workdir_has_eml_or_mbox(gyb):
+    out = await asyncio.to_thread(_gyb_work_list_folders_sync, acc.email, view)
+    if out is None:
         raise HTTPException(status.HTTP_409_CONFLICT, "gyb_work_no_export")
+    return out
+
+
+def _gyb_work_list_folders_sync(
+    email: str, view: Literal["disk", "labels"]
+) -> list[MailboxFolderOut] | None:
+    """Disco/GYB en hilo aparte: evita bloquear el event loop y duplica menos el chequeo previo."""
+    gyb = gyb_work_root_for_email(email)
+    has_export, _ = scan_gyb_work_for_list_row(gyb)
+    if not has_export:
+        return None
     if view == "labels":
         folders = list_gyb_gmail_label_folders(gyb)
     else:
@@ -444,7 +458,8 @@ async def gyb_work_list_messages(
 ) -> GybWorkMessagesPageOut:
     acc = await _load(db, account_id)
     gyb = gyb_work_root_for_email(acc.email)
-    if not gyb_workdir_has_eml_or_mbox(gyb):
+    has_export, _ = await asyncio.to_thread(scan_gyb_work_for_list_row, gyb)
+    if not has_export:
         raise HTTPException(status.HTTP_409_CONFLICT, "gyb_work_no_export")
     q_clean = q.strip()
     if view == "labels":

@@ -89,7 +89,7 @@ export interface PlatformRole {
 
 export const MAILBOX_MESSAGE_TIMEOUT_MS = 120_000
 
-/** Listar mensajes Maildir con sort por cabecera Date puede leer miles de ficheros. */
+/** Listar mensajes Maildir / carpetas y listado de cuentas GYB local: disco puede tardar mucho. */
 export const MAILBOX_LIST_TIMEOUT_MS = 300_000
 
 /** Inventario mail-data recorre Maildir/GYB en disco; puede ser lento en cuentas muy grandes. */
