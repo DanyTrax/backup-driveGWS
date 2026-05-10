@@ -15,7 +15,6 @@ from app.models.enums import AuditAction, BackupStatus
 from app.models.tasks import BackupLog, BackupTask
 from app.services import rclone_service
 from app.services.audit_service import record_audit
-from app.services.backup_engine import _rclone_line_progress_pct
 from app.services.mail_purge_service import _purge_gyb_workdir_contents, gyb_work_root_for_email
 from app.services.progress_bus import publish
 from app.services.vault_layout import gmail_vault_rclone_subpath
@@ -82,7 +81,7 @@ async def restore_gyb_workdir_from_vault(
                 "raw": s,
                 "rclone_mode": "copy",
             }
-            pct = _rclone_line_progress_pct(s)
+            pct = rclone_service.rclone_stats_line_progress_pct(s)
             if pct is not None:
                 payload["progress_pct"] = round(pct, 2)
             if progress_log_id:
