@@ -95,6 +95,34 @@ def compute_gyb_work_disk_totals(work_root: Path) -> tuple[int | None, int | Non
     return total_all, export_bytes, export_count
 
 
+def scan_gyb_work_for_list_row(work_root: Path) -> tuple[bool, int]:
+    """Un solo ``os.walk`` para el listado GYB: ¿hay export? + bytes totales en disco.
+
+    Evita duplicar un recorrido completo (antes: ``gyb_workdir_has_eml_or_mbox`` + totales).
+    """
+    if not work_root.is_dir():
+        return False, 0
+    has_export = False
+    total_all = 0
+    try:
+        for dirpath, _dirnames, filenames in os.walk(work_root, followlinks=False):
+            for name in filenames:
+                fp = Path(dirpath) / name
+                try:
+                    if not fp.is_file():
+                        continue
+                    sz = int(fp.stat().st_size)
+                except OSError:
+                    continue
+                total_all += sz
+                low = name.lower()
+                if low.endswith(".eml") or low.endswith(".mbox"):
+                    has_export = True
+    except OSError:
+        return False, 0
+    return has_export, total_all
+
+
 # Alias legado (maildir / otros callers)
 _dir_size = _dir_size_walk
 

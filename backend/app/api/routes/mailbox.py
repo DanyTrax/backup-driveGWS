@@ -54,7 +54,7 @@ from app.services.gyb_work_browser_service import (
     read_gyb_eml_message,
 )
 from app.services.rclone_service import build_rclone_vault_dest_only_config
-from app.services.mail_purge_service import compute_gyb_work_disk_totals, gyb_work_root_for_email
+from app.services.mail_purge_service import gyb_work_root_for_email, scan_gyb_work_for_list_row
 from app.services.mailbox_browser_service import (
     list_maildir_folders,
     list_messages,
@@ -94,18 +94,23 @@ async def gyb_work_list_accounts(
             )
         )
     rows = (await db.execute(stmt)).scalars().all()
+    pairs = [(str(a.id), a.email) for a in rows]
+    return await asyncio.to_thread(_gyb_work_list_accounts_sync, pairs)
+
+
+def _gyb_work_list_accounts_sync(pairs: list[tuple[str, str]]) -> list[GybWorkAccountOut]:
+    """CPU/disco en hilo aparte para no bloquear el event loop de FastAPI."""
     out: list[GybWorkAccountOut] = []
-    for a in rows:
-        gyb = gyb_work_root_for_email(a.email)
-        if not gyb_workdir_has_eml_or_mbox(gyb):
+    for account_id, email in pairs:
+        gyb = gyb_work_root_for_email(email)
+        has_export, total_b = scan_gyb_work_for_list_row(gyb)
+        if not has_export:
             continue
-        total_b, export_b, _n = compute_gyb_work_disk_totals(gyb)
-        sz = total_b if total_b is not None else export_b
         out.append(
             GybWorkAccountOut(
-                id=str(a.id),
-                email=a.email,
-                work_size_bytes=sz,
+                id=account_id,
+                email=email,
+                work_size_bytes=total_b if total_b > 0 else None,
                 has_msg_db=(gyb / "msg-db.sqlite").is_file(),
             )
         )
