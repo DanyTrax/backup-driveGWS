@@ -331,7 +331,7 @@ async def retry_gmail_vault_push(
     log_id: uuid.UUID,
     celery_task_id: str,
 ) -> BackupLog:
-    """Reanuda solo la subida al vault para un log Gmail con export local listo y vault pendiente."""
+    """Reanuda solo la subida al vault Gmail (ZIP 1-GMAIL/zips/… y/o árbol gyb_mbox según la tarea)."""
     stmt = select(BackupLog).where(BackupLog.id == log_id).with_for_update()
     log = (await db.execute(stmt)).scalar_one_or_none()
     if log is None:
@@ -398,33 +398,111 @@ async def retry_gmail_vault_push(
     manifest_path = work_root / "manifest.sha256"
 
     try:
-        ok, err = await run_gmail_vault_push_phase(
-            db,
-            log=log,
-            task=task,
-            account=account,
-            work_root=work_root,
-            log_id_str=log_id_str,
-            want_vault_push=True,
-            vault_id=vault_id,
-        )
-        await db.refresh(log)
-        if log.status == BackupStatus.CANCELLED.value:
-            await publish(log_id_str, {"stage": "cancelled"})
-            await db.commit()
-            return log
-        if not ok:
-            if err == "cancelled":
+        want_zip = vault_layout.use_gmail_vault_zip_upload(task.filters_json or {})
+        want_legacy = vault_layout.use_gmail_legacy_eml_vault_push(task.filters_json or {})
+
+        if want_zip:
+            from app.services.gmail_vault_plan_service import resolve_gmail_zip_upload_plan
+            from app.services.gmail_vault_zip_service import (
+                ensure_gmail_vault_account_state,
+                load_gmail_vault_account_state,
+                run_gmail_zip_vault_push_phase,
+            )
+
+            packaging_mode = vault_layout.gmail_vault_packaging_mode(task.filters_json)
+            st_existing = await load_gmail_vault_account_state(
+                db, account_id=account.id, task_id=task.id
+            )
+            last_sealed = st_existing.last_sealed_at if st_existing else None
+            dec = resolve_gmail_zip_upload_plan(
+                task.filters_json or {},
+                last_sealed_at=last_sealed,
+                now_utc=datetime.now(UTC),
+                task_timezone=task.timezone,
+            )
+            await ensure_gmail_vault_account_state(
+                db,
+                account_id=account.id,
+                task_id=task.id,
+                packaging_mode=packaging_mode,
+            )
+            if dec.should_upload:
+                zok, zerr = await run_gmail_zip_vault_push_phase(
+                    db,
+                    log=log,
+                    task=task,
+                    account=account,
+                    work_root=work_root,
+                    log_id_str=log_id_str,
+                    vault_id=vault_id,
+                    decision=dec,
+                    packaging_mode=packaging_mode,
+                )
+                await db.refresh(log)
+                if log.status == BackupStatus.CANCELLED.value:
+                    await publish(log_id_str, {"stage": "cancelled"})
+                    await db.commit()
+                    return log
+                if not zok:
+                    if zerr == "cancelled":
+                        await publish(log_id_str, {"stage": "cancelled"})
+                        await db.commit()
+                        return log
+                    await _finalise_log(
+                        db,
+                        log,
+                        status=BackupStatus.FAILED,
+                        error_summary=zerr or "vault_zip_failed",
+                    )
+                    await publish(
+                        log_id_str,
+                        {"stage": "failed", "scope": "vault_zip", "retry": True},
+                    )
+                    await db.commit()
+                    return log
+            elif not want_legacy:
+                detail = (
+                    "Según el plan ZIP actual no corresponde subir en esta fecha "
+                    f"({dec.reason}). Si el ZIP nunca llegó a Drive pero el estado en BD sí avanzó, "
+                    "corregí `gmail_vault_account_states` o ejecutá un backup completo; "
+                    "si solo querés re-subir .eml a gyb_mbox, cambiá la tarea a modo mixed/legacy."
+                )
+                await _finalise_log(db, log, status=BackupStatus.FAILED, error_summary=detail)
+                await publish(
+                    log_id_str,
+                    {"stage": "failed", "scope": "vault_zip", "retry": True},
+                )
+                await db.commit()
+                return log
+
+        if want_legacy:
+            ok, err = await run_gmail_vault_push_phase(
+                db,
+                log=log,
+                task=task,
+                account=account,
+                work_root=work_root,
+                log_id_str=log_id_str,
+                want_vault_push=True,
+                vault_id=vault_id,
+            )
+            await db.refresh(log)
+            if log.status == BackupStatus.CANCELLED.value:
                 await publish(log_id_str, {"stage": "cancelled"})
                 await db.commit()
                 return log
-            await _finalise_log(db, log, status=BackupStatus.FAILED, error_summary=err)
-            await publish(
-                log_id_str,
-                {"stage": "failed", "scope": "vault_push", "retry": True},
-            )
-            await db.commit()
-            return log
+            if not ok:
+                if err == "cancelled":
+                    await publish(log_id_str, {"stage": "cancelled"})
+                    await db.commit()
+                    return log
+                await _finalise_log(db, log, status=BackupStatus.FAILED, error_summary=err)
+                await publish(
+                    log_id_str,
+                    {"stage": "failed", "scope": "vault_push", "retry": True},
+                )
+                await db.commit()
+                return log
 
         skip_maildir = vault_layout.gmail_skip_maildir_import(task.filters_json or {})
         manifest_root = work_root if skip_maildir else maildir_target
