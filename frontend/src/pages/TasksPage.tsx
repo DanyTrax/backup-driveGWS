@@ -649,7 +649,7 @@ export default function TasksPage() {
                     />
                   </div>
                   <div>
-                    <Label htmlFor="vault-overlap" value="Solapamiento (días) en manifiesto ZIP" />
+                    <Label htmlFor="vault-overlap" value="Solapamiento (días) — solo manifiesto ZIP" />
                     <TextInput
                       id="vault-overlap"
                       type="number"
@@ -661,8 +661,8 @@ export default function TasksPage() {
                       }
                     />
                     <p className="text-xs text-slate-500 mt-1">
-                      Típico 1. Usado en metadatos del ZIP; la límite fina GYB/watermark es trabajo
-                      aparte.
+                      Días de cruce entre periodos en metadatos del ZIP (típico 1). No define cuántas cuentas Gmail
+                      corren a la vez: eso es «Cuentas Gmail en paralelo». No es redundante con ese campo.
                     </p>
                   </div>
                 </div>
@@ -807,7 +807,7 @@ export default function TasksPage() {
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <Label htmlFor="t-par" value="Cuentas Gmail en paralelo (lote / oleada)" />
+              <Label htmlFor="t-par" value="Cuentas Gmail en paralelo (oleada del lote)" />
               <TextInput
                 id="t-par"
                 type="number"
@@ -822,10 +822,12 @@ export default function TasksPage() {
                 }
               />
               <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 max-w-md">
-                Cuántos backups <strong>Gmail</strong> de esta tarea pueden ejecutarse a la vez. El resto espera en cola
-                hasta que termine uno (incluye compresión ZIP y subida rclone al vault). No es lo mismo que{' '}
-                <strong>solapamiento (días) en manifiesto ZIP</strong> (allí abajo, solo empaquetado vault). Tarea{' '}
-                <strong>Full</strong>: Drive se encola para todas las cuentas en el primer pase; Gmail sigue este tope.
+                Cuántos jobs <strong>Gmail</strong> de esta tarea pueden estar en ejecución a la vez. Con{' '}
+                <strong>1</strong>, solo uno: el siguiente arranca cuando el worker termina <em>todo</em> ese backup
+                (GYB, Maildir si aplica, ZIP, vault, <code className="text-[10px]">gyb_mbox</code> si aplica, informe),
+                en success o en failed. Mínimo <strong>1</strong> (no existe 0). El «solapamiento (días)» del ZIP es
+                otro concepto (metadatos). Tarea <strong>Full</strong>: el tope es solo para Gmail; Drive se encola para
+                todas las cuentas al inicio y puede superponerse entre sí y con el Gmail.
               </p>
             </div>
             <div className="flex items-end gap-4 pb-2">

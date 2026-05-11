@@ -7,13 +7,24 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import get_settings
 from app.services.backup_batch_registry import maybe_dispatch_next_gmail_in_wave
-from app.services.backup_engine import run_gmail_backup
+from app.services.backup_engine import (
+    mark_gmail_backup_log_failed_on_worker_crash,
+    run_gmail_backup,
+)
 from app.services.backup_job_context import load_task_account_for_backup
 from app.workers.celery_app import celery_app
 from app.workers.session import run_async, with_session
 
 logger = logging.getLogger(__name__)
+
+_SETTINGS = get_settings()
+_GMAIL_TASK_KW: dict[str, float | int] = {}
+if _SETTINGS.celery_backup_gmail_soft_time_limit_seconds > 0:
+    _GMAIL_TASK_KW["soft_time_limit"] = _SETTINGS.celery_backup_gmail_soft_time_limit_seconds
+if _SETTINGS.celery_backup_gmail_time_limit_seconds > 0:
+    _GMAIL_TASK_KW["time_limit"] = _SETTINGS.celery_backup_gmail_time_limit_seconds
 
 
 async def _execute(
@@ -59,6 +70,28 @@ async def _execute(
 
     try:
         return await with_session(inner)
+    except Exception as exc:
+        logger.exception(
+            "backup_gmail error task_id=%s account_id=%s celery_id=%s",
+            task_id,
+            account_id,
+            celery_task_id,
+        )
+        try:
+
+            async def _recover(db: AsyncSession) -> None:
+                await mark_gmail_backup_log_failed_on_worker_crash(
+                    db,
+                    task_id=uuid.UUID(task_id),
+                    account_id=uuid.UUID(account_id),
+                    celery_task_id=celery_task_id,
+                    error_summary=str(exc),
+                )
+
+            await with_session(_recover)
+        except Exception:
+            logger.exception("backup_gmail could not mark log as failed (task_id=%s)", task_id)
+        raise
     finally:
         if batch_uuid is not None:
             await maybe_dispatch_next_gmail_in_wave(
@@ -66,6 +99,6 @@ async def _execute(
             )
 
 
-@celery_app.task(bind=True, name="app.workers.tasks.backup_gmail.run")
+@celery_app.task(bind=True, name="app.workers.tasks.backup_gmail.run", **_GMAIL_TASK_KW)
 def run(self, task_id: str, account_id: str, run_batch_id: str | None = None) -> dict[str, Any]:
     return run_async(_execute(task_id, account_id, self.request.id, run_batch_id))

@@ -88,8 +88,23 @@ function describeLiveProgress(p: Record<string, unknown> | null | undefined): st
     return `${phase}${extra}.`
   }
   if (stage === 'vault_push') {
+    if (p.ok === true) {
+      const purged = p.workdir_purged === true
+      return `Subida del árbol al vault 1-GMAIL/gyb_mbox lista${purged ? ' (carpeta de trabajo GYB vaciada tras verificación).' : '.'}`
+    }
     const sub = typeof p.subpath === 'string' ? p.subpath : '1-GMAIL/…'
-    return `Subiendo el export a la bóveda de Google Drive del usuario (ruta relativa: ${sub}).`
+    const hint = typeof p.hint_es === 'string' ? p.hint_es.trim() : ''
+    const base = `Subiendo el export a la bóveda de Google Drive del usuario (ruta relativa: ${sub}).`
+    return hint ? `${base} ${hint}` : base
+  }
+  if (stage === 'vault_legacy_tree_start') {
+    const hint = typeof p.hint_es === 'string' ? p.hint_es.trim() : ''
+    const sub = typeof p.subpath === 'string' ? p.subpath : 'gyb_mbox'
+    return hint || `Iniciando copia del volcado local hacia 1-GMAIL/${sub} en Drive (fase posterior al ZIP si aplica).`
+  }
+  if (stage === 'vault_closing') {
+    const d = typeof p.detail_es === 'string' ? p.detail_es.trim() : ''
+    return d || 'Cerrando el job (informe en vault si aplica y estado final).'
   }
   if (stage === 'vault_copy_done') {
     const sub = typeof p.subpath === 'string' ? p.subpath : '1-GMAIL/…'
@@ -141,7 +156,11 @@ function describeLiveProgress(p: Record<string, unknown> | null | undefined): st
   }
   if (stage === 'vault_zip_done') {
     const vr = typeof p.vault_rel_zip === 'string' ? p.vault_rel_zip : ''
-    return `Subida ZIP al vault completada${vr ? `: ${vr}` : ''}.`
+    return (
+      `Subida ZIP al vault completada${vr ? `: ${vr}` : ''}. ` +
+      'Eso no cierra el backup: con empaquetado «mixed» o «legacy» suele seguir la subida del árbol .eml a 1-GMAIL/gyb_mbox (a menudo la fase más larga). ' +
+      'El badge «running», la fecha «Vault 1-GMAIL» y el «success» final corresponden a todo el pipeline; en JSON mirá si ya hay `vault_push` o `progress` con fase `vault_copy`.'
+    )
   }
   if (stage === 'vault_zip_skipped') {
     const r = typeof p.reason === 'string' ? p.reason : ''

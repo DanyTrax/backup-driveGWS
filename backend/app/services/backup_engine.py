@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import logging
 import os
 import shutil
 import uuid
@@ -42,6 +43,8 @@ from app.services.progress_bus import publish
 from app.services.vault_report_upload import upload_backup_success_report
 from app.utils.gmail_export_counts import count_gyb_export
 
+logger = logging.getLogger(__name__)
+
 
 def _purge_gyb_workdir_contents(work_root: Path) -> None:
     """Vacia ``/var/msa/work/gmail/<email>/`` conservando el directorio raíz (no toca Maildir)."""
@@ -52,6 +55,40 @@ def _purge_gyb_workdir_contents(work_root: Path) -> None:
             child.unlink(missing_ok=True)
         else:
             shutil.rmtree(child, ignore_errors=False)
+
+
+async def _await_rclone_with_heartbeat(
+    coro: Any,
+    *,
+    log_id_str: str,
+    phase: str,
+    interval_sec: float = 75.0,
+) -> tuple[int, str]:
+    """Espera ``rclone`` mientras republica ``progress`` si no hay salida nueva (UI en vivo)."""
+    task = asyncio.ensure_future(coro)
+    beats = 0
+    while True:
+        try:
+            return await asyncio.wait_for(asyncio.shield(task), timeout=interval_sec)
+        except asyncio.TimeoutError:
+            beats += 1
+            elapsed = int(beats * interval_sec)
+            try:
+                await publish(
+                    log_id_str,
+                    {
+                        "stage": "progress",
+                        "scope": "gmail",
+                        "phase": phase,
+                        "raw": (
+                            f"[panel] rclone sigue en ejecución ({phase}); ~{elapsed}s sin línea nueva. "
+                            "Copias masivas a Google Drive pueden ir muchos minutos sin imprimir en el log."
+                        ),
+                        "heartbeat": True,
+                    },
+                )
+            except Exception:
+                pass
 
 
 async def _create_log(
@@ -158,6 +195,10 @@ async def run_gmail_vault_push_phase(
             "stage": "vault_push",
             "scope": "gmail",
             "subpath": subp,
+            "hint_es": (
+                "Subida del export local a 1-GMAIL/gyb_mbox (miles de rutas o .eml). "
+                "Suele ser la fase más larga; el panel puede ir varios minutos sin porcentaje nuevo."
+            ),
         },
     )
     async with rclone_service.build_rclone_vault_dest_only_config(
@@ -231,10 +272,14 @@ async def run_gmail_vault_push_phase(
             dest_subpath=subp,
             dry_run=False,
         )
-        vrc, vout = await rclone_service.run_rclone(
-            pargv,
-            on_line=_vault_rclone_on_line("vault_copy"),
-            cancel_log_id=log_id_str,
+        vrc, vout = await _await_rclone_with_heartbeat(
+            rclone_service.run_rclone(
+                pargv,
+                on_line=_vault_rclone_on_line("vault_copy"),
+                cancel_log_id=log_id_str,
+            ),
+            log_id_str=log_id_str,
+            phase="vault_copy",
         )
         await db.refresh(log)
         if log.status == BackupStatus.CANCELLED.value:
@@ -269,10 +314,14 @@ async def run_gmail_vault_push_phase(
                 push_cfg,
                 dest_subpath=subp,
             )
-            crc, cout = await rclone_service.run_rclone(
-                cargv,
-                on_line=_vault_rclone_on_line("vault_check"),
-                cancel_log_id=log_id_str,
+            crc, cout = await _await_rclone_with_heartbeat(
+                rclone_service.run_rclone(
+                    cargv,
+                    on_line=_vault_rclone_on_line("vault_check"),
+                    cancel_log_id=log_id_str,
+                ),
+                log_id_str=log_id_str,
+                phase="vault_check",
             )
             await db.refresh(log)
             if log.status == BackupStatus.CANCELLED.value:
@@ -1091,6 +1140,18 @@ async def run_gmail_backup(
                         return log
 
             if want_legacy_push:
+                await publish(
+                    log_id,
+                    {
+                        "stage": "vault_legacy_tree_start",
+                        "scope": "gmail",
+                        "subpath": vault_layout.gmail_vault_rclone_subpath(),
+                        "hint_es": (
+                            "Tras el ZIP (si hubo), copiando el volcado a 1-GMAIL/gyb_mbox en Drive. "
+                            "Puede tardar más que el ZIP; verás «vault_push» / líneas rclone o latidos [panel] si va en silencio."
+                        ),
+                    },
+                )
                 ok, verr = await run_gmail_vault_push_phase(
                     db,
                     log=log,
@@ -1150,19 +1211,78 @@ async def run_gmail_backup(
     if not task.dry_run:
         account.maildir_user_cleared_at = None
         log.gmail_vault_completed_at = datetime.now(UTC)
-    rel_rep = await upload_backup_success_report(
-        db,
-        task=task,
-        account=account,
-        log=log,
-        dry_run=task.dry_run,
+    await publish(
+        log_id,
+        {
+            "stage": "vault_closing",
+            "scope": "gmail",
+            "dry_run": bool(task.dry_run),
+            "detail_es": (
+                "Cierre: subiendo informe a 3-REPORTS/logs si aplica (rclone breve) y publicando «done»."
+                if not task.dry_run
+                else "Cerrando dry-run en base de datos."
+            ),
+        },
     )
+    rel_rep: str | None = None
+    try:
+        rel_rep = await upload_backup_success_report(
+            db,
+            task=task,
+            account=account,
+            log=log,
+            dry_run=task.dry_run,
+        )
+    except Exception as rep_exc:
+        logger.warning(
+            "informe de éxito al vault omitido tras backup OK log_id=%s: %s",
+            log_id,
+            rep_exc,
+            exc_info=True,
+        )
     if rel_rep:
         log.detail_log_path = rel_rep
         await db.flush()
     await publish(log_id, {"stage": "done", "status": "success", "messages": stats.messages})
     await db.commit()
     return log
+
+
+async def mark_gmail_backup_log_failed_on_worker_crash(
+    db: AsyncSession,
+    *,
+    task_id: uuid.UUID,
+    account_id: uuid.UUID,
+    celery_task_id: str,
+    error_summary: str,
+) -> None:
+    """Si el worker revienta tras commits parciales, deja el log Gmail RUNNING en FAILED terminal."""
+    stmt = (
+        select(BackupLog)
+        .where(
+            BackupLog.task_id == task_id,
+            BackupLog.account_id == account_id,
+            BackupLog.scope == BackupScope.GMAIL.value,
+            BackupLog.celery_task_id == celery_task_id,
+            BackupLog.status == BackupStatus.RUNNING.value,
+        )
+        .order_by(BackupLog.started_at.desc())
+        .limit(1)
+    )
+    log = (await db.execute(stmt)).scalars().first()
+    if log is None:
+        return
+    summary = (error_summary or "worker_uncaught_exception")[:10000]
+    await _finalise_log(db, log, status=BackupStatus.FAILED, error_summary=summary)
+    await publish(
+        str(log.id),
+        {
+            "stage": "failed",
+            "error": "worker_uncaught",
+            "detail": summary[:2000],
+        },
+    )
+    await db.flush()
 
 
 async def cancel_backup(db: AsyncSession, log_id: uuid.UUID) -> bool:

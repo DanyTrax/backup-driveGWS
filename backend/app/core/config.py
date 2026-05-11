@@ -65,6 +65,10 @@ class Settings(BaseSettings):
     celery_result_backend: str = ""
     celery_concurrency: int = 2
     celery_backup_max_concurrent: int = 2
+    #: Si > 0, Celery corta el task Gmail con excepción (soft primero). 0 = sin límite (comportamiento anterior).
+    #: ``time_limit`` debe ser mayor que ``soft_time_limit``. Buzones muy grandes pueden requerir 259200+ (72 h).
+    celery_backup_gmail_soft_time_limit_seconds: int = 0
+    celery_backup_gmail_time_limit_seconds: int = 0
 
     dovecot_master_user: str = ""
     dovecot_master_password: str = ""
@@ -135,6 +139,17 @@ class Settings(BaseSettings):
     host_git_path: str = ""
     # Imagen para ``docker run`` del despliegue en segundo plano (ej. ghcr.io/.../app:latest).
     host_stack_deploy_runner_image: str = ""
+
+    @field_validator(
+        "celery_backup_gmail_soft_time_limit_seconds",
+        "celery_backup_gmail_time_limit_seconds",
+        mode="before",
+    )
+    @classmethod
+    def _non_negative_celery_gmail_limits(cls, v: object) -> int:
+        if v is None:
+            return 0
+        return max(0, int(v))
 
     @field_validator("account_verify_gyb_timeout_seconds", mode="before")
     @classmethod
