@@ -1,11 +1,12 @@
-"""audit_action: host_tmp_cleanup_gyb_zip"""
+"""audit_action: host_tmp_cleanup_gyb_zip (id corto: alembic_version es varchar 32)."""
 from __future__ import annotations
 
 import sqlalchemy as sa
 from alembic import op
 
-revision = "0016_audit_host_tmp_cleanup_gyb_zip"
-down_revision = "0015_gmail_vault_state_tables"  # matches 0015 file revision id
+# Máx. 32 caracteres — ``0016_audit_host_tmp_cleanup_gyb_zip`` era demasiado largo.
+revision = "0016_audit_gyb_zip_tmp"
+down_revision = "0015_gmail_vault_state_tables"
 branch_labels = None
 depends_on = None
 
