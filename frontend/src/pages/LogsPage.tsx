@@ -314,7 +314,7 @@ function materializeLogsTypeLabel(mode: string): string {
 function materializeMatchesLogsFilter(status: string, filter: string): boolean {
   if (!filter) return true
   const running = status === 'pending' || status === 'downloading'
-  const success = status === 'ready'
+  const success = status === 'ready' || status === 'promoted'
   const failed = status === 'failed'
   if (filter === 'running') return running
   if (filter === 'success') return success
@@ -324,7 +324,7 @@ function materializeMatchesLogsFilter(status: string, filter: string): boolean {
 }
 
 function materializeStatusBadgeTone(status: string): 'success' | 'failure' | 'info' | 'gray' {
-  if (status === 'ready') return 'success'
+  if (status === 'ready' || status === 'promoted') return 'success'
   if (status === 'failed') return 'failure'
   if (status === 'pending' || status === 'downloading') return 'info'
   return 'gray'
@@ -332,6 +332,7 @@ function materializeStatusBadgeTone(status: string): 'success' | 'failure' | 'in
 
 function materializeStatusTableLabel(status: string): string {
   if (status === 'ready') return 'success'
+  if (status === 'promoted') return 'en GYB trabajo'
   if (status === 'pending' || status === 'downloading') return 'running'
   return status
 }

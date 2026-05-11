@@ -35,6 +35,7 @@ from app.services.gmail_vault_materialize_service import (
     create_materialization_session,
     expire_session_if_ttl_elapsed,
     materialization_paths,
+    promote_materialization_to_gyb_work,
     purge_materialization_local,
 )
 from app.services.progress_bus import last_event
@@ -177,6 +178,49 @@ async def gmail_vault_materialize_get(
     ).one_or_none()
     if refreshed is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="session_not_found")
+    row_mat, acc_email = refreshed
+    base = materialization_to_out(row_mat)
+    snap = await last_event(str(session_id))
+    return base.model_copy(update={"live_progress": snap, "account_email": acc_email})
+
+
+@router.post(
+    "/materialize/{session_id}/promote-to-gyb-work",
+    response_model=GmailVaultMaterializeOut,
+    summary="Fusionar extracted/ en carpeta de trabajo GYB y limpiar ZIPs locales de la sesión",
+)
+async def gmail_vault_materialize_promote_to_gyb_work(
+    session_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current: SysUser = Depends(
+        require_any_permission("vault_drive.view_all", "vault_drive.view_delegated")
+    ),
+) -> GmailVaultMaterializeOut:
+    row = (
+        await db.execute(select(GmailVaultMaterialization).where(GmailVaultMaterialization.id == session_id))
+    ).scalar_one_or_none()
+    if row is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="session_not_found")
+    await assert_vault_drive_account_access(db, current, row.account_id)
+    if await expire_session_if_ttl_elapsed(db, row):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="session_expired")
+    try:
+        await promote_materialization_to_gyb_work(db, session_id=session_id)
+    except GmailVaultMaterializeError as exc:
+        msg = str(exc)
+        if msg == "session_not_found":
+            raise HTTPException(status.HTTP_404_NOT_FOUND, detail=msg) from exc
+        if msg.startswith("materialize_not_ready:"):
+            raise HTTPException(status.HTTP_409_CONFLICT, detail=msg) from exc
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=msg) from exc
+
+    refreshed = (
+        await db.execute(
+            select(GmailVaultMaterialization, GwAccount.email)
+            .join(GwAccount, GmailVaultMaterialization.account_id == GwAccount.id)
+            .where(GmailVaultMaterialization.id == session_id)
+        )
+    ).one()
     row_mat, acc_email = refreshed
     base = materialization_to_out(row_mat)
     snap = await last_event(str(session_id))

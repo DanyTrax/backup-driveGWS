@@ -213,6 +213,19 @@ export function useDeleteGmailVaultMaterialize() {
   })
 }
 
+export function usePromoteGmailVaultMaterialize() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (sessionId: string) =>
+      (await api.post<GmailVaultMaterializeSession>(`/vault/gmail/materialize/${sessionId}/promote-to-gyb-work`))
+        .data,
+    onSuccess: (data) => {
+      void qc.invalidateQueries({ queryKey: ['gmail-vault-materialize', data.id] })
+      void qc.invalidateQueries({ queryKey: ['gmail-vault-materialize-recent'] })
+    },
+  })
+}
+
 export function usePermissionCatalog() {
   return useQuery({
     queryKey: ['meta-permissions-catalog'],

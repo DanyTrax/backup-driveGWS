@@ -114,7 +114,7 @@ class GmailVaultMaterialization(UUIDPKMixin, TimestampMixin, Base):
 
     path_local: Mapped[str] = mapped_column(String(500), nullable=False)
 
-    #: pending | downloading | extracting | ready | failed | expired | cancelled
+    #: pending | downloading | extracting | ready | promoted | failed | expired | cancelled
     status: Mapped[str] = mapped_column(String(32), nullable=False, server_default="pending")
 
     progress_json: Mapped[dict[str, Any]] = mapped_column(

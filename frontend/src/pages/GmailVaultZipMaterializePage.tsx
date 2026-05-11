@@ -10,6 +10,7 @@ import {
   useDeleteGmailVaultMaterialize,
   useGmailVaultMaterializeSession,
   useProfile,
+  usePromoteGmailVaultMaterialize,
   useTasks,
   useVaultDriveAccounts,
 } from '../api/hooks'
@@ -63,6 +64,7 @@ export default function GmailVaultZipMaterializePage() {
   const sessionQ = useGmailVaultMaterializeSession(sessionId)
   const createMut = useCreateGmailVaultMaterialize()
   const deleteMut = useDeleteGmailVaultMaterialize()
+  const promoteMut = usePromoteGmailVaultMaterialize()
 
   const gmailLinkedTasks = useMemo(() => {
     const list = tasksQ.data ?? []
@@ -122,8 +124,20 @@ export default function GmailVaultZipMaterializePage() {
     }
   }
 
+  async function promoteToGybWork() {
+    if (!sessionId) return
+    try {
+      await promoteMut.mutateAsync(sessionId)
+      toast.success('Contenido fusionado en la carpeta GYB trabajo.')
+    } catch (err) {
+      toast.error(`No se pudo promover: ${formatApiErr(err).slice(0, 380)}`)
+    }
+  }
+
   const sess = sessionQ.data
   const busy = sess?.status === 'pending' || sess?.status === 'downloading'
+  const canPromote = sess?.status === 'ready'
+  const promoted = sess?.status === 'promoted'
 
   if (!routeAccountId && accountsQ.isLoading) {
     return <Spinner />
@@ -307,7 +321,17 @@ export default function GmailVaultZipMaterializePage() {
         <Card>
           <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
             <h2 className="text-lg font-medium">Sesión activa</h2>
-            <Badge color={busy ? 'warning' : sess?.status === 'ready' ? 'success' : 'failure'}>
+            <Badge
+              color={
+                busy
+                  ? 'warning'
+                  : sess?.status === 'ready' || promoted
+                    ? 'success'
+                    : sess?.status === 'failed'
+                      ? 'failure'
+                      : 'gray'
+              }
+            >
               {sessionQ.isLoading ? '…' : sess?.status ?? '—'}
             </Badge>
           </div>
@@ -348,6 +372,23 @@ export default function GmailVaultZipMaterializePage() {
                   {JSON.stringify(sess.progress_json ?? {}, null, 2)}
                 </pre>
               </details>
+              <div className="flex flex-wrap gap-2 items-center">
+                {canPromote ? (
+                  <Button
+                    size="sm"
+                    color="blue"
+                    onClick={() => void promoteToGybWork()}
+                    disabled={promoteMut.isPending}
+                  >
+                    {promoteMut.isPending ? 'Fusionando…' : 'Llevar a carpeta GYB trabajo'}
+                  </Button>
+                ) : null}
+                {promoted && sess.account_id ? (
+                  <Link to={`/gyb-work/${sess.account_id}`} className="text-sm text-blue-600 dark:text-blue-400">
+                    Abrir GYB trabajo
+                  </Link>
+                ) : null}
+              </div>
               <Button color="failure" size="sm" onClick={() => void removeSession()} disabled={deleteMut.isPending}>
                 Eliminar sesión y datos locales
               </Button>

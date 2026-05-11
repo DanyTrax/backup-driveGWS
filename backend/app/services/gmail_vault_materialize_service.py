@@ -20,6 +20,7 @@ from app.models.tasks import BackupTask, backup_task_accounts
 from app.services.gmail_vault_materialize_logic import (
     GmailVaultMaterializeError,
     VaultZipIndexEntry,
+    merge_materialized_session_into_gyb_workdir,
     parse_lsjson_zip_entries,
     select_zip_entries_for_window,
 )
@@ -39,6 +40,8 @@ from app.services.rclone_service import (
 )
 
 log = logging.getLogger(__name__)
+
+GYB_WORK_MAIL_PARENT = Path("/var/msa/work/gmail")
 
 
 def _vault_zips_lsjson_remote(account_id: uuid.UUID) -> str:
@@ -448,6 +451,73 @@ async def run_materialization_job(db: AsyncSession, session_id: uuid.UUID, celer
             )
         except Exception:
             pass
+
+
+async def promote_materialization_to_gyb_work(
+    db: AsyncSession,
+    *,
+    session_id: uuid.UUID,
+) -> GmailVaultMaterialization:
+    """Fusiona ``extracted/`` en ``/var/msa/work/gmail/<email>/``, borra ZIPs locales y limpia ``extracted/``."""
+    row = (
+        await db.execute(select(GmailVaultMaterialization).where(GmailVaultMaterialization.id == session_id))
+    ).scalar_one_or_none()
+    if row is None:
+        raise GmailVaultMaterializeError("session_not_found")
+    if row.status != "ready":
+        raise GmailVaultMaterializeError(f"materialize_not_ready:{row.status}")
+
+    acc = (
+        await db.execute(select(GwAccount).where(GwAccount.id == row.account_id))
+    ).scalar_one_or_none()
+    if acc is None:
+        raise GmailVaultMaterializeError("account_not_found")
+
+    from app.services.mail_purge_service import gyb_work_root_for_email
+
+    local_root = Path(row.path_local).resolve()
+    base = Path(get_settings().gmail_vault_materialize_base_path).resolve()
+    if not _safe_under_base(local_root, base):
+        raise GmailVaultMaterializeError("invalid_path_local")
+
+    work_dest = gyb_work_root_for_email(acc.email).resolve()
+    gyb_parent = GYB_WORK_MAIL_PARENT.resolve()
+    if not _safe_under_base(work_dest, gyb_parent):
+        raise GmailVaultMaterializeError("invalid_gyb_work_dest")
+
+    try:
+        n = await asyncio.to_thread(merge_materialized_session_into_gyb_workdir, local_root, work_dest)
+    except GmailVaultMaterializeError:
+        raise
+    except Exception as exc:
+        log.exception("promote_materialization session=%s", session_id)
+        raise GmailVaultMaterializeError(str(exc)[:2000]) from exc
+
+    prog = dict(row.progress_json or {})
+    prog["phase"] = "promoted"
+    prog["promoted_to_gyb_work"] = str(work_dest)
+    prog["promoted_zip_trees_merged"] = n
+    prog["promoted_at"] = datetime.now(timezone.utc).isoformat()
+    row.progress_json = prog
+    row.status = "promoted"
+    await db.commit()
+    await db.refresh(row)
+
+    sid = str(session_id)
+    try:
+        await publish(
+            sid,
+            {
+                "stage": "gmail_vault_materialize",
+                "phase": "promoted",
+                "gyb_work": str(work_dest),
+                "merged_trees": n,
+            },
+        )
+    except Exception:
+        pass
+
+    return row
 
 
 async def purge_materialization_local(row: GmailVaultMaterialization) -> None:

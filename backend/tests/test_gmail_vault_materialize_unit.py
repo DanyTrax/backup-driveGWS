@@ -11,6 +11,7 @@ from app.services.gmail_vault_zip_layout import gmail_vault_zip_object_rel_from_
 from app.services.gmail_vault_materialize_logic import (
     GmailVaultMaterializeError,
     VaultZipIndexEntry,
+    merge_materialized_session_into_gyb_workdir,
     parse_lsjson_zip_entries,
     period_overlaps_window,
     resolve_materialize_window,
@@ -79,3 +80,29 @@ def test_parse_lsjson_zips() -> None:
     rows = parse_lsjson_zip_entries(stdout)
     assert len(rows) == 1
     assert rows[0].period_start == date(2026, 5, 1)
+
+
+def test_merge_materialized_session_into_gyb_workdir(tmp_path) -> None:
+    root = tmp_path / "session"
+    ext = root / "extracted" / "period_a"
+    gyb = tmp_path / "gyb"
+    (ext / "subdir").mkdir(parents=True)
+    (ext / "subdir" / "hello.txt").write_text("x", encoding="utf-8")
+    staging = root / "staging"
+    staging.mkdir()
+    z = staging / "dummy.zip"
+    z.write_bytes(b"PK")
+
+    n = merge_materialized_session_into_gyb_workdir(root, gyb)
+    assert n == 1
+    assert (gyb / "subdir" / "hello.txt").read_text(encoding="utf-8") == "x"
+    assert not (root / "extracted").exists()
+    assert not z.exists()
+
+
+def test_merge_materialized_session_no_extracted_raises(tmp_path) -> None:
+    root = tmp_path / "session"
+    root.mkdir()
+    gyb = tmp_path / "gyb"
+    with pytest.raises(GmailVaultMaterializeError, match="materialize_no_extracted"):
+        merge_materialized_session_into_gyb_workdir(root, gyb)

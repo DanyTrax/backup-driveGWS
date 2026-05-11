@@ -5,6 +5,7 @@ import json
 import re
 from dataclasses import dataclass
 from datetime import date, timedelta
+from pathlib import Path
 from typing import Optional
 
 from app.services.gmail_vault_zip_layout import parse_zip_basename_period
@@ -99,3 +100,52 @@ def select_zip_entries_for_window(
         for e in entries
         if period_overlaps_window(e.period_start, e.period_end, window_start, window_end)
     ]
+
+
+def _merge_tree_into(src: Path, dest: Path) -> None:
+    """Copia ``src`` (árbol) sobre ``dest`` (fusiona directorios; archivos se sobrescriben)."""
+    import shutil
+
+    dest.mkdir(parents=True, exist_ok=True)
+    if not src.is_dir():
+        return
+    for item in src.iterdir():
+        target = dest / item.name
+        if item.is_dir():
+            _merge_tree_into(item, target)
+        else:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(item, target)
+
+
+def merge_materialized_session_into_gyb_workdir(local_materialize_root: Path, gyb_work_root: Path) -> int:
+    """Lleva el contenido de ``extracted/`` a la carpeta de trabajo GYB y borra ZIPs en ``staging/``.
+
+    Cada subcarpeta bajo ``extracted/`` corresponde a un ZIP (estructura GYB export). Se fusionan en
+    ``gyb_work_root``. Luego se eliminan ``staging/*.zip`` y el árbol ``extracted/``.
+
+    Returns:
+        Número de entradas (subárboles o ficheros sueltos) fusionadas desde ``extracted``.
+    """
+    import shutil
+
+    extracted = local_materialize_root / "extracted"
+    staging = local_materialize_root / "staging"
+    if not extracted.is_dir():
+        raise GmailVaultMaterializeError("materialize_no_extracted_dir")
+    merged = 0
+    for child in sorted(extracted.iterdir()):
+        if child.is_dir():
+            _merge_tree_into(child, gyb_work_root)
+            merged += 1
+        elif child.is_file():
+            gyb_work_root.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(child, gyb_work_root / child.name)
+            merged += 1
+    if merged == 0:
+        raise GmailVaultMaterializeError("materialize_extracted_empty")
+    if staging.is_dir():
+        for z in staging.glob("*.zip"):
+            z.unlink(missing_ok=True)
+    shutil.rmtree(extracted, ignore_errors=True)
+    return merged
