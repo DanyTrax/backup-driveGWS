@@ -23,13 +23,18 @@ from app.services.gmail_vault_materialize_logic import (
     parse_lsjson_zip_entries,
     select_zip_entries_for_window,
 )
-from app.services.gmail_vault_zip_layout import gmail_vault_zip_account_dir_rel
+from app.services.gmail_vault_zip_layout import (
+    gmail_vault_zip_account_dir_rel,
+    gmail_vault_zip_object_rel_from_lsjson,
+)
+from app.services.progress_bus import publish
 from app.services.rclone_service import (
     RcloneConfig,
     _gmail_vault_compare_argv_part,
     _gmail_vault_extra_flags_argv_part,
     _gmail_vault_tps_argv_part,
     build_rclone_vault_dest_only_config,
+    rclone_stats_line_progress_pct,
     run_rclone,
 )
 
@@ -151,9 +156,9 @@ async def create_materialization_session(
     return row
 
 
-def _build_copy_one_zip_argv(cfg: RcloneConfig, rel_under_vault: str, dest_dir: Path) -> list[str]:
+def _build_copy_one_zip_argv(cfg: RcloneConfig, rel_under_vault_root: str, dest_dir: Path) -> list[str]:
     s = get_settings()
-    rel = rel_under_vault.strip().lstrip("/")
+    rel = rel_under_vault_root.strip().lstrip("/")
     remote = f"{cfg.remote_dest.rstrip(':')}:{rel}"
     argv = [
         "copy",
@@ -229,6 +234,20 @@ async def run_materialization_job(db: AsyncSession, session_id: uuid.UUID, celer
     row.status = "downloading"
     await db.commit()
 
+    sid = str(session_id)
+    try:
+        await publish(
+            sid,
+            {
+                "stage": "gmail_vault_materialize",
+                "phase": "started",
+                "account_id": str(row.account_id),
+                "celery_task_id": celery_task_id,
+            },
+        )
+    except Exception:
+        pass
+
     try:
         local_root.mkdir(parents=True, exist_ok=True)
         staging = local_root / "staging"
@@ -247,16 +266,87 @@ async def run_materialization_job(db: AsyncSession, session_id: uuid.UUID, celer
             row.progress_json = prog
             await db.commit()
 
+            try:
+                await publish(
+                    sid,
+                    {
+                        "stage": "gmail_vault_materialize",
+                        "phase": "downloading",
+                        "planned_zips": len(picked),
+                        "window_start": ws.isoformat(),
+                        "window_end": we.isoformat(),
+                    },
+                )
+            except Exception:
+                pass
+
             if not picked:
                 row.status = "failed"
                 row.error_summary = "no_matching_zips_in_vault"
                 row.progress_json = {**prog, "phase": "failed"}
                 await db.commit()
+                try:
+                    await publish(sid, {"stage": "gmail_vault_materialize", "phase": "failed", "reason": "no_matching_zips"})
+                except Exception:
+                    pass
                 return
 
+            async def _emit_rclone_line(line: str, zip_rel: str, zip_idx: int, zip_total: int) -> None:
+                s = line.strip()
+                if not s:
+                    return
+                try:
+                    payload: dict[str, Any] = {
+                        "stage": "progress",
+                        "scope": "gmail",
+                        "phase": "vault_materialize_zip_copy",
+                        "raw": s,
+                        "rclone_mode": "copy",
+                        "zip_rel": zip_rel,
+                        "zip_index": zip_idx,
+                        "zip_total": zip_total,
+                    }
+                    pct = rclone_stats_line_progress_pct(s)
+                    if pct is not None:
+                        payload["progress_pct"] = round(pct, 2)
+                    await publish(sid, payload)
+                except Exception:
+                    pass
+
+            def _on_line_factory(zip_rel: str, zip_idx: int, zip_total: int):
+                def _on_line(line: str) -> None:
+                    if not line.strip():
+                        return
+                    try:
+                        loop = asyncio.get_running_loop()
+                    except RuntimeError:
+                        return
+                    loop.create_task(_emit_rclone_line(line, zip_rel, zip_idx, zip_total))
+
+                return _on_line
+
             for i, ent in enumerate(picked):
-                argv = _build_copy_one_zip_argv(cfg, ent.rel_path, staging)
-                rc, out = await run_rclone(argv, timeout=None)
+                vault_rel = gmail_vault_zip_object_rel_from_lsjson(row.account_id, ent.rel_path)
+                try:
+                    await publish(
+                        sid,
+                        {
+                            "stage": "gmail_vault_materialize",
+                            "phase": "zip_copy_start",
+                            "zip_index": i + 1,
+                            "zip_total": len(picked),
+                            "zip_rel": ent.rel_path,
+                            "vault_rel": vault_rel,
+                        },
+                    )
+                except Exception:
+                    pass
+                argv = _build_copy_one_zip_argv(cfg, vault_rel, staging)
+                rc, out = await run_rclone(
+                    argv,
+                    on_line=_on_line_factory(ent.rel_path, i + 1, len(picked)),
+                    timeout=None,
+                )
                 if rc != 0:
                     row.status = "failed"
                     row.error_summary = (out or "rclone_copy_zip_failed")[:4000]
@@ -265,6 +355,19 @@ async def run_materialization_job(db: AsyncSession, session_id: uuid.UUID, celer
                     prog["failed_at_rel"] = ent.rel_path
                     row.progress_json = prog
                     await db.commit()
+                    try:
+                        await publish(
+                            sid,
+                            {
+                                "stage": "gmail_vault_materialize",
+                                "phase": "failed",
+                                "zip_rel": ent.rel_path,
+                                "vault_rel": vault_rel,
+                                "error_excerpt": (out or "")[:800],
+                            },
+                        )
+                    except Exception:
+                        pass
                     return
                 zip_name = Path(ent.rel_path).name
                 zpath = staging / zip_name
@@ -272,6 +375,18 @@ async def run_materialization_job(db: AsyncSession, session_id: uuid.UUID, celer
                     row.status = "failed"
                     row.error_summary = f"missing_after_copy:{zip_name}"
                     await db.commit()
+                    try:
+                        await publish(
+                            sid,
+                            {
+                                "stage": "gmail_vault_materialize",
+                                "phase": "failed",
+                                "reason": "missing_after_copy",
+                                "zip_rel": ent.rel_path,
+                            },
+                        )
+                    except Exception:
+                        pass
                     return
                 ext_dir = extracted_root / zip_name[: -len(".zip")]
                 await asyncio.to_thread(_extract_zip_file, zpath, ext_dir)
@@ -279,7 +394,32 @@ async def run_materialization_job(db: AsyncSession, session_id: uuid.UUID, celer
                 prog["done_zips"] = i + 1
                 row.progress_json = prog
                 await db.commit()
+                try:
+                    await publish(
+                        sid,
+                        {
+                            "stage": "gmail_vault_materialize",
+                            "phase": "zip_extracted",
+                            "done_zips": i + 1,
+                            "planned_zips": len(picked),
+                            "zip_rel": ent.rel_path,
+                        },
+                    )
+                except Exception:
+                    pass
 
+        try:
+            await publish(
+                sid,
+                {
+                    "stage": "gmail_vault_materialize",
+                    "phase": "ready",
+                    "done_zips": len(picked),
+                    "planned_zips": len(picked),
+                },
+            )
+        except Exception:
+            pass
         row.status = "ready"
         row.progress_json = {**(row.progress_json or {}), "phase": "ready"}
         await db.commit()
@@ -288,12 +428,26 @@ async def run_materialization_job(db: AsyncSession, session_id: uuid.UUID, celer
         row.error_summary = str(exc)[:4000]
         row.progress_json = {**(row.progress_json or {}), "phase": "failed"}
         await db.commit()
+        try:
+            await publish(
+                sid,
+                {"stage": "gmail_vault_materialize", "phase": "failed", "error": str(exc)[:500]},
+            )
+        except Exception:
+            pass
     except Exception as exc:
         log.exception("gmail_vault_materialize_job_failed session=%s", session_id)
         row.status = "failed"
         row.error_summary = str(exc)[:4000]
         row.progress_json = {**(row.progress_json or {}), "phase": "failed"}
         await db.commit()
+        try:
+            await publish(
+                sid,
+                {"stage": "gmail_vault_materialize", "phase": "failed", "error": str(exc)[:500]},
+            )
+        except Exception:
+            pass
 
 
 async def purge_materialization_local(row: GmailVaultMaterialization) -> None:

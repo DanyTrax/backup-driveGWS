@@ -32,6 +32,17 @@ def gmail_vault_zip_account_dir_rel(account_id: uuid.UUID) -> str:
     return f"{gmail_vault_zips_root_rel()}/{account_id}".strip("/")
 
 
+def gmail_vault_zip_object_rel_from_lsjson(account_id: uuid.UUID, path_under_account_zips: str) -> str:
+    """Ruta del objeto bajo la raíz del vault (``dest:`` = ``drive_vault_folder_id``).
+
+    ``rclone lsjson dest:1-GMAIL/zips/{account_id}/`` devuelve ``Path`` relativos a ese prefijo;
+    para ``rclone copy dest:<ruta>`` hay que anteponer ``1-GMAIL/zips/{account_id}/``.
+    """
+    base = gmail_vault_zip_account_dir_rel(account_id).strip("/")
+    sub = path_under_account_zips.strip().lstrip("/")
+    return f"{base}/{sub}"
+
+
 def gmail_vault_zip_cadence_dir_rel(account_id: uuid.UUID, cadence: ZipCadenceDir) -> str:
     """``1-GMAIL/zips/{account_id}/WEEKLY`` (o BOOTSTRAP/MONTHLY/MANUAL)."""
     return f"{gmail_vault_zip_account_dir_rel(account_id)}/{cadence}".strip("/")

@@ -12,13 +12,18 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import (
     assert_vault_drive_account_access,
     get_db,
+    get_user_permissions,
     require_any_permission,
 )
 from app.core.config import get_settings
+from app.models.accounts import GwAccount
 from app.models.gmail_vault import GmailVaultMaterialization
+from app.models.tasks import BackupTask
 from app.models.users import SysUser
+from app.models.vault_drive_delegation import SysUserVaultDriveDelegation
 from app.schemas.gmail_vault_materialize import (
     GmailVaultMaterializeCreateIn,
+    GmailVaultMaterializeListItem,
     GmailVaultMaterializeOut,
     materialization_to_out,
 )
@@ -32,6 +37,7 @@ from app.services.gmail_vault_materialize_service import (
     materialization_paths,
     purge_materialization_local,
 )
+from app.services.progress_bus import last_event
 from app.workers.celery_app import celery_app
 from app.workers.tasks.gmail_vault_materialize import run as materialize_celery_run
 
@@ -93,6 +99,56 @@ async def gmail_vault_materialize_create(
 
 
 @router.get(
+    "/materialize/recent",
+    response_model=list[GmailVaultMaterializeListItem],
+    summary="Historial reciente de materializaciones (vault ZIP → servidor)",
+)
+async def gmail_vault_materialize_recent(
+    limit: int = 100,
+    db: AsyncSession = Depends(get_db),
+    current: SysUser = Depends(
+        require_any_permission("vault_drive.view_all", "vault_drive.view_delegated")
+    ),
+) -> list[GmailVaultMaterializeListItem]:
+    perms = get_user_permissions(current)
+    lim = max(1, min(int(limit), 200))
+    stmt = (
+        select(GmailVaultMaterialization, GwAccount.email, BackupTask.name)
+        .join(GwAccount, GmailVaultMaterialization.account_id == GwAccount.id)
+        .outerjoin(BackupTask, GmailVaultMaterialization.task_id == BackupTask.id)
+        .order_by(GmailVaultMaterialization.created_at.desc())
+        .limit(lim)
+    )
+    if "vault_drive.view_all" not in perms:
+        deleg = select(SysUserVaultDriveDelegation.gw_account_id).where(
+            SysUserVaultDriveDelegation.sys_user_id == current.id
+        )
+        stmt = stmt.where(GmailVaultMaterialization.account_id.in_(deleg))
+    rows = (await db.execute(stmt)).all()
+    out: list[GmailVaultMaterializeListItem] = []
+    for m, email, tname in rows:
+        out.append(
+            GmailVaultMaterializeListItem(
+                id=str(m.id),
+                account_id=str(m.account_id),
+                account_email=email,
+                task_id=str(m.task_id) if m.task_id else None,
+                task_name=tname,
+                requested_mode=m.requested_mode,
+                date_from=m.date_from,
+                date_to=m.date_to,
+                status=m.status,
+                created_at=m.created_at,
+                updated_at=m.updated_at,
+                ttl_expires_at=m.ttl_expires_at,
+                error_summary=m.error_summary,
+                progress_json=dict(m.progress_json or {}),
+            )
+        )
+    return out
+
+
+@router.get(
     "/materialize/{session_id}",
     response_model=GmailVaultMaterializeOut,
     summary="Estado y progreso de una sesión de materialización",
@@ -113,11 +169,18 @@ async def gmail_vault_materialize_get(
     if await expire_session_if_ttl_elapsed(db, row):
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="session_expired")
     refreshed = (
-        await db.execute(select(GmailVaultMaterialization).where(GmailVaultMaterialization.id == session_id))
-    ).scalar_one_or_none()
+        await db.execute(
+            select(GmailVaultMaterialization, GwAccount.email)
+            .join(GwAccount, GmailVaultMaterialization.account_id == GwAccount.id)
+            .where(GmailVaultMaterialization.id == session_id)
+        )
+    ).one_or_none()
     if refreshed is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="session_not_found")
-    return materialization_to_out(refreshed)
+    row_mat, acc_email = refreshed
+    base = materialization_to_out(row_mat)
+    snap = await last_event(str(session_id))
+    return base.model_copy(update={"live_progress": snap, "account_email": acc_email})
 
 
 @router.delete(

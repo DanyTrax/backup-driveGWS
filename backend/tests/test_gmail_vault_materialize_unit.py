@@ -1,9 +1,12 @@
 """Tests unitarios materialización vault ZIP (sin rclone ni BD)."""
 from __future__ import annotations
 
+import uuid
 from datetime import date
 
 import pytest
+
+from app.services.gmail_vault_zip_layout import gmail_vault_zip_object_rel_from_lsjson
 
 from app.services.gmail_vault_materialize_logic import (
     GmailVaultMaterializeError,
@@ -57,6 +60,14 @@ def test_select_zip_entries() -> None:
     picked = select_zip_entries_for_window(entries, date(2026, 5, 5), date(2026, 5, 10))
     assert len(picked) == 1
     assert "BOOTSTRAP" in picked[0].rel_path
+
+
+def test_gmail_vault_zip_object_rel_from_lsjson() -> None:
+    aid = uuid.UUID("06c080f5-e017-42ee-a450-5bddb88e11f4")
+    rel = gmail_vault_zip_object_rel_from_lsjson(aid, "BOOTSTRAP/2026-05-10__2026-05-10.zip")
+    assert rel.startswith("1-GMAIL/zips/")
+    assert str(aid) in rel
+    assert rel.endswith("BOOTSTRAP/2026-05-10__2026-05-10.zip")
 
 
 def test_parse_lsjson_zips() -> None:

@@ -1,5 +1,5 @@
 import { Badge, Button, Card, Modal, Select } from 'flowbite-react'
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import type { AxiosError } from 'axios'
 import toast from 'react-hot-toast'
 import { HiDownload, HiTrash, HiX } from 'react-icons/hi'
@@ -11,11 +11,14 @@ import {
   useCancelBackupLog,
   useDeleteBackupLog,
   useDeleteBackupLogsBulk,
+  useDeleteGmailVaultMaterialize,
+  useGmailVaultMaterializeRecent,
+  useGmailVaultMaterializeSession,
   useProfile,
   useRetryGmailVault,
   downloadBackupLogsPdf,
 } from '../api/hooks'
-import type { BackupLog } from '../api/types'
+import type { BackupLog, GmailVaultMaterializeListItem } from '../api/types'
 
 function truncateDetail(s: string | null | undefined, max = 140): string {
   if (!s?.trim()) return '—'
@@ -107,6 +110,35 @@ function describeLiveProgress(p: Record<string, unknown> | null | undefined): st
     const zb = typeof p.zip_basename === 'string' ? p.zip_basename : ''
     return `ZIP generado (${zb || '…'}): ${n} archivos. Subiendo bajo 1-GMAIL/zips/…`
   }
+  if (stage === 'gmail_vault_materialize') {
+    const phase = String(p.phase ?? '')
+    if (phase === 'started')
+      return 'Materialización desde vault (ZIP bajo 1-GMAIL/zips/…): el worker arrancó en el servidor…'
+    if (phase === 'downloading') {
+      const n = typeof p.planned_zips === 'number' ? p.planned_zips : null
+      return `Descargando ZIP(s) del vault al servidor${n != null ? ` (${n} planificado(s))` : ''}…`
+    }
+    if (phase === 'zip_copy_start') {
+      const i = typeof p.zip_index === 'number' ? p.zip_index : '—'
+      const t = typeof p.zip_total === 'number' ? p.zip_total : '—'
+      const zr = typeof p.zip_rel === 'string' ? p.zip_rel : ''
+      return `Copiando ZIP ${i}/${t} desde Drive${zr ? `: ${zr}` : ''}…`
+    }
+    if (phase === 'zip_extracted') {
+      const d = typeof p.done_zips === 'number' ? p.done_zips : '—'
+      const pl = typeof p.planned_zips === 'number' ? p.planned_zips : '—'
+      return `ZIP descomprimido en el servidor (${d}/${pl}).`
+    }
+    if (phase === 'ready') return 'Materialización lista: datos en disco para esta sesión (visor).'
+    if (phase === 'failed') {
+      const r = typeof p.reason === 'string' ? p.reason : ''
+      const err = typeof p.error === 'string' ? p.error : ''
+      const ex = typeof p.error_excerpt === 'string' ? p.error_excerpt : ''
+      const bit = r || err || ex
+      return `Materialización fallida${bit ? `: ${bit.slice(0, 280)}${bit.length > 280 ? '…' : ''}` : ''}.`
+    }
+    return `Materialización vault: ${phase || '…'}`
+  }
   if (stage === 'vault_zip_done') {
     const vr = typeof p.vault_rel_zip === 'string' ? p.vault_rel_zip : ''
     return `Subida ZIP al vault completada${vr ? `: ${vr}` : ''}.`
@@ -158,7 +190,8 @@ function describeLiveProgress(p: Record<string, unknown> | null | undefined): st
       (phase === 'vault_copy' ||
         phase === 'vault_check' ||
         phase === 'vault_pull' ||
-        phase === 'vault_zip_upload')
+        phase === 'vault_zip_upload' ||
+        phase === 'vault_materialize_zip_copy')
     const isDriveScope = p.scope === 'drive'
     const rcloneMode =
       typeof p.rclone_mode === 'string' ? (p.rclone_mode === 'sync' ? 'sync' : 'copy') : null
@@ -175,7 +208,9 @@ function describeLiveProgress(p: Record<string, unknown> | null | undefined): st
           ? 'Bajada vault 1-GMAIL → servidor (rclone copy)'
           : phase === 'vault_zip_upload'
             ? 'Subida ZIP al vault 1-GMAIL/zips/… (rclone copy)'
-            : 'Subida vault 1-GMAIL (rclone copy)'
+            : phase === 'vault_materialize_zip_copy'
+              ? 'Bajada ZIP vault → servidor (materialización para visor; rclone copy)'
+              : 'Subida vault 1-GMAIL (rclone copy)'
       : isDriveScope
         ? `Respaldo Drive → bóveda (rclone ${rcloneMode ?? 'copy/sync'})${destShort ? ` → …/${destShort}` : ''}`
         : 'Drive (rclone)'
@@ -262,6 +297,54 @@ function canRetryGmailVault(log: BackupLog): boolean {
   return true
 }
 
+function materializeLogsTypeLabel(mode: string): string {
+  const m =
+    mode === 'single_day'
+      ? 'día único'
+      : mode === 'date_range'
+        ? 'rango'
+        : mode === 'month'
+          ? 'mes'
+          : mode === 'all'
+            ? 'todo'
+            : mode
+  return `Vault ZIP → servidor · ${m}`
+}
+
+function materializeMatchesLogsFilter(status: string, filter: string): boolean {
+  if (!filter) return true
+  const running = status === 'pending' || status === 'downloading'
+  const success = status === 'ready'
+  const failed = status === 'failed'
+  if (filter === 'running') return running
+  if (filter === 'success') return success
+  if (filter === 'failed') return failed
+  if (filter === 'cancelled') return false
+  return true
+}
+
+function materializeStatusBadgeTone(status: string): 'success' | 'failure' | 'info' | 'gray' {
+  if (status === 'ready') return 'success'
+  if (status === 'failed') return 'failure'
+  if (status === 'pending' || status === 'downloading') return 'info'
+  return 'gray'
+}
+
+function materializeStatusTableLabel(status: string): string {
+  if (status === 'ready') return 'success'
+  if (status === 'pending' || status === 'downloading') return 'running'
+  return status
+}
+
+function materializeZipProgressText(m: GmailVaultMaterializeListItem): string {
+  const pj = m.progress_json
+  const d = typeof pj.done_zips === 'number' ? pj.done_zips : null
+  const p = typeof pj.planned_zips === 'number' ? pj.planned_zips : null
+  if (d != null && p != null) return `${d}/${p}`
+  if (p != null) return `0/${p}`
+  return '—'
+}
+
 export default function LogsPage() {
   const [searchParams, setSearchParams] = useSearchParams()
   const [status, setStatus] = useState<string>('')
@@ -269,25 +352,58 @@ export default function LogsPage() {
   const perms = new Set(profile?.permissions ?? [])
   const canExportPdf = perms.has('logs.export')
   const canDeleteLogs = perms.has('logs.delete')
+  const showVaultMat = perms.has('vault_drive.view_all') || perms.has('vault_drive.view_delegated')
 
   const { data = [], isLoading } = useBackupLogs({ status: status || undefined })
+  const { data: matRecent = [], isLoading: matRecentLoading } = useGmailVaultMaterializeRecent({
+    enabled: showVaultMat,
+  })
   const cancelLog = useCancelBackupLog()
   const cancelBatch = useCancelBackupBatch()
   const retryGmailVault = useRetryGmailVault()
   const deleteLog = useDeleteBackupLog()
   const deleteBulk = useDeleteBackupLogsBulk()
+  const deleteMaterialize = useDeleteGmailVaultMaterialize()
 
   const [confirmLog, setConfirmLog] = useState<BackupLog | null>(null)
-  const [detailId, setDetailId] = useState<string | null>(null)
+  const [detailTarget, setDetailTarget] = useState<
+    { kind: 'backup'; id: string } | { kind: 'materialize'; id: string } | null
+  >(null)
   const [deleteTarget, setDeleteTarget] = useState<BackupLog | null>(null)
+  const [deleteMatTarget, setDeleteMatTarget] = useState<GmailVaultMaterializeListItem | null>(null)
   const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false)
   const [pdfBusy, setPdfBusy] = useState(false)
-  const detailQuery = useBackupLogDetail(detailId)
+  const backupDetailQuery = useBackupLogDetail(detailTarget?.kind === 'backup' ? detailTarget.id : null)
+  const matDetailQuery = useGmailVaultMaterializeSession(
+    detailTarget?.kind === 'materialize' ? detailTarget.id : null,
+  )
+
+  const mergedRows = useMemo(() => {
+    type Row =
+      | { kind: 'backup'; started: string | null; row: BackupLog }
+      | { kind: 'materialize'; started: string | null; row: GmailVaultMaterializeListItem }
+    const backupPart: Row[] = data.map((row) => ({
+      kind: 'backup' as const,
+      started: row.started_at ?? null,
+      row,
+    }))
+    if (!showVaultMat) {
+      return backupPart.sort((a, b) => (b.started ?? '').localeCompare(a.started ?? ''))
+    }
+    const matPart: Row[] = matRecent
+      .filter((m) => materializeMatchesLogsFilter(m.status, status))
+      .map((row) => ({
+        kind: 'materialize' as const,
+        started: row.created_at ?? null,
+        row,
+      }))
+    return [...backupPart, ...matPart].sort((a, b) => (b.started ?? '').localeCompare(a.started ?? ''))
+  }, [data, matRecent, showVaultMat, status])
 
   useEffect(() => {
     const logParam = searchParams.get('log')
     if (!logParam) return
-    setDetailId(logParam)
+    setDetailTarget({ kind: 'backup', id: logParam })
     const next = new URLSearchParams(searchParams)
     next.delete('log')
     setSearchParams(next, { replace: true })
@@ -333,11 +449,23 @@ export default function LogsPage() {
     try {
       await deleteLog.mutateAsync(log.id)
       toast.success('Registro eliminado del historial')
-      if (detailId === log.id) setDetailId(null)
+      if (detailTarget?.kind === 'backup' && detailTarget.id === log.id) setDetailTarget(null)
     } catch {
       toast.error('No se pudo eliminar (¿en ejecución o sin permiso?)')
     } finally {
       setDeleteTarget(null)
+    }
+  }
+
+  async function doDeleteMaterializeRow(m: GmailVaultMaterializeListItem) {
+    try {
+      await deleteMaterialize.mutateAsync(m.id)
+      toast.success('Sesión de materialización eliminada')
+      if (detailTarget?.kind === 'materialize' && detailTarget.id === m.id) setDetailTarget(null)
+    } catch {
+      toast.error('No se pudo eliminar la sesión (¿permiso vault o en uso?)')
+    } finally {
+      setDeleteMatTarget(null)
     }
   }
 
@@ -354,7 +482,7 @@ export default function LogsPage() {
       if (r.skipped_running.length)
         toast(`${r.skipped_running.length} en ejecución omitidos`, { icon: 'ℹ️' })
       if (r.not_found.length) toast(`Algunos IDs ya no existían (${r.not_found.length})`, { icon: '⚠️' })
-      if (detailId && ids.includes(detailId)) setDetailId(null)
+      if (detailTarget?.kind === 'backup' && ids.includes(detailTarget.id)) setDetailTarget(null)
     } catch {
       toast.error('No se pudo eliminar el listado')
     } finally {
@@ -379,10 +507,13 @@ export default function LogsPage() {
       <div>
         <h1 className="text-2xl font-semibold">Historial de ejecuciones</h1>
         <p className="text-slate-500">
-          Hacé clic en una fila para ver el detalle completo (IDs, rutas, error del servidor).
-          Podés cancelar una cuenta en curso o todo el lote desde el botón de la fila; eliminar filas
-          finalizadas con la X; exportar el listado actual a PDF o borrar en bloque las filas visibles
-          (no borra ejecuciones «running»).
+          Hacé clic en una fila para ver el detalle completo (IDs, rutas, error del servidor). Incluye{' '}
+          <strong>backups programados</strong> y, si tenés permiso de bóveda, las{' '}
+          <strong>materializaciones vault ZIP → servidor</strong> (mismo esquema de filas y telemetría en
+          vivo cuando el worker publica progreso). Podés cancelar una cuenta en curso o todo el lote desde el
+          botón de la fila; eliminar filas finalizadas con la X; exportar el listado actual de backups a PDF
+          o borrar en bloque las filas visibles de backup (no borra ejecuciones «running» ni sesiones de
+          materialización).
         </p>
       </div>
       <Card>
@@ -415,7 +546,7 @@ export default function LogsPage() {
         </div>
       </Card>
       <Card>
-        {isLoading ? (
+        {isLoading || (showVaultMat && matRecentLoading) ? (
           <p className="text-slate-500">Cargando…</p>
         ) : (
           <div className="overflow-x-auto">
@@ -437,139 +568,329 @@ export default function LogsPage() {
                 </tr>
               </thead>
               <tbody>
-                {data.map((l) => (
-                  <tr
-                    key={l.id}
-                    role="button"
-                    tabIndex={0}
-                    className="border-t border-slate-100 dark:border-slate-800 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/60"
-                    onClick={() => setDetailId(l.id)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter' || e.key === ' ') {
-                        e.preventDefault()
-                        setDetailId(l.id)
-                      }
-                    }}
-                  >
-                    <td className="py-2">{l.started_at ?? '—'}</td>
-                    <td>{l.finished_at ?? '—'}</td>
-                    <td className="max-w-[14rem] truncate text-xs" title={l.account_email ?? l.account_id}>
-                      {l.account_email ?? `${l.account_id.slice(0, 8)}…`}
-                    </td>
-                    <td className="max-w-[12rem] truncate text-xs" title={l.task_name ?? l.task_id}>
-                      {l.task_name ?? `${l.task_id.slice(0, 8)}…`}
-                    </td>
-                    <td className="text-xs text-slate-600 dark:text-slate-400 whitespace-nowrap">
-                      {taskTypeLabel(l.scope, l.mode)}
-                    </td>
-                    <td className="text-xs font-mono">
-                      {l.run_batch_id ? `${l.run_batch_id.slice(0, 8)}…` : '—'}
-                    </td>
-                    <td>
-                      <Badge
-                        color={
-                          l.status === 'success'
-                            ? 'success'
-                            : l.status === 'failed'
-                              ? 'failure'
-                              : l.status === 'running'
-                                ? 'info'
-                                : 'gray'
+                {mergedRows.map((item) =>
+                  item.kind === 'backup' ? (
+                    <tr
+                      key={`b-${item.row.id}`}
+                      role="button"
+                      tabIndex={0}
+                      className="border-t border-slate-100 dark:border-slate-800 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/60"
+                      onClick={() => setDetailTarget({ kind: 'backup', id: item.row.id })}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault()
+                          setDetailTarget({ kind: 'backup', id: item.row.id })
                         }
-                      >
-                        {l.status}
-                      </Badge>
-                    </td>
-                    <td>{humanBytes(l.bytes_transferred)}</td>
-                    <td>{l.messages_count}</td>
-                    <td>{l.errors_count}</td>
-                    <td
-                      className="max-w-[220px] text-xs text-slate-600 dark:text-slate-400 align-top"
-                      title={l.error_summary ?? undefined}
+                      }}
                     >
-                      {l.status === 'failed' && !l.error_summary?.trim()
-                        ? 'Sin texto (ver logs del worker: msa-backup-worker)'
-                        : truncateDetail(l.error_summary)}
-                    </td>
-                    <td className="text-right align-middle">
-                      <div className="flex justify-end items-center gap-1 flex-wrap">
-                        {l.status === 'running' ? (
-                          <Button
-                            size="xs"
-                            color="failure"
-                            disabled={cancelLog.isPending || cancelBatch.isPending}
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              onClickCancel(l)
-                            }}
-                          >
-                            Cancelar
-                          </Button>
-                        ) : null}
-                        {canDeleteLogs && l.status !== 'running' ? (
-                          <button
-                            type="button"
-                            className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/40 border border-red-200 dark:border-red-900/60"
-                            title="Eliminar este registro del historial"
-                            disabled={deleteLog.isPending}
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              setDeleteTarget(l)
-                            }}
-                          >
-                            <HiX className="h-5 w-5" aria-hidden />
-                            <span className="sr-only">Eliminar log</span>
-                          </button>
-                        ) : null}
-                      </div>
-                    </td>
-                  </tr>
-                ))}
+                      <td className="py-2">{item.row.started_at ?? '—'}</td>
+                      <td>{item.row.finished_at ?? '—'}</td>
+                      <td
+                        className="max-w-[14rem] truncate text-xs"
+                        title={item.row.account_email ?? item.row.account_id}
+                      >
+                        {item.row.account_email ?? `${item.row.account_id.slice(0, 8)}…`}
+                      </td>
+                      <td
+                        className="max-w-[12rem] truncate text-xs"
+                        title={item.row.task_name ?? item.row.task_id}
+                      >
+                        {item.row.task_name ?? `${item.row.task_id.slice(0, 8)}…`}
+                      </td>
+                      <td className="text-xs text-slate-600 dark:text-slate-400 whitespace-nowrap">
+                        {taskTypeLabel(item.row.scope, item.row.mode)}
+                      </td>
+                      <td className="text-xs font-mono">
+                        {item.row.run_batch_id ? `${item.row.run_batch_id.slice(0, 8)}…` : '—'}
+                      </td>
+                      <td>
+                        <Badge
+                          color={
+                            item.row.status === 'success'
+                              ? 'success'
+                              : item.row.status === 'failed'
+                                ? 'failure'
+                                : item.row.status === 'running'
+                                  ? 'info'
+                                  : 'gray'
+                          }
+                        >
+                          {item.row.status}
+                        </Badge>
+                      </td>
+                      <td>{humanBytes(item.row.bytes_transferred)}</td>
+                      <td>{item.row.messages_count}</td>
+                      <td>{item.row.errors_count}</td>
+                      <td
+                        className="max-w-[220px] text-xs text-slate-600 dark:text-slate-400 align-top"
+                        title={item.row.error_summary ?? undefined}
+                      >
+                        {item.row.status === 'failed' && !item.row.error_summary?.trim()
+                          ? 'Sin texto (ver logs del worker: msa-backup-worker)'
+                          : truncateDetail(item.row.error_summary)}
+                      </td>
+                      <td className="text-right align-middle">
+                        <div className="flex justify-end items-center gap-1 flex-wrap">
+                          {item.row.status === 'running' ? (
+                            <Button
+                              size="xs"
+                              color="failure"
+                              disabled={cancelLog.isPending || cancelBatch.isPending}
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                onClickCancel(item.row)
+                              }}
+                            >
+                              Cancelar
+                            </Button>
+                          ) : null}
+                          {canDeleteLogs && item.row.status !== 'running' ? (
+                            <button
+                              type="button"
+                              className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/40 border border-red-200 dark:border-red-900/60"
+                              title="Eliminar este registro del historial"
+                              disabled={deleteLog.isPending}
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                setDeleteTarget(item.row)
+                              }}
+                            >
+                              <HiX className="h-5 w-5" aria-hidden />
+                              <span className="sr-only">Eliminar log</span>
+                            </button>
+                          ) : null}
+                        </div>
+                      </td>
+                    </tr>
+                  ) : (
+                    <tr
+                      key={`m-${item.row.id}`}
+                      role="button"
+                      tabIndex={0}
+                      className="border-t border-slate-100 dark:border-slate-800 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/60"
+                      onClick={() => setDetailTarget({ kind: 'materialize', id: item.row.id })}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault()
+                          setDetailTarget({ kind: 'materialize', id: item.row.id })
+                        }
+                      }}
+                    >
+                      <td className="py-2">{item.row.created_at ?? '—'}</td>
+                      <td>
+                        {item.row.status === 'ready' || item.row.status === 'failed'
+                          ? item.row.updated_at ?? '—'
+                          : '—'}
+                      </td>
+                      <td
+                        className="max-w-[14rem] truncate text-xs"
+                        title={item.row.account_email ?? item.row.account_id}
+                      >
+                        {item.row.account_email ?? `${item.row.account_id.slice(0, 8)}…`}
+                      </td>
+                      <td
+                        className="max-w-[12rem] truncate text-xs"
+                        title={item.row.task_name ?? item.row.task_id ?? '—'}
+                      >
+                        {item.row.task_name ?? (item.row.task_id ? `${item.row.task_id.slice(0, 8)}…` : '—')}
+                      </td>
+                      <td className="text-xs text-slate-600 dark:text-slate-400 whitespace-nowrap">
+                        {materializeLogsTypeLabel(item.row.requested_mode)}
+                      </td>
+                      <td className="text-xs font-mono">—</td>
+                      <td>
+                        <Badge color={materializeStatusBadgeTone(item.row.status)}>
+                          {materializeStatusTableLabel(item.row.status)}
+                        </Badge>
+                      </td>
+                      <td>—</td>
+                      <td>{materializeZipProgressText(item.row)}</td>
+                      <td>—</td>
+                      <td
+                        className="max-w-[220px] text-xs text-slate-600 dark:text-slate-400 align-top"
+                        title={item.row.error_summary ?? undefined}
+                      >
+                        {truncateDetail(item.row.error_summary)}
+                      </td>
+                      <td className="text-right align-middle">
+                        <div className="flex justify-end items-center gap-1 flex-wrap">
+                          {showVaultMat ? (
+                            <button
+                              type="button"
+                              className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/40 border border-red-200 dark:border-red-900/60"
+                              title="Eliminar sesión y datos locales (revoca Celery si aplica)"
+                              disabled={deleteMaterialize.isPending}
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                setDeleteMatTarget(item.row)
+                              }}
+                            >
+                              <HiX className="h-5 w-5" aria-hidden />
+                              <span className="sr-only">Eliminar materialización</span>
+                            </button>
+                          ) : null}
+                        </div>
+                      </td>
+                    </tr>
+                  ),
+                )}
               </tbody>
             </table>
           </div>
         )}
       </Card>
 
-      <Modal show={detailId !== null} onClose={() => setDetailId(null)} size="xl">
-        <Modal.Header>Detalle de ejecución</Modal.Header>
+      <Modal show={detailTarget !== null} onClose={() => setDetailTarget(null)} size="xl">
+        <Modal.Header>
+          {detailTarget?.kind === 'materialize'
+            ? 'Materialización vault (ZIP → servidor)'
+            : 'Detalle de ejecución'}
+        </Modal.Header>
         <Modal.Body className="space-y-4 max-h-[75vh] overflow-y-auto">
-          {detailQuery.isLoading ? (
+          {detailTarget?.kind === 'materialize' ? (
+            matDetailQuery.isLoading ? (
+              <p className="text-slate-500">Cargando…</p>
+            ) : matDetailQuery.isError ? (
+              <div className="text-red-600 text-sm space-y-1">
+                <p>No se pudo cargar la sesión. Reintentá.</p>
+                <ExecutionDetailError err={matDetailQuery.error} />
+              </div>
+            ) : matDetailQuery.data ? (
+              <>
+                <div className="rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50/80 dark:bg-slate-800/40 p-4 space-y-2">
+                  <div>
+                    <div className="text-xs font-medium uppercase tracking-wide text-slate-500">Cuenta</div>
+                    <div className="text-base font-semibold text-slate-900 dark:text-white break-all">
+                      {matDetailQuery.data.account_email ?? '—'}
+                    </div>
+                    <div className="font-mono text-[11px] text-slate-500 break-all">{matDetailQuery.data.account_id}</div>
+                  </div>
+                  <div>
+                    <div className="text-xs font-medium uppercase tracking-wide text-slate-500">Ventana / modo</div>
+                    <div className="text-sm text-slate-600 dark:text-slate-400">
+                      {matDetailQuery.data.date_from ?? '—'} → {matDetailQuery.data.date_to ?? '—'} ·{' '}
+                      {matDetailQuery.data.requested_mode}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-xs font-medium uppercase tracking-wide text-slate-500">Tarea vinculada</div>
+                    <div className="font-mono text-[11px] text-slate-500 break-all">
+                      {matDetailQuery.data.task_id ?? '—'}
+                    </div>
+                  </div>
+                </div>
+                {matDetailQuery.data.status === 'pending' || matDetailQuery.data.status === 'downloading' ? (
+                  <div className="rounded-lg border border-blue-200 dark:border-blue-900/50 bg-blue-50/70 dark:bg-blue-950/25 p-4">
+                    <div className="text-xs font-semibold uppercase tracking-wide text-blue-800 dark:text-blue-300">
+                      Qué está haciendo ahora
+                    </div>
+                    <p className="text-sm text-slate-800 dark:text-slate-200 mt-2 leading-relaxed">
+                      {describeLiveProgress(matDetailQuery.data.live_progress ?? null) ||
+                        'Sin telemetría reciente: el worker puede estar copiando ZIPs grandes (rclone) o entre fases. El panel se actualiza cada ~2,5 s mientras la sesión sigue en curso.'}
+                    </p>
+                    {matDetailQuery.data.live_progress &&
+                    Object.keys(matDetailQuery.data.live_progress).length > 0 ? (
+                      <details className="mt-3 text-xs">
+                        <summary className="cursor-pointer text-slate-600 dark:text-slate-400 select-none">
+                          Último evento (JSON)
+                        </summary>
+                        <pre className="mt-2 whitespace-pre-wrap break-all bg-slate-100 dark:bg-slate-900 p-2 rounded border border-slate-200 dark:border-slate-700 max-h-44 overflow-y-auto font-mono">
+                          {JSON.stringify(matDetailQuery.data.live_progress, null, 2)}
+                        </pre>
+                      </details>
+                    ) : null}
+                  </div>
+                ) : null}
+                <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-2 text-sm">
+                  <div>
+                    <dt className="text-slate-500">ID sesión</dt>
+                    <dd className="font-mono text-xs break-all">{matDetailQuery.data.id}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-slate-500">Estado (técnico)</dt>
+                    <dd>
+                      <Badge color={materializeStatusBadgeTone(matDetailQuery.data.status)}>
+                        {matDetailQuery.data.status}
+                      </Badge>
+                    </dd>
+                  </div>
+                  <div>
+                    <dt className="text-slate-500">Caduca (TTL)</dt>
+                    <dd className="text-xs">{matDetailQuery.data.ttl_expires_at ?? '—'}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-slate-500">Celery task id</dt>
+                    <dd className="font-mono text-xs break-all">
+                      {typeof matDetailQuery.data.progress_json?.celery_task_id === 'string'
+                        ? matDetailQuery.data.progress_json.celery_task_id
+                        : '—'}
+                    </dd>
+                  </div>
+                  <div className="sm:col-span-2">
+                    <dt className="text-slate-500">Ruta local (VPS)</dt>
+                    <dd className="font-mono text-xs break-all">{matDetailQuery.data.path_local ?? '—'}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-slate-500">Creada / actualizada</dt>
+                    <dd className="text-xs">
+                      {matDetailQuery.data.created_at ?? '—'}
+                      <br />
+                      {matDetailQuery.data.updated_at ?? '—'}
+                    </dd>
+                  </div>
+                </dl>
+                <details className="text-sm">
+                  <summary className="cursor-pointer text-slate-600 dark:text-slate-400">progress_json</summary>
+                  <pre className="mt-2 text-xs whitespace-pre-wrap break-all bg-slate-100 dark:bg-slate-900 p-3 rounded border border-slate-200 dark:border-slate-700 max-h-56 overflow-y-auto font-mono">
+                    {JSON.stringify(matDetailQuery.data.progress_json, null, 2)}
+                  </pre>
+                </details>
+                <div>
+                  <div className="text-sm text-slate-500 mb-1">Motivo / traza (worker / rclone)</div>
+                  <pre className="text-xs whitespace-pre-wrap break-words bg-slate-100 dark:bg-slate-900 text-slate-800 dark:text-slate-200 rounded-lg p-3 max-h-64 overflow-y-auto border border-slate-200 dark:border-slate-700">
+                    {matDetailQuery.data.error_summary?.trim()
+                      ? matDetailQuery.data.error_summary
+                      : '—'}
+                  </pre>
+                </div>
+              </>
+            ) : null
+          ) : backupDetailQuery.isLoading ? (
             <p className="text-slate-500">Cargando…</p>
-          ) : detailQuery.isError ? (
+          ) : backupDetailQuery.isError ? (
             <div className="text-red-600 text-sm space-y-1">
               <p>No se pudo cargar el detalle. Reintentá.</p>
-              <ExecutionDetailError err={detailQuery.error} />
+              <ExecutionDetailError err={backupDetailQuery.error} />
             </div>
-          ) : detailQuery.data ? (
+          ) : backupDetailQuery.data ? (
             <>
               <div className="rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50/80 dark:bg-slate-800/40 p-4 space-y-2">
                 <div>
                   <div className="text-xs font-medium uppercase tracking-wide text-slate-500">Cuenta</div>
                   <div className="text-base font-semibold text-slate-900 dark:text-white break-all">
-                    {detailQuery.data.account_email ?? '—'}
+                    {backupDetailQuery.data.account_email ?? '—'}
                   </div>
-                  <div className="font-mono text-[11px] text-slate-500 break-all">{detailQuery.data.account_id}</div>
+                  <div className="font-mono text-[11px] text-slate-500 break-all">{backupDetailQuery.data.account_id}</div>
                 </div>
                 <div>
                   <div className="text-xs font-medium uppercase tracking-wide text-slate-500">Tarea en ejecución</div>
                   <div className="text-base font-semibold text-slate-900 dark:text-white">
-                    {detailQuery.data.task_name ?? '—'}
+                    {backupDetailQuery.data.task_name ?? '—'}
                   </div>
                   <div className="text-sm text-slate-600 dark:text-slate-400">
-                    {taskTypeLabel(detailQuery.data.scope, detailQuery.data.mode)}
+                    {taskTypeLabel(backupDetailQuery.data.scope, backupDetailQuery.data.mode)}
                   </div>
-                  <div className="font-mono text-[11px] text-slate-500 break-all">{detailQuery.data.task_id}</div>
+                  <div className="font-mono text-[11px] text-slate-500 break-all">{backupDetailQuery.data.task_id}</div>
                 </div>
               </div>
 
-              {detailQuery.data.status === 'running' ? (
+              {backupDetailQuery.data.status === 'running' ? (
                 <div className="rounded-lg border border-blue-200 dark:border-blue-900/50 bg-blue-50/70 dark:bg-blue-950/25 p-4">
                   <div className="text-xs font-semibold uppercase tracking-wide text-blue-800 dark:text-blue-300">
                     Qué está haciendo ahora
                   </div>
                   <p className="text-sm text-slate-800 dark:text-slate-200 mt-2 leading-relaxed">
-                    {describeLiveProgress(detailQuery.data.live_progress ?? null) ||
+                    {describeLiveProgress(backupDetailQuery.data.live_progress ?? null) ||
                       'Sin telemetría reciente en el panel: el worker puede estar en una fase larga (p. ej. rclone check) o sin salida momentánea. Usá el Celery task id abajo para buscar en logs del worker.'}
                   </p>
                   <p className="text-xs text-slate-500 dark:text-slate-400 mt-2">
@@ -577,13 +898,13 @@ export default function LogsPage() {
                     local) → opcionalmente <strong>subida a la bóveda</strong> (1-GMAIL en Drive). El detalle se
                     actualiza solo mientras el estado es «running» (refresco ~3 s).
                   </p>
-                  {detailQuery.data.live_progress && Object.keys(detailQuery.data.live_progress).length > 0 ? (
+                  {backupDetailQuery.data.live_progress && Object.keys(backupDetailQuery.data.live_progress).length > 0 ? (
                     <details className="mt-3 text-xs">
                       <summary className="cursor-pointer text-slate-600 dark:text-slate-400 select-none">
                         Último evento (JSON)
                       </summary>
                       <pre className="mt-2 whitespace-pre-wrap break-all bg-slate-100 dark:bg-slate-900 p-2 rounded border border-slate-200 dark:border-slate-700 max-h-44 overflow-y-auto font-mono">
-                        {JSON.stringify(detailQuery.data.live_progress, null, 2)}
+                        {JSON.stringify(backupDetailQuery.data.live_progress, null, 2)}
                       </pre>
                     </details>
                   ) : null}
@@ -593,53 +914,53 @@ export default function LogsPage() {
               <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-2 text-sm">
                 <div>
                   <dt className="text-slate-500">ID del log</dt>
-                  <dd className="font-mono text-xs break-all">{detailQuery.data.id}</dd>
+                  <dd className="font-mono text-xs break-all">{backupDetailQuery.data.id}</dd>
                 </div>
                 <div>
                   <dt className="text-slate-500">Estado</dt>
                   <dd>
                     <Badge
                       color={
-                        detailQuery.data.status === 'success'
+                        backupDetailQuery.data.status === 'success'
                           ? 'success'
-                          : detailQuery.data.status === 'failed'
+                          : backupDetailQuery.data.status === 'failed'
                             ? 'failure'
-                            : detailQuery.data.status === 'running'
+                            : backupDetailQuery.data.status === 'running'
                               ? 'info'
                               : 'gray'
                       }
                     >
-                      {detailQuery.data.status}
+                      {backupDetailQuery.data.status}
                     </Badge>
                   </dd>
                 </div>
                 <div>
                   <dt className="text-slate-500">Lote (run_batch_id)</dt>
                   <dd className="font-mono text-xs break-all">
-                    {detailQuery.data.run_batch_id ?? '—'}
+                    {backupDetailQuery.data.run_batch_id ?? '—'}
                   </dd>
                 </div>
                 <div>
                   <dt className="text-slate-500">Celery task id</dt>
                   <dd className="font-mono text-xs break-all">
-                    {detailQuery.data.celery_task_id ?? '—'}
+                    {backupDetailQuery.data.celery_task_id ?? '—'}
                   </dd>
                 </div>
                 <div>
                   <dt className="text-slate-500">Pipeline Gmail (local / vault)</dt>
                   <dd className="text-xs">
-                    Maildir en BD: {detailQuery.data.gmail_maildir_ready_at ?? '—'}
+                    Maildir en BD: {backupDetailQuery.data.gmail_maildir_ready_at ?? '—'}
                     <br />
-                    Vault 1-GMAIL: {detailQuery.data.gmail_vault_completed_at ?? '—'}
+                    Vault 1-GMAIL: {backupDetailQuery.data.gmail_vault_completed_at ?? '—'}
                   </dd>
                 </div>
                 <div>
                   <dt className="text-slate-500">Scope / modo (técnico)</dt>
                   <dd>
-                    {detailQuery.data.scope} · {detailQuery.data.mode}
+                    {backupDetailQuery.data.scope} · {backupDetailQuery.data.mode}
                   </dd>
                 </div>
-                {detailQuery.data.scope === 'gmail' ? (
+                {backupDetailQuery.data.scope === 'gmail' ? (
                   <div className="sm:col-span-2 rounded-lg bg-slate-50 dark:bg-slate-800/50 p-3 text-xs text-slate-600 dark:text-slate-400">
                     <strong>Gmail:</strong> GYB guarda <code>.eml</code> en el servidor y la plataforma los
                     importa a <strong>Maildir</strong> (ruta destino); Roundcube lee eso, no la carpeta
@@ -652,43 +973,43 @@ export default function LogsPage() {
                 <div>
                   <dt className="text-slate-500">Inicio / fin</dt>
                   <dd className="text-xs">
-                    {detailQuery.data.started_at ?? '—'}
+                    {backupDetailQuery.data.started_at ?? '—'}
                     <br />
-                    {detailQuery.data.finished_at ?? '—'}
+                    {backupDetailQuery.data.finished_at ?? '—'}
                   </dd>
                 </div>
                 <div>
                   <dt className="text-slate-500">Bytes / archivos / mensajes / errores (contador)</dt>
                   <dd>
-                    {humanBytes(detailQuery.data.bytes_transferred)} · {detailQuery.data.files_count}{' '}
-                    arch. · {detailQuery.data.messages_count} msg. · {detailQuery.data.errors_count}{' '}
+                    {humanBytes(backupDetailQuery.data.bytes_transferred)} · {backupDetailQuery.data.files_count}{' '}
+                    arch. · {backupDetailQuery.data.messages_count} msg. · {backupDetailQuery.data.errors_count}{' '}
                     err.
                   </dd>
                 </div>
                 <div className="sm:col-span-2">
                   <dt className="text-slate-500">Informe en vault (3-REPORTS)</dt>
                   <dd className="font-mono text-xs break-all">
-                    {detailQuery.data.detail_log_path ?? '—'}
+                    {backupDetailQuery.data.detail_log_path ?? '—'}
                   </dd>
                 </div>
                 <div className="sm:col-span-2">
                   <dt className="text-slate-500">Ruta destino</dt>
                   <dd className="font-mono text-xs break-all">
-                    {detailQuery.data.destination_path ?? '—'}
+                    {backupDetailQuery.data.destination_path ?? '—'}
                   </dd>
                 </div>
                 <div className="sm:col-span-2">
                   <dt className="text-slate-500">Manifiesto SHA-256</dt>
                   <dd className="font-mono text-xs break-all">
-                    {detailQuery.data.sha256_manifest_path ?? '—'}
+                    {backupDetailQuery.data.sha256_manifest_path ?? '—'}
                   </dd>
                 </div>
               </dl>
               <div>
                 <div className="text-sm text-slate-500 mb-1">Motivo / traza del servidor</div>
                 <pre className="text-xs whitespace-pre-wrap break-words bg-slate-100 dark:bg-slate-900 text-slate-800 dark:text-slate-200 rounded-lg p-3 max-h-64 overflow-y-auto border border-slate-200 dark:border-slate-700">
-                  {detailQuery.data.error_summary?.trim()
-                    ? detailQuery.data.error_summary
+                  {backupDetailQuery.data.error_summary?.trim()
+                    ? backupDetailQuery.data.error_summary
                     : '— (sin mensaje; si falló Gmail, revisá que la imagen del worker tenga GYB y reconstruyá con docker compose build --no-cache worker)'}
                 </pre>
               </div>
@@ -696,14 +1017,14 @@ export default function LogsPage() {
           ) : null}
         </Modal.Body>
         <Modal.Footer className="flex flex-wrap gap-2 justify-end">
-          {detailQuery.data && canRetryGmailVault(detailQuery.data) ? (
+          {detailTarget?.kind === 'backup' && backupDetailQuery.data && canRetryGmailVault(backupDetailQuery.data) ? (
             <Button
               color="blue"
               disabled={retryGmailVault.isPending}
               onClick={() => {
                 void (async () => {
                   try {
-                    const r = await retryGmailVault.mutateAsync(detailQuery.data!.id)
+                    const r = await retryGmailVault.mutateAsync(backupDetailQuery.data!.id)
                     toast.success(`Reintento encolado (Celery ${r.celery_id.slice(0, 8)}…)`)
                   } catch (e) {
                     const ax = e as AxiosError<{ detail?: unknown }>
@@ -742,7 +1063,7 @@ export default function LogsPage() {
               Reintentar subida al vault
             </Button>
           ) : null}
-          <Button color="gray" onClick={() => setDetailId(null)}>
+          <Button color="gray" onClick={() => setDetailTarget(null)}>
             Cerrar
           </Button>
         </Modal.Footer>
@@ -814,6 +1135,30 @@ export default function LogsPage() {
             Eliminar
           </Button>
           <Button color="gray" onClick={() => setDeleteTarget(null)}>
+            Volver
+          </Button>
+        </Modal.Footer>
+      </Modal>
+
+      <Modal show={deleteMatTarget !== null} onClose={() => setDeleteMatTarget(null)} size="md">
+        <Modal.Header>Eliminar materialización</Modal.Header>
+        <Modal.Body>
+          <p className="text-sm text-slate-600 dark:text-slate-400">
+            ¿Eliminar la sesión{' '}
+            <strong className="font-mono">{deleteMatTarget?.id?.slice(0, 8)}…</strong> de{' '}
+            <strong>{deleteMatTarget?.account_email ?? deleteMatTarget?.account_id?.slice(0, 8)}</strong>? Se
+            revoca el job Celery si sigue en cola y se borran los datos bajados a disco para esa sesión.
+          </p>
+        </Modal.Body>
+        <Modal.Footer>
+          <Button
+            color="failure"
+            disabled={deleteMaterialize.isPending}
+            onClick={() => deleteMatTarget && void doDeleteMaterializeRow(deleteMatTarget)}
+          >
+            Eliminar
+          </Button>
+          <Button color="gray" onClick={() => setDeleteMatTarget(null)}>
             Volver
           </Button>
         </Modal.Footer>

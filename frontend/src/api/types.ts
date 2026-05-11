@@ -190,6 +190,7 @@ export interface GmailVaultMaterializeCreatePayload {
 export interface GmailVaultMaterializeSession {
   id: string
   account_id: string
+  account_email?: string | null
   task_id: string | null
   requested_mode: string
   date_from: string | null
@@ -200,6 +201,27 @@ export interface GmailVaultMaterializeSession {
   progress_json: Record<string, unknown>
   error_summary: string | null
   created_at: string
+  updated_at: string
+  /** Último evento Redis (misma infra que backups); id de canal = session id */
+  live_progress?: Record<string, unknown> | null
+}
+
+/** GET /vault/gmail/materialize/recent */
+export interface GmailVaultMaterializeListItem {
+  id: string
+  account_id: string
+  account_email?: string | null
+  task_id: string | null
+  task_name?: string | null
+  requested_mode: string
+  date_from: string | null
+  date_to: string | null
+  status: string
+  created_at: string
+  updated_at: string
+  ttl_expires_at: string
+  error_summary: string | null
+  progress_json: Record<string, unknown>
 }
 
 /** GET /accounts/{id}/gyb-work/messages */

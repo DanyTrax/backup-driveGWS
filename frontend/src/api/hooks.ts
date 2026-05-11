@@ -37,6 +37,7 @@ import type {
   VaultDriveChildrenPage,
   VaultDriveSearchResult,
   GmailVaultMaterializeCreatePayload,
+  GmailVaultMaterializeListItem,
   GmailVaultMaterializeSession,
   WorkspaceAccount,
 } from './types'
@@ -177,6 +178,16 @@ export function useGmailVaultMaterializeSession(sessionId: string | null) {
   })
 }
 
+export function useGmailVaultMaterializeRecent(options?: { enabled?: boolean }) {
+  return useQuery({
+    queryKey: ['gmail-vault-materialize-recent'],
+    queryFn: async () =>
+      (await api.get<GmailVaultMaterializeListItem[]>('/vault/gmail/materialize/recent?limit=150')).data,
+    enabled: options?.enabled !== false,
+    refetchInterval: 5000,
+  })
+}
+
 export function useCreateGmailVaultMaterialize() {
   const qc = useQueryClient()
   return useMutation({
@@ -184,6 +195,7 @@ export function useCreateGmailVaultMaterialize() {
       (await api.post<GmailVaultMaterializeSession>('/vault/gmail/materialize', payload)).data,
     onSuccess: (data) => {
       void qc.invalidateQueries({ queryKey: ['gmail-vault-materialize', data.id] })
+      void qc.invalidateQueries({ queryKey: ['gmail-vault-materialize-recent'] })
     },
   })
 }
@@ -196,6 +208,7 @@ export function useDeleteGmailVaultMaterialize() {
     },
     onSuccess: (_void, sessionId) => {
       void qc.removeQueries({ queryKey: ['gmail-vault-materialize', sessionId] })
+      void qc.invalidateQueries({ queryKey: ['gmail-vault-materialize-recent'] })
     },
   })
 }
