@@ -1,6 +1,8 @@
 """Schemas del visor Maildir (backup local)."""
 from __future__ import annotations
 
+from datetime import datetime
+
 from pydantic import BaseModel, ConfigDict, Field
 
 
@@ -61,7 +63,15 @@ class GybWorkAccountOut(BaseModel):
     id: str
     email: str
     work_size_bytes: int | None = None
+    """Bytes recorriendo todo el árbol local (solo si ``with_work_sizes`` en el listado)."""
     has_msg_db: bool = False
+    estimated_export_bytes: int | None = None
+    """Mejor estimación del peso del export (último backup/restauración Gmail exitoso, o caché en cuenta)."""
+    estimated_messages: int | None = None
+    estimated_at: datetime | None = None
+    """Momento de cierre del log elegido (backup/restauración) o último backup exitoso en caché de cuenta."""
+    estimated_source: str | None = None
+    """``backup_log`` | ``restore_job`` | ``gw_account_cache`` — origen de ``estimated_*``."""
 
 
 class GybWorkMessagesPageOut(BaseModel):

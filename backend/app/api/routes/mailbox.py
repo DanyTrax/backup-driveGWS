@@ -4,12 +4,13 @@ from __future__ import annotations
 import asyncio
 import re
 import uuid
+from datetime import datetime
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import FileResponse, Response
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.background import BackgroundTask
 
@@ -23,9 +24,11 @@ from app.api.deps import (
 )
 from app.core.config import get_settings
 from app.models.accounts import GwAccount
-from app.models.enums import AuditAction
+from app.models.enums import AuditAction, BackupScope, BackupStatus, RestoreScope, RestoreStatus
 from app.models.mailbox_delegation import SysUserMailboxDelegation
+from app.models.restore import RestoreJob
 from app.models.users import SysUser
+from app.models.tasks import BackupLog
 from app.schemas.mailbox import (
     GybWorkAccountOut,
     GybWorkMessagesPageOut,
@@ -78,6 +81,181 @@ from .accounts import _load, _maildir_ready
 router = APIRouter()
 
 
+async def _latest_gyb_log_and_restore_hints(
+    db: AsyncSession,
+    account_ids: list[uuid.UUID],
+) -> dict[uuid.UUID, tuple[int, int, datetime, str]]:
+    """Por cuenta: (bytes, messages, finished_at, source) del evento Gmail más reciente.
+
+    Compara el último **backup Gmail** exitoso y el último **restore** Gmail exitoso y elige el más
+    reciente por ``finished_at``. ``source`` es ``backup_log`` o ``restore_job``.
+    """
+    if not account_ids:
+        return {}
+
+    rn_b = (
+        func.row_number()
+        .over(
+            partition_by=BackupLog.account_id,
+            order_by=BackupLog.finished_at.desc().nullslast(),
+        )
+        .label("rn")
+    )
+    sub_b = (
+        select(
+            BackupLog.account_id,
+            BackupLog.bytes_transferred,
+            BackupLog.messages_count,
+            BackupLog.finished_at,
+            rn_b,
+        )
+        .where(
+            BackupLog.account_id.in_(account_ids),
+            BackupLog.scope == BackupScope.GMAIL.value,
+            BackupLog.status == BackupStatus.SUCCESS.value,
+            BackupLog.finished_at.is_not(None),
+        )
+    ).subquery()
+    qb = select(
+        sub_b.c.account_id,
+        sub_b.c.bytes_transferred,
+        sub_b.c.messages_count,
+        sub_b.c.finished_at,
+    ).where(sub_b.c.rn == 1)
+    backup_map: dict[uuid.UUID, Any] = {}
+    for row in (await db.execute(qb)).all():
+        backup_map[row.account_id] = row
+
+    rn_r = (
+        func.row_number()
+        .over(
+            partition_by=RestoreJob.target_account_id,
+            order_by=RestoreJob.finished_at.desc().nullslast(),
+        )
+        .label("rn")
+    )
+    sub_r = (
+        select(
+            RestoreJob.target_account_id,
+            RestoreJob.bytes_restored,
+            RestoreJob.items_restored,
+            RestoreJob.finished_at,
+            rn_r,
+        )
+        .where(
+            RestoreJob.target_account_id.in_(account_ids),
+            RestoreJob.status == RestoreStatus.SUCCESS.value,
+            RestoreJob.finished_at.is_not(None),
+            RestoreJob.scope.in_(
+                (
+                    RestoreScope.GMAIL_MBOX_BULK.value,
+                    RestoreScope.GMAIL_MESSAGE.value,
+                )
+            ),
+        )
+    ).subquery()
+    qr = select(
+        sub_r.c.target_account_id,
+        sub_r.c.bytes_restored,
+        sub_r.c.items_restored,
+        sub_r.c.finished_at,
+    ).where(sub_r.c.rn == 1)
+    restore_map: dict[uuid.UUID, Any] = {}
+    for row in (await db.execute(qr)).all():
+        restore_map[row.target_account_id] = row
+
+    out: dict[uuid.UUID, tuple[int, int, datetime, str]] = {}
+    for aid in account_ids:
+        b = backup_map.get(aid)
+        r = restore_map.get(aid)
+        if b is None and r is None:
+            continue
+        if b is None:
+            out[aid] = (
+                int(r.bytes_restored or 0),
+                int(r.items_restored or 0),
+                r.finished_at,
+                "restore_job",
+            )
+        elif r is None:
+            out[aid] = (
+                int(b.bytes_transferred or 0),
+                int(b.messages_count or 0),
+                b.finished_at,
+                "backup_log",
+            )
+        elif b.finished_at >= r.finished_at:
+            out[aid] = (
+                int(b.bytes_transferred or 0),
+                int(b.messages_count or 0),
+                b.finished_at,
+                "backup_log",
+            )
+        else:
+            out[aid] = (
+                int(r.bytes_restored or 0),
+                int(r.items_restored or 0),
+                r.finished_at,
+                "restore_job",
+            )
+    return out
+
+
+def _gyb_resolve_estimated_row(
+    aid: uuid.UUID,
+    log_hint: dict[uuid.UUID, tuple[int, int, datetime, str]],
+    cache_bytes: int | None,
+    cache_messages: int | None,
+    cache_at: datetime | None,
+) -> tuple[int | None, int | None, datetime | None, str | None]:
+    h = log_hint.get(aid)
+    if h:
+        hb, hm, hat, hsrc = h
+        if hb > 0:
+            return hb, hm if hm >= 0 else None, hat, hsrc
+    if cache_bytes and cache_bytes > 0:
+        return (
+            cache_bytes,
+            cache_messages if cache_messages and cache_messages > 0 else None,
+            cache_at,
+            "gw_account_cache",
+        )
+    return None, None, None, None
+
+
+def _gyb_work_list_accounts_sync(
+    account_rows: list[tuple[str, str, int | None, int | None, datetime | None]],
+    with_work_sizes: bool,
+    hints: dict[uuid.UUID, tuple[int, int, datetime, str]],
+) -> list[GybWorkAccountOut]:
+    """CPU/disco en hilo aparte para no bloquear el event loop de FastAPI."""
+    out: list[GybWorkAccountOut] = []
+    for account_id_str, email, cbytes, cmsgs, cat in account_rows:
+        aid = uuid.UUID(account_id_str)
+        gyb = gyb_work_root_for_email(email)
+        if with_work_sizes:
+            has_export, total_b = scan_gyb_work_for_list_row(gyb)
+        else:
+            has_export = gyb_work_export_exists_quick(gyb)
+            total_b = 0
+        if not has_export:
+            continue
+        eb, em, eat, esrc = _gyb_resolve_estimated_row(aid, hints, cbytes, cmsgs, cat)
+        out.append(
+            GybWorkAccountOut(
+                id=account_id_str,
+                email=email,
+                work_size_bytes=total_b if with_work_sizes and total_b > 0 else None,
+                has_msg_db=(gyb / "msg-db.sqlite").is_file(),
+                estimated_export_bytes=eb,
+                estimated_messages=em,
+                estimated_at=eat,
+                estimated_source=esrc,
+            )
+        )
+    return out
+
+
 @router.get(
     "/gyb-work/accounts",
     response_model=list[GybWorkAccountOut],
@@ -86,7 +264,8 @@ router = APIRouter()
 async def gyb_work_list_accounts(
     with_work_sizes: bool = Query(
         False,
-        description="Si es true, recorre cada carpeta GYB completa para bytes totales (lento con muchas cuentas / buzones grandes). Por defecto solo detecta si hay export.",
+        description="Si es true, recorre cada carpeta GYB completa para bytes en disco (lento). "
+        "La estimación mostrada usa último backup/restauración Gmail o caché de cuenta.",
     ),
     db: AsyncSession = Depends(get_db),
     current: SysUser = Depends(require_any_permission("mailbox.view_all", "mailbox.view_delegated")),
@@ -102,31 +281,19 @@ async def gyb_work_list_accounts(
             )
         )
     rows = (await db.execute(stmt)).scalars().all()
-    pairs = [(str(a.id), a.email) for a in rows]
-    return await asyncio.to_thread(_gyb_work_list_accounts_sync, pairs, with_work_sizes)
-
-
-def _gyb_work_list_accounts_sync(pairs: list[tuple[str, str]], with_work_sizes: bool) -> list[GybWorkAccountOut]:
-    """CPU/disco en hilo aparte para no bloquear el event loop de FastAPI."""
-    out: list[GybWorkAccountOut] = []
-    for account_id, email in pairs:
-        gyb = gyb_work_root_for_email(email)
-        if with_work_sizes:
-            has_export, total_b = scan_gyb_work_for_list_row(gyb)
-        else:
-            has_export = gyb_work_export_exists_quick(gyb)
-            total_b = 0
-        if not has_export:
-            continue
-        out.append(
-            GybWorkAccountOut(
-                id=account_id,
-                email=email,
-                work_size_bytes=total_b if with_work_sizes and total_b > 0 else None,
-                has_msg_db=(gyb / "msg-db.sqlite").is_file(),
-            )
+    ids = [a.id for a in rows]
+    hints = await _latest_gyb_log_and_restore_hints(db, ids)
+    account_rows = [
+        (
+            str(a.id),
+            a.email,
+            a.total_bytes_cache,
+            a.total_messages_cache,
+            a.last_successful_backup_at,
         )
-    return out
+        for a in rows
+    ]
+    return await asyncio.to_thread(_gyb_work_list_accounts_sync, account_rows, with_work_sizes, hints)
 
 
 @router.get(

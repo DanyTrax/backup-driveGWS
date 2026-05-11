@@ -146,6 +146,11 @@ export interface GybWorkAccount {
   email: string
   work_size_bytes: number | null
   has_msg_db: boolean
+  /** Estimación desde último backup/restauración Gmail o caché en cuenta (siempre que haya dato). */
+  estimated_export_bytes?: number | null
+  estimated_messages?: number | null
+  estimated_at?: string | null
+  estimated_source?: string | null
 }
 
 export interface VaultDriveAccount {
