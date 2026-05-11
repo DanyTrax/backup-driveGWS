@@ -770,15 +770,22 @@ export function useMailboxMessage(accountId: string | null, folderId: string, me
 /** Prefijo API: carpeta local del worker o copia GYB bajo el vault en Drive. */
 export type GybWorkApiScope = 'gyb-work' | 'gyb-vault-work'
 
-export function useGybWorkAccounts(scope: GybWorkApiScope = 'gyb-work') {
+export function useGybWorkAccounts(
+  scope: GybWorkApiScope = 'gyb-work',
+  options?: { withWorkSizes?: boolean; enabled?: boolean },
+) {
+  const withSizes = Boolean(options?.withWorkSizes)
   return useQuery({
-    queryKey: ['gyb-work-accounts', scope],
+    queryKey: ['gyb-work-accounts', scope, withSizes],
     queryFn: async () =>
       (
         await api.get<GybWorkAccount[]>(`/accounts/${scope}/accounts`, {
+          params: { with_work_sizes: withSizes },
           timeout: MAILBOX_LIST_TIMEOUT_MS,
         })
       ).data,
+    enabled: options?.enabled !== false,
+    staleTime: withSizes ? 60_000 : 30_000,
   })
 }
 

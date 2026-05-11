@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { Alert, Button, Card, Spinner } from 'flowbite-react'
 import { HiArrowLeft } from 'react-icons/hi'
@@ -15,7 +16,10 @@ export default function GybWorkBrowserPage() {
   const navigate = useNavigate()
   const id = accountId ?? null
 
-  const accountsQ = useGybWorkAccounts()
+  const [showWorkSizes, setShowWorkSizes] = useState(false)
+  const baseAccountsQ = useGybWorkAccounts('gyb-work', { withWorkSizes: false })
+  const sizedAccountsQ = useGybWorkAccounts('gyb-work', { withWorkSizes: true, enabled: showWorkSizes })
+  const accountsQ = showWorkSizes ? sizedAccountsQ : baseAccountsQ
   const accounts = accountsQ.data ?? []
 
   if (id) {
@@ -34,12 +38,18 @@ export default function GybWorkBrowserPage() {
         </Button>
         <h1 className="text-xl font-semibold">Bandeja de trabajo GYB</h1>
       </div>
-      <p className="text-sm text-slate-500 dark:text-slate-400 max-w-3xl">
-        Solo se listan cuentas con export <code className="text-xs">.eml</code> o{' '}
-        <code className="text-xs">.mbox</code> en <code className="text-xs">/var/msa/work/gmail/…</code>. La lectura
-        no usa Maildir: es el volcado local del worker GYB. Mismos permisos que el visor Maildir (
-        <code className="text-xs">mailbox.view_all</code> o delegación).
-      </p>
+      <div className="flex flex-wrap items-center gap-3 justify-between">
+        <p className="text-sm text-slate-500 dark:text-slate-400 max-w-3xl">
+          Solo se listan cuentas con export <code className="text-xs">.eml</code> o{' '}
+          <code className="text-xs">.mbox</code> en <code className="text-xs">/var/msa/work/gmail/…</code>. La lectura
+          no usa Maildir: es el volcado local del worker GYB. Mismos permisos que el visor Maildir (
+          <code className="text-xs">mailbox.view_all</code> o delegación). El listado de cuentas usa una búsqueda rápida
+          (sin calcular tamaño en disco); usá «Calcular tamaños» si necesitás ver MB por carpeta.
+        </p>
+        <Button color="light" size="xs" onClick={() => setShowWorkSizes((v) => !v)}>
+          {showWorkSizes ? 'Ocultar tamaños (listado rápido)' : 'Calcular tamaños en disco'}
+        </Button>
+      </div>
       {accountsQ.isLoading ? (
         <Spinner />
       ) : accountsQ.isError ? (

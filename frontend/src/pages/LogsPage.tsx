@@ -191,6 +191,7 @@ function describeLiveProgress(p: Record<string, unknown> | null | undefined): st
         phase === 'vault_check' ||
         phase === 'vault_pull' ||
         phase === 'vault_zip_upload' ||
+        phase === 'vault_zip_compress' ||
         phase === 'vault_materialize_zip_copy')
     const isDriveScope = p.scope === 'drive'
     const rcloneMode =
@@ -208,14 +209,22 @@ function describeLiveProgress(p: Record<string, unknown> | null | undefined): st
           ? 'Bajada vault 1-GMAIL → servidor (rclone copy)'
           : phase === 'vault_zip_upload'
             ? 'Subida ZIP al vault 1-GMAIL/zips/… (rclone copy)'
-            : phase === 'vault_materialize_zip_copy'
-              ? 'Bajada ZIP vault → servidor (materialización para visor; rclone copy)'
-              : 'Subida vault 1-GMAIL (rclone copy)'
+            : phase === 'vault_zip_compress'
+              ? 'Comprimiendo export GYB → ZIP local (antes de subir al vault)'
+              : phase === 'vault_materialize_zip_copy'
+                ? 'Bajada ZIP vault → servidor (materialización para visor; rclone copy)'
+                : 'Subida vault 1-GMAIL (rclone copy)'
       : isDriveScope
         ? `Respaldo Drive → bóveda (rclone ${rcloneMode ?? 'copy/sync'})${destShort ? ` → …/${destShort}` : ''}`
         : 'Drive (rclone)'
     const pctN = typeof p.progress_pct === 'number' ? p.progress_pct : null
     const pct = pctN != null ? ` · ~${Math.round(pctN)}%` : ''
+    const zipFiles =
+      phase === 'vault_zip_compress' &&
+      typeof p.zip_files_done === 'number' &&
+      typeof p.zip_files_total === 'number'
+        ? ` · ${p.zip_files_done}/${p.zip_files_total} archivos en ZIP`
+        : ''
     const driveLimit =
       raw &&
       (raw.includes('teamDriveFileLimitExceeded') ||
@@ -223,9 +232,9 @@ function describeLiveProgress(p: Record<string, unknown> | null | undefined): st
         ? ' · [Google: límite de ~400k archivos en la unidad compartida; cada .eml cuenta como 1 archivo.]'
         : ''
     if (raw) {
-      return `${prefix}: ${raw.slice(0, 260)}${raw.length > 260 ? '…' : ''}${pct}${driveLimit}`
+      return `${prefix}: ${raw.slice(0, 260)}${raw.length > 260 ? '…' : ''}${pct}${zipFiles}${driveLimit}`
     }
-    return `${prefix} en curso…${pct}`
+    return `${prefix} en curso…${pct}${zipFiles}`
   }
   if (stage === 'computers_backup_skipped')
     return 'Sin carpeta «Computadoras»/«Computers» en la raíz de Mi unidad: finalizado sin copiar (ver informe en 3-REPORTS/logs).'

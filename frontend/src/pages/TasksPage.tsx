@@ -70,6 +70,10 @@ function TaskWaveSummaryBody({ data }: { data: BackupWaveStatusOut }) {
           worker o pendientes cuando haya hueco).
         </p>
       ) : null}
+      <p className="text-slate-500 dark:text-slate-400">
+        Con empaquetado <strong>ZIP al vault</strong>, la compresión local y la subida rclone publican progreso en el
+        detalle del log (Historial → fila → telemetría en vivo).
+      </p>
       <p className="text-slate-400 dark:text-slate-500">{data.note}</p>
     </div>
   )
@@ -803,7 +807,7 @@ export default function TasksPage() {
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <Label htmlFor="t-par" value="Cuentas en paralelo" />
+              <Label htmlFor="t-par" value="Cuentas Gmail en paralelo (lote / oleada)" />
               <TextInput
                 id="t-par"
                 type="number"
@@ -817,6 +821,12 @@ export default function TasksPage() {
                   }))
                 }
               />
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 max-w-md">
+                Cuántos backups <strong>Gmail</strong> de esta tarea pueden ejecutarse a la vez. El resto espera en cola
+                hasta que termine uno (incluye compresión ZIP y subida rclone al vault). No es lo mismo que{' '}
+                <strong>solapamiento (días) en manifiesto ZIP</strong> (allí abajo, solo empaquetado vault). Tarea{' '}
+                <strong>Full</strong>: Drive se encola para todas las cuentas en el primer pase; Gmail sigue este tope.
+              </p>
             </div>
             <div className="flex items-end gap-4 pb-2">
               <label className="flex items-center gap-2 text-sm">

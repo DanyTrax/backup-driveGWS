@@ -9,7 +9,7 @@ import uuid
 import zipfile
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any, Callable, Optional
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -76,17 +76,32 @@ async def ensure_gmail_vault_account_state(
     return row
 
 
-def _build_zip_sync(work_root: Path, zip_out: Path) -> list[GmailVaultManifestFileEntry]:
+def _build_zip_sync(
+    work_root: Path,
+    zip_out: Path,
+    *,
+    on_progress: Callable[[int, int], None] | None = None,
+    progress_every: int = 400,
+) -> list[GmailVaultManifestFileEntry]:
     entries: list[GmailVaultManifestFileEntry] = []
     zip_out.parent.mkdir(parents=True, exist_ok=True)
+    root = work_root.resolve()
+    paths = sorted(root.rglob("*"))
+    file_paths: list[Path] = []
+    for path in paths:
+        if not path.is_file():
+            continue
+        try:
+            rel = path.relative_to(root).as_posix()
+        except ValueError:
+            continue
+        if rel == _MANIFEST_SKIP:
+            continue
+        file_paths.append(path)
+    total = len(file_paths)
     with zipfile.ZipFile(zip_out, "w", zipfile.ZIP_DEFLATED) as zf:
-        paths = sorted(work_root.rglob("*"))
-        for path in paths:
-            if not path.is_file():
-                continue
-            rel = path.relative_to(work_root).as_posix()
-            if rel == _MANIFEST_SKIP:
-                continue
+        for i, path in enumerate(file_paths):
+            rel = path.relative_to(root).as_posix()
             st = path.stat()
             zf.write(path, rel)
             entries.append(
@@ -96,6 +111,10 @@ def _build_zip_sync(work_root: Path, zip_out: Path) -> list[GmailVaultManifestFi
                     sha256=None,
                 )
             )
+            if on_progress and total and (
+                (i + 1) % progress_every == 0 or (i + 1) == total
+            ):
+                on_progress(i + 1, total)
     return entries
 
 
@@ -134,7 +153,34 @@ async def run_gmail_zip_vault_push_phase(
     staging = Path(tempfile.mkdtemp(prefix="msa_gyb_zip_", dir="/tmp"))
     try:
         zip_local = staging / zb
-        entries = await asyncio.to_thread(_build_zip_sync, work_root, zip_local)
+        loop = asyncio.get_running_loop()
+
+        def _on_zip_progress(done: int, total: int) -> None:
+            try:
+                asyncio.run_coroutine_threadsafe(
+                    publish(
+                        log_id_str,
+                        {
+                            "stage": "progress",
+                            "scope": "gmail",
+                            "phase": "vault_zip_compress",
+                            "zip_files_done": done,
+                            "zip_files_total": total,
+                            "progress_pct": round(100.0 * done / total, 2) if total else None,
+                        },
+                    ),
+                    loop,
+                )
+            except Exception:
+                pass
+
+        entries = await asyncio.to_thread(
+            _build_zip_sync,
+            work_root,
+            zip_local,
+            on_progress=_on_zip_progress,
+            progress_every=400,
+        )
         overlap = overlap_days_from_filters(task.filters_json)
         manifest = GmailVaultZipManifestV1(
             account_id=account.id,

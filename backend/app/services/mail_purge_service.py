@@ -123,6 +123,21 @@ def scan_gyb_work_for_list_row(work_root: Path) -> tuple[bool, int]:
     return has_export, total_all
 
 
+def gyb_work_export_exists_quick(work_root: Path) -> bool:
+    """True si hay al menos un ``.eml``/``.mbox`` bajo ``work_root``; deja de recorrer al encontrar uno."""
+    if not work_root.is_dir():
+        return False
+    try:
+        for dirpath, _dirnames, filenames in os.walk(work_root, followlinks=False):
+            for name in filenames:
+                low = name.lower()
+                if low.endswith(".eml") or low.endswith(".mbox"):
+                    return True
+    except OSError:
+        return False
+    return False
+
+
 # Alias legado (maildir / otros callers)
 _dir_size = _dir_size_walk
 

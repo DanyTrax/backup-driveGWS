@@ -55,6 +55,7 @@ from app.services.gyb_work_browser_service import (
 )
 from app.services.rclone_service import build_rclone_vault_dest_only_config
 from app.services.mail_purge_service import (
+    gyb_work_export_exists_quick,
     gyb_work_root_for_email,
     scan_gyb_work_for_list_row,
 )
@@ -83,6 +84,10 @@ router = APIRouter()
     summary="Cuentas con export GYB en carpeta de trabajo (solo .eml/.mbox local)",
 )
 async def gyb_work_list_accounts(
+    with_work_sizes: bool = Query(
+        False,
+        description="Si es true, recorre cada carpeta GYB completa para bytes totales (lento con muchas cuentas / buzones grandes). Por defecto solo detecta si hay export.",
+    ),
     db: AsyncSession = Depends(get_db),
     current: SysUser = Depends(require_any_permission("mailbox.view_all", "mailbox.view_delegated")),
 ) -> list[GybWorkAccountOut]:
@@ -98,22 +103,26 @@ async def gyb_work_list_accounts(
         )
     rows = (await db.execute(stmt)).scalars().all()
     pairs = [(str(a.id), a.email) for a in rows]
-    return await asyncio.to_thread(_gyb_work_list_accounts_sync, pairs)
+    return await asyncio.to_thread(_gyb_work_list_accounts_sync, pairs, with_work_sizes)
 
 
-def _gyb_work_list_accounts_sync(pairs: list[tuple[str, str]]) -> list[GybWorkAccountOut]:
+def _gyb_work_list_accounts_sync(pairs: list[tuple[str, str]], with_work_sizes: bool) -> list[GybWorkAccountOut]:
     """CPU/disco en hilo aparte para no bloquear el event loop de FastAPI."""
     out: list[GybWorkAccountOut] = []
     for account_id, email in pairs:
         gyb = gyb_work_root_for_email(email)
-        has_export, total_b = scan_gyb_work_for_list_row(gyb)
+        if with_work_sizes:
+            has_export, total_b = scan_gyb_work_for_list_row(gyb)
+        else:
+            has_export = gyb_work_export_exists_quick(gyb)
+            total_b = 0
         if not has_export:
             continue
         out.append(
             GybWorkAccountOut(
                 id=account_id,
                 email=email,
-                work_size_bytes=total_b if total_b > 0 else None,
+                work_size_bytes=total_b if with_work_sizes and total_b > 0 else None,
                 has_msg_db=(gyb / "msg-db.sqlite").is_file(),
             )
         )
