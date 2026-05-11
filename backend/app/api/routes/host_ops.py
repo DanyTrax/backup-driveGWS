@@ -1,6 +1,8 @@
 """Mantenimiento Docker del host y despliegue de la pila (opcional, super admin)."""
 from __future__ import annotations
 
+import asyncio
+
 from fastapi import APIRouter, Depends, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -76,7 +78,7 @@ async def cleanup_gyb_zip_tmp_now(
 
     async_result = cleanup_task.delay()
     try:
-        result = async_result.get(timeout=120)
+        result = await asyncio.to_thread(async_result.get, 120)
     except CeleryTimeoutError:
         result = {"ok": False, "error": "timeout_waiting_worker"}
     except Exception as exc:  # pragma: no cover

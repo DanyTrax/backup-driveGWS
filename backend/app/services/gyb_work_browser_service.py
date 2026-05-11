@@ -78,9 +78,56 @@ class GybWorkFolder:
     display_name: str
 
 
+def list_gyb_work_disk_folders_from_msgdb(work_root: Path) -> list[GybWorkFolder] | None:
+    """Si hay ``msg-db.sqlite`` con filas, lista carpetas desde SQL (evita ``rglob`` en miles de .eml)."""
+    uri = _gyb_sqlite_uri(work_root)
+    if uri is None:
+        return None
+    try:
+        conn = sqlite3.connect(uri, uri=True)
+    except sqlite3.Error:
+        return None
+    try:
+        row = conn.execute("SELECT COUNT(*) FROM messages").fetchone()
+        if not row or int(row[0] or 0) == 0:
+            return None
+        cur = conn.execute(
+            """
+            SELECT DISTINCT message_filename FROM messages
+            WHERE message_filename IS NOT NULL AND trim(message_filename) != ''
+            """
+        )
+        seen: set[str] = set()
+        for (fn,) in cur.fetchall():
+            nk = _normalize_gyb_relative_path(fn or "")
+            if not nk or not nk.lower().endswith(".eml"):
+                continue
+            parent = str(Path(nk).parent.as_posix())
+            if parent == ".":
+                seen.add("")
+            else:
+                seen.add(parent)
+    except sqlite3.Error:
+        return None
+    finally:
+        conn.close()
+
+    def sort_key(fid: str) -> tuple[int, str]:
+        return (0 if fid == "" else 1, fid.lower())
+
+    out: list[GybWorkFolder] = []
+    for fid in sorted(seen, key=sort_key):
+        name = "(raíz)" if fid == "" else fid.replace("/", " / ")
+        out.append(GybWorkFolder(folder_id=fid, display_name=name))
+    return out
+
+
 def list_gyb_work_folders(work_root: Path) -> list[GybWorkFolder]:
     if not work_root.is_dir():
         return []
+    from_db = list_gyb_work_disk_folders_from_msgdb(work_root)
+    if from_db is not None:
+        return from_db
     wr = work_root.resolve()
     seen: set[str] = set()
     try:
