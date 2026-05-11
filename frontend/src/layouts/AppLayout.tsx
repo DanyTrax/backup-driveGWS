@@ -25,7 +25,7 @@ import api from '../api/client'
 import { useAuthStore } from '../stores/auth'
 import { brandingInitials, mergeBranding } from '../api/types'
 import { BrandingFooterCredit } from '../components/BrandingFooterCredit'
-import { hideMaildirWebmailUi } from '../config/ui'
+import { hideGybVaultDriveUi, hideMaildirWebmailUi } from '../config/ui'
 
 const SIDEBAR_STORAGE_KEY = 'msa-sidebar-expanded'
 
@@ -178,6 +178,9 @@ export default function AppLayout() {
   const perms = new Set(profile?.permissions ?? [])
   const visibleNav = NAV.filter((i) => {
     if (hideMaildirWebmailUi() && i.to === '/webmail') {
+      return false
+    }
+    if (hideGybVaultDriveUi() && i.to === '/gyb-vault-work') {
       return false
     }
     if (i.permAny?.length) {

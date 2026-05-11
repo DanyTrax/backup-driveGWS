@@ -22,7 +22,7 @@ import MaintenancePage from './pages/MaintenancePage'
 import VaultDriveBrowserPage from './pages/VaultDriveBrowserPage'
 import GmailVaultZipMaterializePage from './pages/GmailVaultZipMaterializePage'
 
-import { hideMaildirWebmailUi } from './config/ui'
+import { hideGybVaultDriveUi, hideMaildirWebmailUi } from './config/ui'
 
 function MailboxRoute() {
   const { accountId } = useParams<{ accountId: string }>()
@@ -37,6 +37,13 @@ function WebmailRoute() {
     return <Navigate to="/dashboard" replace />
   }
   return <WebmailPage />
+}
+
+function GybVaultWorkRoute() {
+  if (hideGybVaultDriveUi()) {
+    return <Navigate to="/accounts" replace />
+  }
+  return <GybVaultWorkBrowserPage />
 }
 
 export default function App() {
@@ -56,8 +63,8 @@ export default function App() {
         <Route path="/accounts/:accountId/mailbox" element={<MailboxRoute />} />
         <Route path="/gyb-work" element={<GybWorkBrowserPage />} />
         <Route path="/gyb-work/:accountId" element={<GybWorkBrowserPage />} />
-        <Route path="/gyb-vault-work" element={<GybVaultWorkBrowserPage />} />
-        <Route path="/gyb-vault-work/:accountId" element={<GybVaultWorkBrowserPage />} />
+        <Route path="/gyb-vault-work" element={<GybVaultWorkRoute />} />
+        <Route path="/gyb-vault-work/:accountId" element={<GybVaultWorkRoute />} />
         <Route path="/vault-drive" element={<VaultDriveBrowserPage />} />
         <Route path="/vault-drive/:accountId" element={<VaultDriveBrowserPage />} />
         <Route path="/vault-gmail-zip" element={<GmailVaultZipMaterializePage />} />

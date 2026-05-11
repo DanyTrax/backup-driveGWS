@@ -13,7 +13,7 @@ import {
 } from '../api/hooks'
 import type { AccountAccessCheck, WorkspaceAccount } from '../api/types'
 import { useAuthStore } from '../stores/auth'
-import { hideMaildirWebmailUi } from '../config/ui'
+import { hideGybVaultDriveUi, hideMaildirWebmailUi } from '../config/ui'
 
 function canOpenMailbox(
   account: WorkspaceAccount,
@@ -320,7 +320,8 @@ export default function AccountsPage() {
                               </Button>
                             </Link>
                           ) : null}
-                          {canOpenGybVaultMailbox(a, hasPermission, delegatedMailboxIds) ? (
+                          {canOpenGybVaultMailbox(a, hasPermission, delegatedMailboxIds) &&
+                          !hideGybVaultDriveUi() ? (
                             <Link to={`/gyb-vault-work/${a.id}`}>
                               <Button size="xs" color="light">
                                 GYB en Drive
@@ -328,7 +329,7 @@ export default function AccountsPage() {
                             </Link>
                           ) : null}
                           {!a.is_backup_enabled &&
-                          !canOpenGybVaultMailbox(a, hasPermission, delegatedMailboxIds) ? (
+                          !(canOpenGybVaultMailbox(a, hasPermission, delegatedMailboxIds) && !hideGybVaultDriveUi()) ? (
                             <span className="text-slate-400 text-xs">—</span>
                           ) : null}
                         </div>

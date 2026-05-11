@@ -13,6 +13,7 @@ import {
   useTasks,
 } from '../api/hooks'
 import { useAuthStore } from '../stores/auth'
+import { hideGybVaultDriveUi } from '../config/ui'
 
 function fmtBytes(n: number | null | undefined): string {
   if (n == null || Number.isNaN(n)) return '—'
@@ -401,17 +402,21 @@ export default function AccountMailDataPage() {
                 </dd>
               </div>
               <div className="flex flex-wrap justify-between gap-2 border-b border-slate-100 dark:border-slate-800 pb-2">
-                <dt className="text-slate-500">GYB en bóveda Drive (1-GMAIL)</dt>
+                <dt className="text-slate-500">Copia en bóveda (1-GMAIL · gyb_mbox)</dt>
                 <dd className="flex flex-wrap items-center gap-2">
                   {(inv.drive_vault_folder_id ?? '').trim() ? (
                     <>
                       <Badge color="success">carpeta configurada</Badge>
-                      {canOpenGybVaultMailbox && accountId ? (
+                      {canOpenGybVaultMailbox && accountId && !hideGybVaultDriveUi() ? (
                         <Link to={`/gyb-vault-work/${accountId}`}>
                           <Button size="xs" color="light">
                             Ver .eml en Drive
                           </Button>
                         </Link>
+                      ) : hideGybVaultDriveUi() ? (
+                        <span className="text-xs text-slate-500">
+                          Visor en panel descontinuado (usá ZIP vault o API si aplica).
+                        </span>
                       ) : (
                         <span className="text-xs text-slate-500">hace falta permiso de buzón delegado</span>
                       )}
@@ -505,7 +510,7 @@ export default function AccountMailDataPage() {
             </Card>
           ) : null}
 
-          {canRebuild && (inv.drive_vault_folder_id ?? '').trim() ? (
+          {canRebuild && !hideGybVaultDriveUi() && (inv.drive_vault_folder_id ?? '').trim() ? (
             <Card>
               <h2 className="font-semibold mb-2">Traer copia GYB desde Drive al servidor</h2>
               <p className="text-sm text-slate-600 dark:text-slate-400 mb-3">
@@ -563,23 +568,33 @@ export default function AccountMailDataPage() {
                       <code className="text-xs break-all">&quot;gmail_purge_gyb_workdir_after_vault_verified&quot;: false</code>{' '}
                       u omití la clave (por defecto no se borra la carpeta GYB).
                     </li>
-                    <li>
-                      Si el export ya está en la bóveda (<code className="text-xs">1-GMAIL/</code>), marcá{' '}
-                      <strong>Vaciar antes…</strong> en la sección de abajo y ejecutá restaurar, o purgá manualmente
-                      «Trabajo GYB» arriba antes de restaurar.
-                    </li>
-                    {canOpenGybVaultMailbox && accountId ? (
+                    {hideGybVaultDriveUi() ? (
                       <li>
-                        También podés{' '}
-                        <Link
-                          to={`/gyb-vault-work/${accountId}`}
-                          className="text-blue-600 dark:text-blue-400 underline font-medium"
-                        >
-                          abrir los mensajes directamente desde la copia en Drive
-                        </Link>{' '}
-                        (no hace falta tener la carpeta de trabajo GYB llena en el servidor).
+                        Si el export quedó solo en la bóveda y necesitás repoblar la carpeta de trabajo en este servidor,
+                        hacelo por los canales que use tu equipo (API u operación); el asistente de restauración gyb_mbox
+                        desde este panel está descontinuado.
                       </li>
-                    ) : null}
+                    ) : (
+                      <>
+                        <li>
+                          Si el export ya está en la bóveda (<code className="text-xs">1-GMAIL/</code>), marcá{' '}
+                          <strong>Vaciar antes…</strong> en la sección de abajo y ejecutá restaurar, o purgá manualmente
+                          «Trabajo GYB» arriba antes de restaurar.
+                        </li>
+                        {canOpenGybVaultMailbox && accountId ? (
+                          <li>
+                            También podés{' '}
+                            <Link
+                              to={`/gyb-vault-work/${accountId}`}
+                              className="text-blue-600 dark:text-blue-400 underline font-medium"
+                            >
+                              abrir los mensajes directamente desde la copia en Drive
+                            </Link>{' '}
+                            (no hace falta tener la carpeta de trabajo GYB llena en el servidor).
+                          </li>
+                        ) : null}
+                      </>
+                    )}
                   </ul>
                 </Alert>
               ) : null}
