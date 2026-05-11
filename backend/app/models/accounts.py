@@ -6,6 +6,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING
 
 from sqlalchemy import (
+    BigInteger,
     Boolean,
     DateTime,
     ForeignKey,
@@ -83,7 +84,7 @@ class GwAccount(UUIDPKMixin, TimestampMixin, Base):
     # --- Sync stats -------------------------------------------------------
     last_sync_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     last_successful_backup_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    total_bytes_cache: Mapped[int | None] = mapped_column(Integer)
+    total_bytes_cache: Mapped[int | None] = mapped_column(BigInteger)
     total_messages_cache: Mapped[int | None] = mapped_column(Integer)
 
     # --- Metadata ---------------------------------------------------------
