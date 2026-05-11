@@ -25,6 +25,7 @@ class RestoreCreate(BaseModel):
 class RestoreOut(BaseModel):
     id: str
     target_account_id: str
+    account_email: str | None = None
     scope: str
     status: str
     dry_run: bool
@@ -36,3 +37,13 @@ class RestoreOut(BaseModel):
     finished_at: datetime | None
     error_summary: str | None
     created_at: datetime
+
+
+class RestoreBulkDeleteIn(BaseModel):
+    ids: list[str] = Field(default_factory=list)
+
+
+class RestoreBulkDeleteOut(BaseModel):
+    deleted: int
+    skipped_running: list[str]
+    not_found: list[str]

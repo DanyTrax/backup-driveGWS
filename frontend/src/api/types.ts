@@ -464,6 +464,7 @@ export interface RunTaskResult {
 export interface RestoreJob {
   id: string
   target_account_id: string
+  account_email?: string | null
   scope: string
   status: string
   dry_run: boolean
@@ -475,6 +476,12 @@ export interface RestoreJob {
   finished_at: string | null
   error_summary: string | null
   created_at: string
+}
+
+export interface RestoreBulkDeleteResult {
+  deleted: number
+  skipped_running: string[]
+  not_found: string[]
 }
 
 export interface SetupState {

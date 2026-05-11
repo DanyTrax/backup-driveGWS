@@ -54,6 +54,7 @@ PERMISSIONS: tuple[PermissionSpec, ...] = (
     PermissionSpec("restore", "view", "Ver trabajos de restauración"),
     PermissionSpec("restore", "create", "Crear trabajos de restauración (Drive o Gmail)"),
     PermissionSpec("restore", "cancel", "Cancelar un trabajo de restauración en curso"),
+    PermissionSpec("restore", "delete", "Eliminar trabajos de restauración del historial"),
     # --- webmail ---
     PermissionSpec("webmail", "sso_admin", "Acceder a cualquier buzón via SSO master"),
     PermissionSpec("webmail", "issue_magic_link", "Emitir magic link para un cliente"),
@@ -131,7 +132,7 @@ DEFAULT_ROLE_PERMISSIONS: dict[UserRole, frozenset[str]] = {
             "accounts.purge_mail_local",
             "tasks.view", "tasks.create", "tasks.edit", "tasks.delete", "tasks.run",
             "logs.view", "logs.export", "logs.delete",
-            "restore.view", "restore.create", "restore.cancel",
+            "restore.view", "restore.create", "restore.cancel", "restore.delete",
             "webmail.sso_admin", "webmail.issue_magic_link", "webmail.revoke_access",
             "mailbox.view_all", "mailbox.delegate",
             "vault_drive.view_all", "vault_drive.delegate",

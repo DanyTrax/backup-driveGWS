@@ -31,6 +31,7 @@ import type {
   Profile,
   PurgeAllLocalMailResult,
   RestoreJob,
+  RestoreBulkDeleteResult,
   RunTaskResult,
   SetupState,
   VaultDriveAccount,
@@ -893,11 +894,55 @@ export function useBackupLogDetail(logId: string | null) {
   })
 }
 
-export function useRestoreJobs() {
+export function useRestoreJobs(params?: {
+  status_filter?: string
+  scope_filter?: string
+  limit?: number
+}) {
+  const sf = params?.status_filter ?? ''
+  const sc = params?.scope_filter ?? ''
+  const lim = params?.limit ?? 200
   return useQuery({
-    queryKey: ['restore-jobs'],
-    queryFn: async () => (await api.get<RestoreJob[]>('/restore')).data,
+    queryKey: ['restore-jobs', sf, sc, lim],
+    queryFn: async () =>
+      (
+        await api.get<RestoreJob[]>('/restore', {
+          params: {
+            ...(sf ? { status_filter: sf } : {}),
+            ...(sc ? { scope_filter: sc } : {}),
+            limit: lim,
+          },
+        })
+      ).data,
     refetchInterval: 5000,
+  })
+}
+
+export function useCancelRestoreJob() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (jobId: string) =>
+      (await api.post<RestoreJob>(`/restore/${jobId}/cancel`)).data,
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ['restore-jobs'] }),
+  })
+}
+
+export function useDeleteRestoreJob() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (jobId: string) => {
+      await api.delete(`/restore/${jobId}`)
+    },
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ['restore-jobs'] }),
+  })
+}
+
+export function useBulkDeleteRestoreJobs() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (ids: string[]) =>
+      (await api.post<RestoreBulkDeleteResult>('/restore/bulk-delete', { ids })).data,
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ['restore-jobs'] }),
   })
 }
 
