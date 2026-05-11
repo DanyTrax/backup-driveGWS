@@ -10,7 +10,7 @@ import {
   TextInput,
 } from 'flowbite-react'
 import toast from 'react-hot-toast'
-import { HiServer, HiTrash } from 'react-icons/hi'
+import { HiServer, HiTrash, HiFolder } from 'react-icons/hi'
 import {
   useCleanupGybZipTmpRun,
   useDockerPruneRun,
@@ -19,8 +19,9 @@ import {
   useProfile,
   useStackDeployJob,
   useStackDeployRun,
+  useVaultSharedDriveItemCount,
 } from '../api/hooks'
-import type { StackDeployMode, StackDeployResult } from '../api/types'
+import type { StackDeployMode, StackDeployResult, VaultSharedDriveItemCount } from '../api/types'
 
 const DOW_OPTS: { v: string; label: string }[] = [
   { v: '', label: 'Todos los días' },
@@ -59,6 +60,9 @@ export default function MaintenancePage() {
   const deployMut = useStackDeployRun()
   const [deployJobId, setDeployJobId] = useState<string | null>(null)
   const jobQ = useStackDeployJob(deployJobId)
+
+  const vaultCountMut = useVaultSharedDriveItemCount()
+  const [vaultCountSnapshot, setVaultCountSnapshot] = useState<VaultSharedDriveItemCount | null>(null)
 
   const stackTermScrollRef = useRef<HTMLDivElement>(null)
   const [stackTerm, setStackTerm] = useState<StackDeployTerminalState>({ kind: 'idle' })
@@ -228,6 +232,84 @@ export default function MaintenancePage() {
               </li>
             </ul>
           </Alert>
+
+          <Card>
+            <div className="flex items-center gap-2 mb-3">
+              <HiFolder className="h-5 w-5 text-slate-600 dark:text-slate-400" />
+              <h2 className="text-lg font-medium">Unidad de respaldo en Google Drive</h2>
+            </div>
+            <p className="text-sm text-slate-600 dark:text-slate-400 mb-4">
+              Google limita cada unidad compartida a unos{' '}
+              <span className="font-medium text-slate-800 dark:text-slate-200">400.000 ítems</span> (archivos y carpetas).
+              Podés pedir un conteo completo del Drive configurado en el asistente (vault) para ver cuántos ítems hay hoy y
+              cuánto margen queda. La operación recorre toda la unidad vía API y puede tardar varios minutos si hay muchos
+              objetos; no cierres la pestaña hasta que termine.
+            </p>
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                color="light"
+                disabled={vaultCountMut.isPending}
+                onClick={() => {
+                  void vaultCountMut
+                    .mutateAsync()
+                    .then((d) => {
+                      setVaultCountSnapshot(d)
+                      if (d.ok) toast.success('Conteo del Drive de respaldo listo.')
+                      else toast.error(d.error ?? 'No se pudo completar el conteo')
+                    })
+                    .catch((e: unknown) => {
+                      const msg =
+                        e && typeof e === 'object' && 'message' in e
+                          ? String((e as { message?: string }).message)
+                          : 'Error de red o tiempo agotado (probá de nuevo).'
+                      toast.error(msg)
+                    })
+                }}
+              >
+                {vaultCountMut.isPending ? 'Contando ítems…' : 'Contar ítems en el Drive de respaldo'}
+              </Button>
+              {vaultCountMut.isPending ? <Spinner size="sm" className="inline" /> : null}
+            </div>
+            {vaultCountSnapshot ? (
+              <div className="mt-4 text-sm space-y-2">
+                {vaultCountSnapshot.shared_drive_name || vaultCountSnapshot.shared_drive_id ? (
+                  <p className="text-slate-700 dark:text-slate-300">
+                    Unidad:{' '}
+                    <span className="font-medium">
+                      {vaultCountSnapshot.shared_drive_name ?? vaultCountSnapshot.shared_drive_id}
+                    </span>
+                  </p>
+                ) : null}
+                {vaultCountSnapshot.ok ? (
+                  <>
+                    <p className="text-slate-800 dark:text-slate-200">
+                      <span className="font-semibold">{vaultCountSnapshot.total_items.toLocaleString('es-AR')}</span> ítems
+                      en total ({vaultCountSnapshot.file_count.toLocaleString('es-AR')} archivos,{' '}
+                      {vaultCountSnapshot.folder_count.toLocaleString('es-AR')} carpetas).
+                    </p>
+                    {vaultCountSnapshot.remaining_until_limit != null ? (
+                      <p className="text-slate-600 dark:text-slate-400">
+                        Margen aproximado hasta el límite de referencia ({vaultCountSnapshot.item_limit.toLocaleString('es-AR')}{' '}
+                        ítems):{' '}
+                        <span className="font-medium text-slate-800 dark:text-slate-200">
+                          {vaultCountSnapshot.remaining_until_limit.toLocaleString('es-AR')} ítems
+                        </span>
+                        .
+                      </p>
+                    ) : null}
+                    {vaultCountSnapshot.total_items >= vaultCountSnapshot.item_limit ? (
+                      <Alert color="warning">
+                        El conteo alcanza o supera el límite de referencia de Google. Conviene planificar otra unidad o
+                        depuración antes de seguir cargando respaldos.
+                      </Alert>
+                    ) : null}
+                  </>
+                ) : (
+                  <Alert color="failure">{vaultCountSnapshot.error ?? 'Error al contar ítems en Drive.'}</Alert>
+                )}
+              </div>
+            ) : null}
+          </Card>
 
           {canDocker ? (
             <Card>

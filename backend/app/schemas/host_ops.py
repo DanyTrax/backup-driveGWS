@@ -35,3 +35,18 @@ class HostOpsConfigOut(BaseModel):
     compose_dir: str | None
     runner_image_configured: bool = False
     schedule: dict
+
+
+class VaultSharedDriveItemCountOut(BaseModel):
+    """Conteo de ítems en la unidad compartida de respaldo (límite ~400k de Google)."""
+
+    ok: bool
+    shared_drive_id: str | None = None
+    shared_drive_name: str | None = None
+    vault_root_folder_id: str | None = None
+    total_items: int = 0
+    file_count: int = 0
+    folder_count: int = 0
+    item_limit: int = Field(default=400_000, description="Referencia: máx. ítems por unidad compartida en Drive.")
+    remaining_until_limit: int | None = None
+    error: str | None = None

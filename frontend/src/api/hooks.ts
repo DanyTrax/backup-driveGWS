@@ -14,6 +14,7 @@ import type {
   GybWorkMessagesPage,
   HostOpsConfig,
   HostOpsSchedule,
+  VaultSharedDriveItemCount,
   StackDeployJobStart,
   StackDeployJobStatus,
   StackDeployMode,
@@ -976,6 +977,19 @@ export function useHostOpsConfig() {
   return useQuery({
     queryKey: ['host-ops-config'],
     queryFn: async () => (await api.get<HostOpsConfig>('/admin/host-ops/config')).data,
+  })
+}
+
+const VAULT_SHARED_DRIVE_COUNT_TIMEOUT_MS = 600_000
+
+export function useVaultSharedDriveItemCount() {
+  return useMutation({
+    mutationFn: async () =>
+      (
+        await api.get<VaultSharedDriveItemCount>('/admin/host-ops/vault-shared-drive-item-count', {
+          timeout: VAULT_SHARED_DRIVE_COUNT_TIMEOUT_MS,
+        })
+      ).data,
   })
 }
 

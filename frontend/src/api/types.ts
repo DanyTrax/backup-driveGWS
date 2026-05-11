@@ -541,6 +541,20 @@ export interface HostOpsConfig {
   schedule: HostOpsSchedule
 }
 
+/** GET /admin/host-ops/vault-shared-drive-item-count */
+export interface VaultSharedDriveItemCount {
+  ok: boolean
+  shared_drive_id: string | null
+  shared_drive_name: string | null
+  vault_root_folder_id: string | null
+  total_items: number
+  file_count: number
+  folder_count: number
+  item_limit: number
+  remaining_until_limit: number | null
+  error: string | null
+}
+
 /** Paso devuelto por prune/deploy (salida de shell en el backend). */
 export interface HostOpsShellStep {
   cmd: string
