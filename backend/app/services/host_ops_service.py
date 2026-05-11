@@ -14,6 +14,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import shutil
 import uuid
 from datetime import datetime
 from pathlib import Path
@@ -69,6 +70,56 @@ def _tail(s: str, n: int = 6000) -> str:
     if len(s) <= n:
         return s
     return s[-n:]
+
+
+def _dir_size_bytes(path: Path) -> int:
+    total = 0
+    try:
+        for f in path.rglob("*"):
+            if f.is_file():
+                try:
+                    total += f.stat().st_size
+                except OSError:
+                    pass
+    except OSError:
+        pass
+    return total
+
+
+def cleanup_gyb_zip_staging_tmp() -> dict[str, Any]:
+    """Borra solo directorios ``/tmp/msa_gyb_zip_*`` (staging ZIP vault Gmail en el contenedor)."""
+    tmp_base = Path("/tmp").resolve()
+    removed: list[str] = []
+    errors: list[str] = []
+    bytes_freed = 0
+    try:
+        candidates = list(tmp_base.iterdir())
+    except OSError as exc:
+        return {"ok": False, "error": f"tmp_iter_failed: {exc}", "removed": [], "removed_count": 0, "bytes_freed": 0}
+    for child in candidates:
+        if not child.name.startswith("msa_gyb_zip_"):
+            continue
+        try:
+            if not child.is_dir():
+                continue
+            resolved = child.resolve()
+            if resolved.parent != tmp_base:
+                continue
+        except OSError:
+            continue
+        try:
+            bytes_freed += _dir_size_bytes(resolved)
+            shutil.rmtree(resolved, ignore_errors=True)
+            removed.append(str(resolved))
+        except Exception as exc:  # pragma: no cover
+            errors.append(f"{child}: {exc}")
+    return {
+        "ok": not errors,
+        "removed": removed,
+        "removed_count": len(removed),
+        "bytes_freed": bytes_freed,
+        "errors": errors or None,
+    }
 
 
 def run_docker_prune(

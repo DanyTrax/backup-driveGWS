@@ -162,3 +162,11 @@ def dispatch_scheduled_backups() -> dict[str, Any]:
         }
 
     return run_async(with_session(inner))
+
+
+@celery_app.task(name="app.workers.tasks.maintenance.cleanup_gyb_zip_tmp")
+def cleanup_gyb_zip_tmp() -> dict[str, Any]:
+    """Ejecutar en worker: borra ``/tmp/msa_gyb_zip_*`` en ese contenedor."""
+    from app.services.host_ops_service import cleanup_gyb_zip_staging_tmp
+
+    return cleanup_gyb_zip_staging_tmp()

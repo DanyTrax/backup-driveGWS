@@ -133,6 +133,7 @@ class AuditAction(str, enum.Enum):
     GYB_WORK_RESTORED_FROM_VAULT = "gyb_work_restored_from_vault"
     HOST_DOCKER_PRUNE = "host_docker_prune"
     STACK_DEPLOY = "stack_deploy"
+    HOST_TMP_CLEANUP_GYB_ZIP = "host_tmp_cleanup_gyb_zip"
 
 
 # -----------------------------------------------------------------------------

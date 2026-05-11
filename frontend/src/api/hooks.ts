@@ -912,6 +912,13 @@ export function useDockerPruneRun() {
   })
 }
 
+export function useCleanupGybZipTmpRun() {
+  return useMutation({
+    mutationFn: async () =>
+      (await api.post<Record<string, unknown>>('/admin/host-ops/cleanup-gyb-zip-tmp')).data,
+  })
+}
+
 export function useHostOpsScheduleSave() {
   const qc = useQueryClient()
   return useMutation({

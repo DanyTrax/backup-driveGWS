@@ -64,6 +64,37 @@ async def docker_prune_now(
     return result
 
 
+@router.post("/cleanup-gyb-zip-tmp")
+async def cleanup_gyb_zip_tmp_now(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    current: SysUser = Depends(require_permission("platform.host_docker")),
+) -> dict:
+    from celery.exceptions import TimeoutError as CeleryTimeoutError
+
+    from app.workers.tasks.maintenance import cleanup_gyb_zip_tmp as cleanup_task
+
+    async_result = cleanup_task.delay()
+    try:
+        result = async_result.get(timeout=120)
+    except CeleryTimeoutError:
+        result = {"ok": False, "error": "timeout_waiting_worker"}
+    except Exception as exc:  # pragma: no cover
+        result = {"ok": False, "error": str(exc)}
+    await record_audit(
+        db,
+        action=AuditAction.HOST_TMP_CLEANUP_GYB_ZIP,
+        actor_user_id=current.id,
+        actor_label=current.email,
+        ip_address=get_client_ip(request),
+        user_agent=get_user_agent(request),
+        success=bool(result.get("ok")),
+        metadata=result,
+    )
+    await db.commit()
+    return result
+
+
 @router.get("/docker-prune-schedule")
 async def docker_prune_schedule_get(
     db: AsyncSession = Depends(get_db),

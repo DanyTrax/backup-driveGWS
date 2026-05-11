@@ -12,6 +12,7 @@ import {
 import toast from 'react-hot-toast'
 import { HiServer, HiTrash } from 'react-icons/hi'
 import {
+  useCleanupGybZipTmpRun,
   useDockerPruneRun,
   useHostOpsConfig,
   useHostOpsScheduleSave,
@@ -53,6 +54,7 @@ export default function MaintenancePage() {
 
   const cfgQ = useHostOpsConfig()
   const pruneMut = useDockerPruneRun()
+  const cleanupGybZipTmpMut = useCleanupGybZipTmpRun()
   const schedMut = useHostOpsScheduleSave()
   const deployMut = useStackDeployRun()
   const [deployJobId, setDeployJobId] = useState<string | null>(null)
@@ -248,7 +250,7 @@ export default function MaintenancePage() {
                 <div className="flex flex-wrap gap-2">
                   <Button
                     color="light"
-                    disabled={pruneMut.isPending}
+                    disabled={pruneMut.isPending || cleanupGybZipTmpMut.isPending}
                     onClick={() =>
                       void pruneMut.mutateAsync('light').then((r) =>
                         (r as { ok?: boolean }).ok ? toast.success('Limpieza ligera terminada') : toast.error('Falló'),
@@ -259,7 +261,7 @@ export default function MaintenancePage() {
                   </Button>
                   <Button
                     color="warning"
-                    disabled={pruneMut.isPending}
+                    disabled={pruneMut.isPending || cleanupGybZipTmpMut.isPending}
                     onClick={() =>
                       void pruneMut.mutateAsync('deep').then((r) =>
                         (r as { ok?: boolean }).ok ? toast.success('Limpieza profunda terminada') : toast.error('Falló'),
@@ -267,6 +269,24 @@ export default function MaintenancePage() {
                     }
                   >
                     Limpiar (profunda)
+                  </Button>
+                  <Button
+                    color="gray"
+                    disabled={pruneMut.isPending || cleanupGybZipTmpMut.isPending}
+                    onClick={() =>
+                      void cleanupGybZipTmpMut.mutateAsync().then((r) => {
+                        const data = r as { ok?: boolean; removed_count?: number }
+                        data.ok
+                          ? toast.success(
+                              data.removed_count != null
+                                ? `Tmp ZIP: ${data.removed_count} carpeta(s)`
+                                : 'Tmp ZIP: listo',
+                            )
+                          : toast.error('Tmp ZIP: falló')
+                      })
+                    }
+                  >
+                    Borrar /tmp ZIP GYB
                   </Button>
                 </div>
               )}
