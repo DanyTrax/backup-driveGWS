@@ -275,14 +275,14 @@ export default function MaintenancePage() {
                     disabled={pruneMut.isPending || cleanupGybZipTmpMut.isPending}
                     onClick={() =>
                       void cleanupGybZipTmpMut.mutateAsync().then((r) => {
-                        const data = r as { ok?: boolean; removed_count?: number }
-                        data.ok
-                          ? toast.success(
-                              data.removed_count != null
-                                ? `Tmp ZIP: ${data.removed_count} carpeta(s)`
-                                : 'Tmp ZIP: listo',
-                            )
-                          : toast.error('Tmp ZIP: falló')
+                        const data = r as { ok?: boolean; queued?: boolean; removed_count?: number }
+                        if (data.ok && data.queued)
+                          toast.success('Tmp ZIP: encolado en el worker')
+                        else if (data.ok && data.removed_count != null)
+                          toast.success(`Tmp ZIP: ${data.removed_count} carpeta(s)`)
+                        else if (data.ok)
+                          toast.success('Tmp ZIP: listo')
+                        else toast.error('Tmp ZIP: falló')
                       })
                     }
                   >

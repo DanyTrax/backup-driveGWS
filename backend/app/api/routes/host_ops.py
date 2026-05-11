@@ -1,9 +1,8 @@
 """Mantenimiento Docker del host y despliegue de la pila (opcional, super admin)."""
 from __future__ import annotations
 
-import asyncio
-
 from fastapi import APIRouter, Depends, Request
+from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import (
@@ -72,17 +71,26 @@ async def cleanup_gyb_zip_tmp_now(
     db: AsyncSession = Depends(get_db),
     current: SysUser = Depends(require_permission("platform.host_docker")),
 ) -> dict:
-    from celery.exceptions import TimeoutError as CeleryTimeoutError
-
+    """Encola limpieza en el worker (no espera resultado: evita cuelgues del API / 502)."""
     from app.workers.tasks.maintenance import cleanup_gyb_zip_tmp as cleanup_task
 
-    async_result = cleanup_task.delay()
     try:
-        result = await asyncio.to_thread(async_result.get, 120)
-    except CeleryTimeoutError:
-        result = {"ok": False, "error": "timeout_waiting_worker"}
-    except Exception as exc:  # pragma: no cover
-        result = {"ok": False, "error": str(exc)}
+        async_result = cleanup_task.delay()
+    except Exception as exc:  # pragma: no cover — broker caído, etc.
+        await record_audit(
+            db,
+            action=AuditAction.HOST_TMP_CLEANUP_GYB_ZIP,
+            actor_user_id=current.id,
+            actor_label=current.email,
+            ip_address=get_client_ip(request),
+            user_agent=get_user_agent(request),
+            success=False,
+            metadata={"error": str(exc)},
+        )
+        await db.commit()
+        return {"ok": False, "error": str(exc)}
+
+    meta: dict = {"ok": True, "queued": True, "task_id": async_result.id}
     await record_audit(
         db,
         action=AuditAction.HOST_TMP_CLEANUP_GYB_ZIP,
@@ -90,11 +98,25 @@ async def cleanup_gyb_zip_tmp_now(
         actor_label=current.email,
         ip_address=get_client_ip(request),
         user_agent=get_user_agent(request),
-        success=bool(result.get("ok")),
-        metadata=result,
+        success=True,
+        metadata=meta,
     )
-    await db.commit()
-    return result
+    try:
+        await db.commit()
+    except DBAPIError:
+        await db.rollback()
+        await record_audit(
+            db,
+            action=AuditAction.HOST_DOCKER_PRUNE,
+            actor_user_id=current.id,
+            actor_label=current.email,
+            ip_address=get_client_ip(request),
+            user_agent=get_user_agent(request),
+            success=True,
+            metadata={**meta, "note": "gyb_zip_tmp_queued_run_alembic_0016"},
+        )
+        await db.commit()
+    return meta
 
 
 @router.get("/docker-prune-schedule")

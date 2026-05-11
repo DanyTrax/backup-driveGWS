@@ -107,6 +107,8 @@ def list_gyb_work_disk_folders_from_msgdb(work_root: Path) -> list[GybWorkFolder
                 seen.add("")
             else:
                 seen.add(parent)
+        if not seen:
+            return None
     except sqlite3.Error:
         return None
     finally:
