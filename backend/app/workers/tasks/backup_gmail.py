@@ -61,6 +61,9 @@ async def _execute(
             celery_task_id=celery_task_id,
             run_batch_id=batch_uuid,
         )
+        # Tras commits internos, expire_on_commit puede marcar el ORM: evitar lazy-load síncrono
+        # al leer .status (greenlet_spawn / await_only).
+        await db.refresh(log)
         logger.info(
             "backup_gmail done log_id=%s status=%s",
             log.id,

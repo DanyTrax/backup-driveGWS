@@ -126,7 +126,9 @@ async def _finalise_log(
 ) -> None:
     log.status = status.value
     log.finished_at = datetime.now(UTC)
-    if error_summary:
+    if status == BackupStatus.SUCCESS:
+        log.error_summary = None
+    elif error_summary:
         log.error_summary = error_summary[:10000]
     if stats:
         # No usar ``or log.field``: 0 es un valor válido (buzón vacío / sin mensajes importados).

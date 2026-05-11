@@ -12,6 +12,7 @@ from app.core.redis_client import get_redis
 from app.models.enums import BackupStatus
 from app.models.tasks import BackupLog
 from app.services.progress_bus import publish
+from app.workers.celery_app import celery_app
 
 
 async def store_batch_celery_ids(batch_id: str, celery_ids: list[str]) -> None:
@@ -66,9 +67,11 @@ async def maybe_dispatch_next_gmail_in_wave(*, task_id: str, batch_id: str) -> N
     next_acc = await pop_next_gmail_wave_account(batch_id)
     if not next_acc:
         return
-    from app.workers.tasks.backup_gmail import run as run_gmail
-
-    res = run_gmail.delay(task_id, next_acc, batch_id)
+    # send_task evita reimportar backup_gmail dentro del finally del mismo módulo (contexto async raro).
+    res = celery_app.send_task(
+        "app.workers.tasks.backup_gmail.run",
+        args=[task_id, next_acc, batch_id],
+    )
     await extend_batch_celery_ids(batch_id, [res.id])
 
 
