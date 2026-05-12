@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import uuid
+from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from sqlalchemy import delete, insert, select
@@ -17,7 +18,7 @@ from app.api.deps import (
 )
 from app.core.logging import get_logger
 from app.models.accounts import GwAccount
-from app.models.enums import AuditAction, BackupScope
+from app.models.enums import AuditAction, BackupScope, BackupStatus
 from app.models.tasks import BackupLog, BackupTask, backup_task_accounts
 from app.models.users import SysUser
 from app.schemas.tasks import (
@@ -437,6 +438,9 @@ async def run_task(
         )
 
     await store_batch_celery_ids(batch_str, celery_ids)
+
+    task.last_run_at = datetime.now(UTC)
+    task.last_status = BackupStatus.RUNNING.value
 
     await record_audit(
         db,

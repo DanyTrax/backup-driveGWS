@@ -80,7 +80,7 @@ def dispatch_scheduled_backups() -> dict[str, Any]:
             .options(selectinload(BackupTask.accounts))
             .where(BackupTask.is_enabled.is_(True))
         )
-        from app.models.enums import BackupScope
+        from app.models.enums import BackupScope, BackupStatus
         from app.services.backup_concurrency_service import (
             active_backup_log_id,
             any_active_backup_for_task_definition,
@@ -155,6 +155,8 @@ def dispatch_scheduled_backups() -> dict[str, Any]:
                     queued += 1
             if celery_ids:
                 await store_batch_celery_ids(batch_str, celery_ids)
+                task.last_run_at = datetime.now(UTC)
+                task.last_status = BackupStatus.RUNNING.value
         return {
             "dispatched": queued,
             "skipped_active": skipped_active,

@@ -141,6 +141,11 @@ async def _finalise_log(
         if "errors" in stats:
             log.errors_count = int(stats["errors"])
     await db.flush()
+    task_row = await db.get(BackupTask, log.task_id)
+    if task_row is not None:
+        task_row.last_run_at = log.finished_at
+        task_row.last_status = status.value
+    await db.flush()
 
 
 def _write_manifest(root: Path, manifest_path: Path) -> tuple[int, int]:

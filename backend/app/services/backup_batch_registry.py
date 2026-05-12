@@ -14,12 +14,20 @@ from app.models.tasks import BackupLog
 from app.services.progress_bus import publish
 from app.workers.celery_app import celery_app
 
+# Cola FIFO Gmail + ids de lote: deben cubrir oleadas largas (cuentas enormes, poco paralelismo).
+# 7200s cortaba a ~2h y dejaba cuentas sin despachar aunque Redis siguiera vivo.
+_BATCH_REDIS_TTL_SEC = 86_400
+
 
 async def store_batch_celery_ids(batch_id: str, celery_ids: list[str]) -> None:
     if not celery_ids:
         return
     r = get_redis()
-    await r.setex(f"backup:batch:{batch_id}:celery_ids", 7200, json.dumps(celery_ids))
+    await r.setex(
+        f"backup:batch:{batch_id}:celery_ids",
+        _BATCH_REDIS_TTL_SEC,
+        json.dumps(celery_ids),
+    )
 
 
 async def extend_batch_celery_ids(batch_id: str, more: list[str]) -> None:
@@ -31,7 +39,7 @@ async def extend_batch_celery_ids(batch_id: str, more: list[str]) -> None:
     raw = await r.get(key)
     cur: list[str] = json.loads(raw) if raw else []
     cur.extend(more)
-    await r.setex(key, 7200, json.dumps(cur))
+    await r.setex(key, _BATCH_REDIS_TTL_SEC, json.dumps(cur))
 
 
 def _gmail_wave_queue_key(batch_id: str) -> str:
@@ -45,7 +53,7 @@ async def init_gmail_wave_queue(batch_id: str, pending_account_ids: list[str]) -
     await r.delete(key)
     if pending_account_ids:
         await r.rpush(key, *pending_account_ids)
-        await r.expire(key, 7200)
+        await r.expire(key, _BATCH_REDIS_TTL_SEC)
 
 
 async def pop_next_gmail_wave_account(batch_id: str) -> str | None:
@@ -67,6 +75,9 @@ async def maybe_dispatch_next_gmail_in_wave(*, task_id: str, batch_id: str) -> N
     next_acc = await pop_next_gmail_wave_account(batch_id)
     if not next_acc:
         return
+    # Renovar TTL: si el lote dura más que la ventana inicial, sin esto la lista expira y no hay más pops.
+    r = get_redis()
+    await r.expire(_gmail_wave_queue_key(batch_id), _BATCH_REDIS_TTL_SEC)
     # send_task evita reimportar backup_gmail dentro del finally del mismo módulo (contexto async raro).
     res = celery_app.send_task(
         "app.workers.tasks.backup_gmail.run",
