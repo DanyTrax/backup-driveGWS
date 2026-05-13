@@ -127,7 +127,10 @@ async def _finalise_log(
     log.status = status.value
     log.finished_at = datetime.now(UTC)
     if status == BackupStatus.SUCCESS:
-        log.error_summary = None
+        if error_summary:
+            log.error_summary = error_summary[:10000]
+        else:
+            log.error_summary = None
     elif error_summary:
         log.error_summary = error_summary[:10000]
     if stats:
@@ -795,6 +798,7 @@ async def run_drive_backup(
                 bwlimit=bwlimit,
                 dry_run=task.dry_run,
                 compare_dest_remotes=compare_dest_remotes,
+                extra_flags=rclone_service.drive_rclone_resilience_argv_from_settings(),
             )
 
             async def _emit_drive_rclone(line: str) -> None:
@@ -837,14 +841,73 @@ async def run_drive_backup(
                 await publish(log_id, {"stage": "cancelled"})
                 await db.commit()
                 return log
-            if rc != 0:
+
+            summary_body, err_line_count = rclone_service.summarize_rclone_drive_transfer_log(output)
+            hard_fail = rclone_service.drive_rclone_should_fail_backup(rc)
+
+            if hard_fail:
+                head = f"rclone_rc={rc} (fallo duro: sintaxis, cuota, interrupción o crash).\n\n"
                 await _finalise_log(
                     db,
                     log,
                     status=BackupStatus.FAILED,
-                    error_summary=f"rclone_rc={rc}\n{output[-4000:]}",
+                    error_summary=(head + summary_body)[:10000],
+                    stats={"errors": err_line_count} if err_line_count else None,
                 )
                 await publish(log_id, {"stage": "failed", "returncode": rc})
+                await db.commit()
+                return log
+
+            if rc != 0:
+                note = (
+                    f"Copia Drive finalizada; rclone devolvió rc={rc} (quedaron objetos omitidos o no copiables).\n\n"
+                    + summary_body
+                )
+                await _finalise_log(
+                    db,
+                    log,
+                    status=BackupStatus.SUCCESS,
+                    error_summary=note[:10000],
+                    stats={"errors": err_line_count} if err_line_count else {"errors": 0},
+                )
+                account.last_successful_backup_at = datetime.now(UTC)
+                rel_rep = await upload_backup_success_report(
+                    db,
+                    task=task,
+                    account=account,
+                    log=log,
+                    drive_rclone_dest_subpath=dest_subpath,
+                    dry_run=task.dry_run,
+                    report_note_lines=([
+                        f"Drive: rclone rc={rc} tratado como éxito con omisiones; ver error_summary del log.",
+                        *computers_report_notes,
+                    ]
+                    if computers_report_notes
+                    else [
+                        f"Drive: rclone rc={rc} tratado como éxito con omisiones; ver error_summary del log.",
+                    ]),
+                )
+                if rel_rep:
+                    log.detail_log_path = rel_rep
+                    await db.flush()
+                if not task.dry_run:
+                    try:
+                        removed = await drive_retention.prune_after_drive_backup(
+                            db, task=task, account=account
+                        )
+                        if removed:
+                            await publish(log_id, {"stage": "retention", "deleted_snapshots": removed})
+                    except Exception as exc:  # pragma: no cover
+                        await publish(log_id, {"stage": "retention_warning", "error": str(exc)})
+                await publish(
+                    log_id,
+                    {
+                        "stage": "done",
+                        "status": BackupStatus.SUCCESS.value,
+                        "rclone_rc": rc,
+                        "soft_warnings": True,
+                    },
+                )
                 await db.commit()
                 return log
     except Exception as exc:  # pragma: no cover

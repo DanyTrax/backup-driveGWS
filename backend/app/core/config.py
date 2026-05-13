@@ -120,6 +120,12 @@ class Settings(BaseSettings):
     # Flags extra para ``copy``/``check`` del vault GYB (p.ej. ``--drive-pacer-min-sleep 100ms``).
     # Una sola línea; se parte con shlex como en shell.
     rclone_gmail_vault_extra_flags: str = ""
+    # Flags extra para ``rclone copy|sync`` Mi unidad → bóveda (Drive raíz / computadoras). Una línea;
+    # por defecto se omite atajos colgantes y se continúa ante fallos puntuales; el panel puede marcar
+    # ``success`` con detalle en «Motivo» si el proceso terminó pero rclone devolvió rc≠0 recuperable.
+    rclone_drive_extra_flags: str = (
+        "--drive-skip-dangling-shortcuts --ignore-errors"
+    )
     # GYB --action estimate en «Comprobar acceso». 0 = sin límite (hasta que termine GYB).
     account_verify_gyb_timeout_seconds: int = 0
     # Export ZIP del Maildir desde el panel. 0 = sin límite de tamaño (proveedor/ops asume el riesgo).

@@ -33,6 +33,116 @@ from app.services.settings_service import (
 
 _RCLONE_STATS_PCT = re.compile(r"(\d+(?:\.\d+)?)\s*%")
 
+# Códigos rclone (https://rclone.org/docs/#exit-code). Tras copy/sync Drive, varios rc son fallos
+# puntuales pero el proceso terminó; distintos de corte total (sintaxis, cuota, SIG*, crash).
+RCLONE_RC_SUCCESS = 0
+RCLONE_RC_SYNTAX = 1
+RCLONE_RC_INSUFFICIENT_QUOTA = 4
+RCLONE_RC_INTERRUPTED = 5
+RCLONE_RC_FATAL_SIGNAL = 6
+
+
+def drive_rclone_should_fail_backup(rc: int) -> bool:
+    """True = marcar BackupLog como failed (sintaxis, cuota, interrupción, crash)."""
+    if rc == RCLONE_RC_SUCCESS:
+        return False
+    return rc in {
+        RCLONE_RC_SYNTAX,
+        RCLONE_RC_INSUFFICIENT_QUOTA,
+        RCLONE_RC_INTERRUPTED,
+        RCLONE_RC_FATAL_SIGNAL,
+    }
+
+
+def summarize_rclone_drive_transfer_log(
+    output: str,
+    *,
+    max_paths: int = 45,
+    max_duplicate_notices: int = 14,
+    tail_chars: int = 3200,
+) -> tuple[str, int]:
+    """Resume rutas/objetos en líneas ERROR y avisos de duplicados; devuelve (texto, nº líneas ERROR)."""
+    if not (output or "").strip():
+        return ("(sin salida de rclone)", 0)
+
+    error_paths_ordered: list[str] = []
+    seen_paths: set[str] = set()
+    error_lines = 0
+    for line in output.splitlines():
+        m = re.search(r"\bERROR\s*:\s*(.+?)\s*:\s*.+", line, flags=re.IGNORECASE)
+        if not m:
+            continue
+        error_lines += 1
+        raw = m.group(1).strip()
+        if not raw or raw in seen_paths:
+            continue
+        seen_paths.add(raw)
+        error_paths_ordered.append(raw)
+
+    dup_lines: list[str] = []
+    seen_dup: set[str] = set()
+    for line in output.splitlines():
+        if "Duplicate object found in source" not in line:
+            continue
+        s = line.strip()
+        if s not in seen_dup:
+            seen_dup.add(s)
+            dup_lines.append(s)
+        if len(dup_lines) >= max_duplicate_notices:
+            break
+
+    parent_dirs: list[str] = []
+    seen_parents: set[str] = set()
+    for p in error_paths_ordered[:max_paths]:
+        parent = str(Path(p).parent.as_posix()) if p and "/" in p else (p or "")
+        if parent in ("", "."):
+            parent = p
+        if parent and parent not in seen_parents:
+            seen_parents.add(parent)
+            parent_dirs.append(parent)
+
+    parts: list[str] = []
+    parts.append(
+        f"rclone reportó {error_lines} línea(s) ERROR (pueden agruparse en menos rutas únicas). "
+        "Causas frecuentes: atajos colgantes, duplicados de nombre en Drive, carpetas que cambian durante la copia."
+    )
+    if parent_dirs:
+        parts.append("")
+        parts.append(f"Carpetas/rutas padre involucradas (hasta {len(parent_dirs)} distintas):")
+        for d in parent_dirs[:35]:
+            parts.append(f"  • {d}")
+        if len(parent_dirs) > 35:
+            parts.append(f"  … y {len(parent_dirs) - 35} más")
+    if error_paths_ordered:
+        parts.append("")
+        parts.append("Objetos/rutas (muestra):")
+        for p in error_paths_ordered[:max_paths]:
+            parts.append(f"  • {p}")
+        if error_lines > len(error_paths_ordered):
+            parts.append("  (más coincidencias en el extracto inferior)")
+    if dup_lines:
+        parts.append("")
+        parts.append("Avisos «Duplicate object» en origen:")
+        for d in dup_lines:
+            parts.append(f"  • {d[:650]}")
+
+    tail = output.strip()
+    if len(tail) > tail_chars:
+        tail = tail[-tail_chars:]
+    parts.extend(["", "--- Extracto final del log ---", tail])
+    return "\n".join(parts), error_lines
+
+
+def drive_rclone_resilience_argv_from_settings() -> list[str]:
+    """Flags opcionales para copy/sync Drive → vault (atajos colgantes, continuar con errores puntuales)."""
+    raw = (get_settings().rclone_drive_extra_flags or "").strip()
+    if not raw:
+        return []
+    try:
+        return shlex.split(raw)
+    except ValueError:
+        return []
+
 
 def rclone_stats_line_progress_pct(line: str) -> float | None:
     """Porcentaje en líneas ``Transferred: …, 12%, …`` de rclone (--stats-one-line)."""
