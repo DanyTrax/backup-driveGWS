@@ -19,6 +19,7 @@ import {
   downloadBackupLogsPdf,
 } from '../api/hooks'
 import type { BackupLog, GmailVaultMaterializeListItem } from '../api/types'
+import { formatLogDateTime } from '../utils/logDateFormat'
 
 function truncateDetail(s: string | null | undefined, max = 140): string {
   if (!s?.trim()) return '—'
@@ -582,9 +583,9 @@ export default function LogsPage() {
             <table className="min-w-full text-sm">
               <thead className="text-left text-slate-500">
                 <tr>
-                  <th className="py-2">Inicio</th>
-                  <th>Fin</th>
-                  <th>Cuenta</th>
+                  <th className="py-2">Cuenta</th>
+                  <th className="whitespace-nowrap">Inicio</th>
+                  <th className="whitespace-nowrap">Fin</th>
                   <th>Tarea</th>
                   <th>Tipo</th>
                   <th>Lote</th>
@@ -612,13 +613,17 @@ export default function LogsPage() {
                         }
                       }}
                     >
-                      <td className="py-2">{item.row.started_at ?? '—'}</td>
-                      <td>{item.row.finished_at ?? '—'}</td>
                       <td
-                        className="max-w-[14rem] truncate text-xs"
+                        className="max-w-[14rem] truncate text-xs py-2"
                         title={item.row.account_email ?? item.row.account_id}
                       >
                         {item.row.account_email ?? `${item.row.account_id.slice(0, 8)}…`}
+                      </td>
+                      <td className="whitespace-nowrap text-xs" title={item.row.started_at ?? undefined}>
+                        {formatLogDateTime(item.row.started_at)}
+                      </td>
+                      <td className="whitespace-nowrap text-xs" title={item.row.finished_at ?? undefined}>
+                        {formatLogDateTime(item.row.finished_at)}
                       </td>
                       <td
                         className="max-w-[12rem] truncate text-xs"
@@ -705,17 +710,26 @@ export default function LogsPage() {
                         }
                       }}
                     >
-                      <td className="py-2">{item.row.created_at ?? '—'}</td>
-                      <td>
-                        {item.row.status === 'ready' || item.row.status === 'failed'
-                          ? item.row.updated_at ?? '—'
-                          : '—'}
-                      </td>
                       <td
-                        className="max-w-[14rem] truncate text-xs"
+                        className="max-w-[14rem] truncate text-xs py-2"
                         title={item.row.account_email ?? item.row.account_id}
                       >
                         {item.row.account_email ?? `${item.row.account_id.slice(0, 8)}…`}
+                      </td>
+                      <td className="whitespace-nowrap text-xs" title={item.row.created_at ?? undefined}>
+                        {formatLogDateTime(item.row.created_at)}
+                      </td>
+                      <td
+                        className="whitespace-nowrap text-xs"
+                        title={
+                          item.row.status === 'ready' || item.row.status === 'failed'
+                            ? item.row.updated_at ?? undefined
+                            : undefined
+                        }
+                      >
+                        {item.row.status === 'ready' || item.row.status === 'failed'
+                          ? formatLogDateTime(item.row.updated_at)
+                          : '—'}
                       </td>
                       <td
                         className="max-w-[12rem] truncate text-xs"
@@ -797,8 +811,8 @@ export default function LogsPage() {
                   <div>
                     <div className="text-xs font-medium uppercase tracking-wide text-slate-500">Ventana / modo</div>
                     <div className="text-sm text-slate-600 dark:text-slate-400">
-                      {matDetailQuery.data.date_from ?? '—'} → {matDetailQuery.data.date_to ?? '—'} ·{' '}
-                      {matDetailQuery.data.requested_mode}
+                      {formatLogDateTime(matDetailQuery.data.date_from)} →{' '}
+                      {formatLogDateTime(matDetailQuery.data.date_to)} · {matDetailQuery.data.requested_mode}
                     </div>
                   </div>
                   <div>
@@ -845,7 +859,14 @@ export default function LogsPage() {
                   </div>
                   <div>
                     <dt className="text-slate-500">Caduca (TTL)</dt>
-                    <dd className="text-xs">{matDetailQuery.data.ttl_expires_at ?? '—'}</dd>
+                    <dd className="text-xs">
+                      <div>{formatLogDateTime(matDetailQuery.data.ttl_expires_at)}</div>
+                      {matDetailQuery.data.ttl_expires_at ? (
+                        <div className="text-[10px] font-mono text-slate-400 break-all">
+                          ISO: {matDetailQuery.data.ttl_expires_at}
+                        </div>
+                      ) : null}
+                    </dd>
                   </div>
                   <div>
                     <dt className="text-slate-500">Celery task id</dt>
@@ -861,10 +882,27 @@ export default function LogsPage() {
                   </div>
                   <div>
                     <dt className="text-slate-500">Creada / actualizada</dt>
-                    <dd className="text-xs">
-                      {matDetailQuery.data.created_at ?? '—'}
-                      <br />
-                      {matDetailQuery.data.updated_at ?? '—'}
+                    <dd className="text-xs space-y-2">
+                      <div>
+                        <div className="text-slate-800 dark:text-slate-200">
+                          {formatLogDateTime(matDetailQuery.data.created_at)}
+                        </div>
+                        {matDetailQuery.data.created_at ? (
+                          <div className="text-[10px] font-mono text-slate-400 break-all">
+                            ISO: {matDetailQuery.data.created_at}
+                          </div>
+                        ) : null}
+                      </div>
+                      <div>
+                        <div className="text-slate-800 dark:text-slate-200">
+                          {formatLogDateTime(matDetailQuery.data.updated_at)}
+                        </div>
+                        {matDetailQuery.data.updated_at ? (
+                          <div className="text-[10px] font-mono text-slate-400 break-all">
+                            ISO: {matDetailQuery.data.updated_at}
+                          </div>
+                        ) : null}
+                      </div>
                     </dd>
                   </div>
                 </dl>
@@ -977,10 +1015,29 @@ export default function LogsPage() {
                 </div>
                 <div>
                   <dt className="text-slate-500">Pipeline Gmail (local / vault)</dt>
-                  <dd className="text-xs">
-                    Maildir en BD: {backupDetailQuery.data.gmail_maildir_ready_at ?? '—'}
-                    <br />
-                    Vault 1-GMAIL: {backupDetailQuery.data.gmail_vault_completed_at ?? '—'}
+                  <dd className="text-xs space-y-2">
+                    <div>
+                      Maildir en BD:
+                      <div className="font-medium text-slate-800 dark:text-slate-200">
+                        {formatLogDateTime(backupDetailQuery.data.gmail_maildir_ready_at)}
+                      </div>
+                      {backupDetailQuery.data.gmail_maildir_ready_at ? (
+                        <div className="text-[10px] font-mono text-slate-400 break-all">
+                          ISO: {backupDetailQuery.data.gmail_maildir_ready_at}
+                        </div>
+                      ) : null}
+                    </div>
+                    <div>
+                      Vault 1-GMAIL:
+                      <div className="font-medium text-slate-800 dark:text-slate-200">
+                        {formatLogDateTime(backupDetailQuery.data.gmail_vault_completed_at)}
+                      </div>
+                      {backupDetailQuery.data.gmail_vault_completed_at ? (
+                        <div className="text-[10px] font-mono text-slate-400 break-all">
+                          ISO: {backupDetailQuery.data.gmail_vault_completed_at}
+                        </div>
+                      ) : null}
+                    </div>
                   </dd>
                 </div>
                 <div>
@@ -1001,10 +1058,29 @@ export default function LogsPage() {
                 ) : null}
                 <div>
                   <dt className="text-slate-500">Inicio / fin</dt>
-                  <dd className="text-xs">
-                    {backupDetailQuery.data.started_at ?? '—'}
-                    <br />
-                    {backupDetailQuery.data.finished_at ?? '—'}
+                  <dd className="text-xs space-y-3">
+                    <div>
+                      <div className="text-[10px] uppercase tracking-wide text-slate-500">Inicio</div>
+                      <div className="font-medium text-slate-800 dark:text-slate-200">
+                        {formatLogDateTime(backupDetailQuery.data.started_at)}
+                      </div>
+                      {backupDetailQuery.data.started_at ? (
+                        <div className="text-[10px] font-mono text-slate-400 break-all">
+                          ISO: {backupDetailQuery.data.started_at}
+                        </div>
+                      ) : null}
+                    </div>
+                    <div>
+                      <div className="text-[10px] uppercase tracking-wide text-slate-500">Fin</div>
+                      <div className="font-medium text-slate-800 dark:text-slate-200">
+                        {formatLogDateTime(backupDetailQuery.data.finished_at)}
+                      </div>
+                      {backupDetailQuery.data.finished_at ? (
+                        <div className="text-[10px] font-mono text-slate-400 break-all">
+                          ISO: {backupDetailQuery.data.finished_at}
+                        </div>
+                      ) : null}
+                    </div>
                   </dd>
                 </div>
                 <div>
@@ -1152,7 +1228,10 @@ export default function LogsPage() {
           <p className="text-sm text-slate-600 dark:text-slate-400">
             ¿Eliminar del historial la ejecución de{' '}
             <strong>{deleteTarget?.account_email ?? deleteTarget?.account_id?.slice(0, 8)}</strong> del{' '}
-            <strong>{deleteTarget?.started_at ?? '—'}</strong>? Esta acción no revierte backups ya hechos.
+            <strong>{formatLogDateTime(deleteTarget?.started_at)}</strong>{' '}
+            <span className="font-mono text-[10px] text-slate-500">
+              ({deleteTarget?.started_at ?? '—'})
+            </span>? Esta acción no revierte backups ya hechos.
           </p>
         </Modal.Body>
         <Modal.Footer>

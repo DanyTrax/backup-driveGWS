@@ -1,6 +1,7 @@
 import { Card } from 'flowbite-react'
 import { HiCheckCircle, HiExclamation, HiUserGroup, HiClock } from 'react-icons/hi'
 import { useAccounts, useBackupLogs, useTasks } from '../api/hooks'
+import { formatLogDateTime } from '../utils/logDateFormat'
 
 export default function DashboardPage() {
   const { data: accounts = [] } = useAccounts()
@@ -46,22 +47,22 @@ export default function DashboardPage() {
           <table className="min-w-full text-sm">
             <thead className="text-left text-slate-500">
               <tr>
-                <th className="py-2">Tarea</th>
-                <th>Cuenta</th>
+                <th className="py-2">Cuenta</th>
+                <th>Tarea</th>
                 <th>Scope</th>
                 <th>Estado</th>
-                <th>Inicio</th>
+                <th className="whitespace-nowrap">Inicio</th>
                 <th>Detalle</th>
               </tr>
             </thead>
             <tbody>
               {logs.slice(0, 20).map((l) => (
                 <tr key={l.id} className="border-t border-slate-100 dark:border-slate-800">
-                  <td className="py-2 max-w-[12rem] truncate text-xs" title={l.task_name ?? l.task_id}>
-                    {l.task_name ?? `${l.task_id.slice(0, 8)}…`}
-                  </td>
-                  <td className="max-w-[14rem] truncate text-xs" title={l.account_email ?? l.account_id}>
+                  <td className="py-2 max-w-[14rem] truncate text-xs" title={l.account_email ?? l.account_id}>
                     {l.account_email ?? `${l.account_id.slice(0, 8)}…`}
+                  </td>
+                  <td className="max-w-[12rem] truncate text-xs" title={l.task_name ?? l.task_id}>
+                    {l.task_name ?? `${l.task_id.slice(0, 8)}…`}
                   </td>
                   <td>{l.scope}</td>
                   <td>
@@ -77,7 +78,9 @@ export default function DashboardPage() {
                       {l.status}
                     </span>
                   </td>
-                  <td>{l.started_at ?? '—'}</td>
+                  <td className="whitespace-nowrap text-xs" title={l.started_at ?? undefined}>
+                    {formatLogDateTime(l.started_at)}
+                  </td>
                   <td
                     className="max-w-[200px] truncate text-xs text-slate-500"
                     title={l.error_summary ?? undefined}

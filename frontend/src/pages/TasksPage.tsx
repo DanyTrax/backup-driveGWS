@@ -16,6 +16,7 @@ import {
   type TaskPayload,
 } from '../api/hooks'
 import type { BackupTask, BackupWaveStatusOut, RunEstimateOut, WorkspaceAccount } from '../api/types'
+import { formatLogDateTime } from '../utils/logDateFormat'
 
 function TaskWaveSummary({ taskId }: { taskId: string }) {
   const { data, isLoading, isError } = useTaskBackupWaveStatus(taskId)
@@ -51,7 +52,8 @@ function TaskWaveSummaryBody({ data }: { data: BackupWaveStatusOut }) {
             {j.started_at ? (
               <>
                 {' '}
-                · desde {j.started_at}
+                · desde {formatLogDateTime(j.started_at)}{' '}
+                <span className="font-mono text-slate-400">({j.started_at})</span>
               </>
             ) : null}
             {' · '}
