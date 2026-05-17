@@ -184,7 +184,11 @@ function BrandingSettingsForm({ config, canEdit }: { config: BrandingConfig; can
             placeholder="https://… o /ruta/relativa.svg"
           />
           <p className="mt-1 text-xs text-slate-500">
-            Si guardás una URL http(s) o ruta absoluta /…, se elimina un logo previamente subido como archivo.
+            Podés usar PNG, JPG, WebP, etc. El servidor genera el icono de la pestaña en PNG, WebP y SVG desde esta URL
+            (o desde el archivo subido):{' '}
+            <code className="text-[10px] bg-slate-100 dark:bg-slate-800 px-1 rounded">/api/meta/branding/icon?fmt=png</code>{' '}
+            (también <code className="text-[10px] bg-slate-100 dark:bg-slate-800 px-1 rounded">fmt=webp|svg|original</code>
+            ). Si guardás http(s) o ruta <code className="text-[10px]">/</code>…, se elimina un logo previamente subido como archivo.
           </p>
         </div>
         <div className="sm:col-span-2 rounded-lg border border-slate-200 dark:border-slate-600 p-3 space-y-3 bg-white/50 dark:bg-slate-900/30">
