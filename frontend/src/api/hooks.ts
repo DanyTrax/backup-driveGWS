@@ -1014,6 +1014,23 @@ export function useHostOpsConfig() {
   })
 }
 
+/** True si el conteo parece activo: en curso, o fallo marcado pero con avance reciente en Redis. */
+export function vaultSharedDriveItemCountSessionLooksBusy(
+  d: VaultSharedDriveItemCountSession | undefined,
+): boolean {
+  if (!d || d.state === 'idle') return false
+  if (d.state === 'running') return true
+  if (d.state === 'failure') {
+    const hasPartial =
+      (d.progress_items != null && d.progress_items > 0) ||
+      (d.pages_fetched != null && d.pages_fetched > 0)
+    const ms = d.progress_updated_at ? Date.parse(d.progress_updated_at) : NaN
+    const fresh = !Number.isNaN(ms) && Date.now() - ms < 45 * 60 * 1000
+    return hasPartial && fresh
+  }
+  return false
+}
+
 export function useVaultSharedDriveItemCountStart() {
   return useMutation({
     mutationFn: async (): Promise<{ task_id: string }> =>
@@ -1032,7 +1049,7 @@ export function useVaultSharedDriveItemCountSession(enabled: boolean) {
       ).data,
     enabled,
     refetchInterval: (q) =>
-      q.state.data?.state === 'running' ? 2000 : q.state.data?.state === 'failure' ? 10_000 : false,
+      vaultSharedDriveItemCountSessionLooksBusy(q.state.data) ? 2000 : q.state.data?.state === 'failure' ? 10_000 : false,
   })
 }
 

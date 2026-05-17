@@ -22,6 +22,7 @@ import {
   useStackDeployRun,
   useVaultSharedDriveItemCountStart,
   useVaultSharedDriveItemCountSession,
+  vaultSharedDriveItemCountSessionLooksBusy,
 } from '../api/hooks'
 import type { StackDeployMode, StackDeployResult } from '../api/types'
 import { VaultSharedDriveItemCountSessionPanel } from '../components/VaultSharedDriveItemCountSessionPanel'
@@ -70,12 +71,13 @@ export default function MaintenancePage() {
   const vaultCountStart = useVaultSharedDriveItemCountStart()
 
   const vaultCountBusy =
-    vaultCountStart.isPending || vaultCountSession.data?.state === 'running'
+    vaultCountStart.isPending || vaultSharedDriveItemCountSessionLooksBusy(vaultCountSession.data)
 
   const vaultToastKeyRef = useRef<string | null>(null)
   useEffect(() => {
     const d = vaultCountSession.data
     if (!d || d.state === 'idle' || d.state === 'running') return
+    if (d.state === 'failure' && vaultSharedDriveItemCountSessionLooksBusy(d)) return
     const key =
       d.state === 'success' && d.task_id
         ? `ok-${d.task_id}-${d.result ? 'r' : 'x'}`

@@ -60,13 +60,31 @@ async def vault_item_count_publish_success(task_id: str, result: dict[str, Any])
 async def vault_item_count_publish_failure(task_id: str, error: str) -> None:
     r = get_redis()
     started_at: str | None = None
+    progress_items: int | None = None
+    pages_fetched: int | None = None
+    progress_updated_at: str | None = None
     raw = await r.get(KEY)
     if raw:
         try:
             prev = json.loads(raw)
-            if str(prev.get("task_id") or "") == task_id and prev.get("started_at"):
+            ptid = str(prev.get("task_id") or "")
+            if ptid == task_id and prev.get("started_at"):
                 started_at = str(prev["started_at"])
-        except json.JSONDecodeError:
+            if ptid == task_id:
+                if prev.get("progress_items") is not None:
+                    try:
+                        progress_items = int(prev["progress_items"])
+                    except (TypeError, ValueError):
+                        progress_items = None
+                if prev.get("pages_fetched") is not None:
+                    try:
+                        pages_fetched = int(prev["pages_fetched"])
+                    except (TypeError, ValueError):
+                        pages_fetched = None
+                pu = prev.get("progress_updated_at")
+                if pu:
+                    progress_updated_at = str(pu)
+        except (json.JSONDecodeError, TypeError, ValueError):
             pass
     payload = {
         "state": "failure",
@@ -75,9 +93,9 @@ async def vault_item_count_publish_failure(task_id: str, error: str) -> None:
         "finished_at": datetime.now(UTC).isoformat(),
         "result": None,
         "error": error[:4000],
-        "progress_items": None,
-        "pages_fetched": None,
-        "progress_updated_at": None,
+        "progress_items": progress_items,
+        "pages_fetched": pages_fetched,
+        "progress_updated_at": progress_updated_at,
     }
     await r.setex(KEY, TTL_DONE_SEC, json.dumps(payload, default=str))
 

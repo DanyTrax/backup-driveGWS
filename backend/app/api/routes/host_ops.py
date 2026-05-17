@@ -134,17 +134,41 @@ async def vault_shared_drive_item_count_session_read(
     tid_cell = raw.get("task_id")
     tid_s = str(tid_cell).strip() if tid_cell else ""
 
+    def _opt_int_local(val: object) -> int | None:
+        if val is None:
+            return None
+        try:
+            return int(val)  # type: ignore[arg-type]
+        except (TypeError, ValueError):
+            return None
+
+    pi0 = _opt_int_local(raw.get("progress_items"))
+    pp0 = _opt_int_local(raw.get("pages_fetched"))
+    pu0 = str(raw["progress_updated_at"]) if raw.get("progress_updated_at") else None
+
     # Compat: encolado en broker — solo «en curso» si hay task_id; si no, Redis está corrupto.
     if st in ("pending", "queued", "received", "retry"):
         if not tid_s:
-            return VaultSharedDriveItemCountSessionOut(state="failure", error=corrupt_msg)
+            return VaultSharedDriveItemCountSessionOut(
+                state="failure",
+                error=corrupt_msg,
+                progress_items=pi0,
+                pages_fetched=pp0,
+                progress_updated_at=pu0,
+            )
         st = "running"
 
     if st not in ("running", "success", "failure"):
         return VaultSharedDriveItemCountSessionOut(state="idle")
 
     if st == "running" and not tid_s:
-        return VaultSharedDriveItemCountSessionOut(state="failure", error=corrupt_msg)
+        return VaultSharedDriveItemCountSessionOut(
+            state="failure",
+            error=corrupt_msg,
+            progress_items=pi0,
+            pages_fetched=pp0,
+            progress_updated_at=pu0,
+        )
 
     def _opt_int(val: object) -> int | None:
         if val is None:
@@ -222,6 +246,9 @@ async def vault_shared_drive_item_count_session_read(
                         finished_at=None,
                         result=None,
                         error="invalid_task_result",
+                        progress_items=pi0,
+                        pages_fetched=pp0,
+                        progress_updated_at=pu0,
                     )
                 await vault_item_count_publish_success(tid_s, ar.result)
                 return VaultSharedDriveItemCountSessionOut(
@@ -247,6 +274,9 @@ async def vault_shared_drive_item_count_session_read(
                 finished_at=None,
                 result=None,
                 error=err[:4000],
+                progress_items=pi0,
+                pages_fetched=pp0,
+                progress_updated_at=pu0,
             )
 
         sa = raw.get("started_at")
@@ -273,6 +303,9 @@ async def vault_shared_drive_item_count_session_read(
                         finished_at=None,
                         result=None,
                         error=stale,
+                        progress_items=pi0,
+                        pages_fetched=pp0,
+                        progress_updated_at=pu0,
                     )
                 if ar.state in ("STARTED", "RETRY") and age > timedelta(minutes=90):
                     stale = (
@@ -287,6 +320,9 @@ async def vault_shared_drive_item_count_session_read(
                         finished_at=None,
                         result=None,
                         error=stale,
+                        progress_items=pi0,
+                        pages_fetched=pp0,
+                        progress_updated_at=pu0,
                     )
         except (ValueError, TypeError):
             pass
