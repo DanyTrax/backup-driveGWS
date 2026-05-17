@@ -185,6 +185,20 @@ async def vault_shared_drive_item_count_session_read(
         from app.workers.celery_app import celery_app
 
         ar = AsyncResult(tid_s, app=celery_app)
+
+        # Progreso reciente en Redis = el worker sigue paginando; no usar solo el estado Celery (sin
+        # task_track_started, PENDING dura toda la ejecución y el chequeo «PENDING > 30 min» era un falso fallo).
+        pua = raw.get("progress_updated_at")
+        recent_progress = False
+        if pua:
+            try:
+                pudt = datetime.fromisoformat(str(pua).replace("Z", "+00:00"))
+                if pudt.tzinfo is None:
+                    pudt = pudt.replace(tzinfo=UTC)
+                recent_progress = datetime.now(UTC) - pudt <= timedelta(minutes=20)
+            except (ValueError, TypeError):
+                pass
+
         if ar.ready():
             if ar.successful() and isinstance(ar.result, dict):
                 try:
@@ -227,7 +241,7 @@ async def vault_shared_drive_item_count_session_read(
 
         sa = raw.get("started_at")
         try:
-            if sa:
+            if sa and not recent_progress:
                 sdt = datetime.fromisoformat(str(sa).replace("Z", "+00:00"))
                 if sdt.tzinfo is None:
                     sdt = sdt.replace(tzinfo=UTC)
