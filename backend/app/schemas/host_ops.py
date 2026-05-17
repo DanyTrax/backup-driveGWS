@@ -62,3 +62,14 @@ class VaultSharedDriveItemCountJobStateOut(BaseModel):
     state: Literal["pending", "running", "success", "failure"]
     result: VaultSharedDriveItemCountOut | None = None
     error: str | None = None
+
+
+class VaultSharedDriveItemCountSessionOut(BaseModel):
+    """Estado persistido en Redis: visible en Mantenimiento y en Logs aunque cambies de pestaña."""
+
+    state: Literal["idle", "running", "success", "failure"]
+    task_id: str | None = None
+    started_at: str | None = None
+    finished_at: str | None = None
+    result: VaultSharedDriveItemCountOut | None = None
+    error: str | None = None

@@ -562,6 +562,16 @@ export interface VaultSharedDriveItemCountJobState {
   error: string | null
 }
 
+/** GET /admin/host-ops/vault-shared-drive-item-count/session */
+export interface VaultSharedDriveItemCountSession {
+  state: 'idle' | 'running' | 'success' | 'failure'
+  task_id: string | null
+  started_at: string | null
+  finished_at: string | null
+  result: VaultSharedDriveItemCount | null
+  error: string | null
+}
+
 /** Paso devuelto por prune/deploy (salida de shell en el backend). */
 export interface HostOpsShellStep {
   cmd: string

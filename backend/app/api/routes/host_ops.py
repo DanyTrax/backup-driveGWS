@@ -22,6 +22,7 @@ from app.schemas.host_ops import (
     VaultSharedDriveItemCountJobStartOut,
     VaultSharedDriveItemCountJobStateOut,
     VaultSharedDriveItemCountOut,
+    VaultSharedDriveItemCountSessionOut,
 )
 from app.services.audit_service import record_audit
 from app.services.host_ops_service import (
@@ -31,6 +32,10 @@ from app.services.host_ops_service import (
     save_prune_schedule,
     stack_deploy_job_status,
     start_stack_deploy_detached,
+)
+from app.services.vault_shared_drive_item_count_status import (
+    vault_item_count_publish_running,
+    vault_item_count_read_session,
 )
 from app.services.settings_service import KEY_VAULT_SHARED_DRIVE_ID, get_value
 
@@ -59,6 +64,7 @@ async def vault_shared_drive_item_count_start(
             status.HTTP_503_SERVICE_UNAVAILABLE,
             detail={"error": "celery_unavailable", "message": str(exc)},
         ) from exc
+    await vault_item_count_publish_running(async_result.id)
     return VaultSharedDriveItemCountJobStartOut(task_id=async_result.id)
 
 
@@ -101,6 +107,31 @@ async def vault_shared_drive_item_count_status(
     if st == "REVOKED":
         return VaultSharedDriveItemCountJobStateOut(state="failure", result=None, error="task_revoked")
     return VaultSharedDriveItemCountJobStateOut(state="failure", result=None, error=f"unknown_state_{st}")
+
+
+@router.get("/vault-shared-drive-item-count/session", response_model=VaultSharedDriveItemCountSessionOut)
+async def vault_shared_drive_item_count_session_read(
+    _: SysUser = Depends(require_any_permission("platform.host_docker", "platform.stack_deploy")),
+) -> VaultSharedDriveItemCountSessionOut:
+    """Estado del último conteo (Redis): sirve para ver progreso o total desde Logs u otra vista."""
+    raw = await vault_item_count_read_session()
+    if not raw:
+        return VaultSharedDriveItemCountSessionOut(state="idle")
+    st = raw.get("state")
+    if st not in ("running", "success", "failure"):
+        return VaultSharedDriveItemCountSessionOut(state="idle")
+    res = raw.get("result")
+    parsed_result = (
+        VaultSharedDriveItemCountOut.model_validate(res) if isinstance(res, dict) else None
+    )
+    return VaultSharedDriveItemCountSessionOut(
+        state=st,
+        task_id=str(raw["task_id"]) if raw.get("task_id") else None,
+        started_at=str(raw["started_at"]) if raw.get("started_at") else None,
+        finished_at=str(raw["finished_at"]) if raw.get("finished_at") else None,
+        result=parsed_result,
+        error=str(raw["error"]) if raw.get("error") else None,
+    )
 
 
 @router.get("/config", response_model=HostOpsConfigOut)

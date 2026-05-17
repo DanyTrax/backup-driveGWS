@@ -15,7 +15,7 @@ import type {
   HostOpsConfig,
   HostOpsSchedule,
   VaultSharedDriveItemCount,
-  VaultSharedDriveItemCountJobState,
+  VaultSharedDriveItemCountSession,
   StackDeployJobStart,
   StackDeployJobStatus,
   StackDeployMode,
@@ -988,20 +988,17 @@ export function useVaultSharedDriveItemCountStart() {
   })
 }
 
-export function useVaultSharedDriveItemCountStatus(taskId: string | null) {
+export function useVaultSharedDriveItemCountSession(enabled: boolean) {
   return useQuery({
-    queryKey: ['vault-shared-drive-item-count', taskId],
+    queryKey: ['vault-shared-drive-item-count-session'],
     queryFn: async () =>
       (
-        await api.get<VaultSharedDriveItemCountJobState>(
-          `/admin/host-ops/vault-shared-drive-item-count/${taskId}`,
+        await api.get<VaultSharedDriveItemCountSession>(
+          '/admin/host-ops/vault-shared-drive-item-count/session',
         )
       ).data,
-    enabled: !!taskId,
-    refetchInterval: (q) => {
-      const s = q.state.data?.state
-      return s === 'success' || s === 'failure' ? false : 2500
-    },
+    enabled,
+    refetchInterval: (q) => (q.state.data?.state === 'running' ? 3000 : false),
   })
 }
 

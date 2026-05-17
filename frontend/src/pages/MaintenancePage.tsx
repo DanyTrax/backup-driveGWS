@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
 import {
   Alert,
   Button,
@@ -20,9 +21,9 @@ import {
   useStackDeployJob,
   useStackDeployRun,
   useVaultSharedDriveItemCountStart,
-  useVaultSharedDriveItemCountStatus,
+  useVaultSharedDriveItemCountSession,
 } from '../api/hooks'
-import type { StackDeployMode, StackDeployResult, VaultSharedDriveItemCount } from '../api/types'
+import type { StackDeployMode, StackDeployResult } from '../api/types'
 
 const DOW_OPTS: { v: string; label: string }[] = [
   { v: '', label: 'Todos los días' },
@@ -62,16 +63,43 @@ export default function MaintenancePage() {
   const [deployJobId, setDeployJobId] = useState<string | null>(null)
   const jobQ = useStackDeployJob(deployJobId)
 
+  const qc = useQueryClient()
+  const canHostOps = canDocker || canDeploy
+  const vaultCountSession = useVaultSharedDriveItemCountSession(canHostOps)
   const vaultCountStart = useVaultSharedDriveItemCountStart()
-  const [vaultCountTaskId, setVaultCountTaskId] = useState<string | null>(null)
-  const vaultCountStatus = useVaultSharedDriveItemCountStatus(vaultCountTaskId)
-  const [vaultCountSnapshot, setVaultCountSnapshot] = useState<VaultSharedDriveItemCount | null>(null)
 
   const vaultCountBusy =
-    vaultCountStart.isPending ||
-    (!!vaultCountTaskId &&
-      vaultCountStatus.data?.state !== 'success' &&
-      vaultCountStatus.data?.state !== 'failure')
+    vaultCountStart.isPending || vaultCountSession.data?.state === 'running'
+
+  const vaultCountSnapshot =
+    vaultCountSession.data?.state === 'success' && vaultCountSession.data.result
+      ? vaultCountSession.data.result
+      : null
+
+  const vaultSessionFailed =
+    vaultCountSession.data?.state === 'failure' ? vaultCountSession.data.error : null
+
+  const vaultToastKeyRef = useRef<string | null>(null)
+  useEffect(() => {
+    const d = vaultCountSession.data
+    if (!d || d.state === 'idle' || d.state === 'running') return
+    const key =
+      d.state === 'success' && d.task_id
+        ? `ok-${d.task_id}`
+        : d.state === 'failure' && d.task_id
+          ? `fail-${d.task_id}`
+          : d.state === 'failure'
+            ? `fail-${d.finished_at ?? 'x'}`
+            : null
+    if (!key || vaultToastKeyRef.current === key) return
+    vaultToastKeyRef.current = key
+    if (d.state === 'success' && d.result) {
+      if (d.result.ok) toast.success('Conteo del Drive de respaldo listo.')
+      else toast.error(d.result.error ?? 'No se pudo completar el conteo')
+    } else if (d.state === 'failure') {
+      toast.error(d.error ?? 'Falló el conteo en el worker')
+    }
+  }, [vaultCountSession.data])
 
   const stackTermScrollRef = useRef<HTMLDivElement>(null)
   const [stackTerm, setStackTerm] = useState<StackDeployTerminalState>({ kind: 'idle' })
@@ -141,20 +169,6 @@ export default function MaintenancePage() {
       }
     }
   }, [jobQ.data, deployJobId])
-
-  useEffect(() => {
-    const d = vaultCountStatus.data
-    if (!d || !vaultCountTaskId) return
-    if (d.state === 'success' && d.result) {
-      setVaultCountSnapshot(d.result)
-      if (d.result.ok) toast.success('Conteo del Drive de respaldo listo.')
-      else toast.error(d.result.error ?? 'No se pudo completar el conteo')
-      setVaultCountTaskId(null)
-    } else if (d.state === 'failure') {
-      toast.error(d.error ?? 'Falló el conteo en el worker')
-      setVaultCountTaskId(null)
-    }
-  }, [vaultCountStatus.data, vaultCountTaskId])
 
   if (!canDocker && !canDeploy) {
     return (
@@ -266,8 +280,8 @@ export default function MaintenancePage() {
               <span className="font-medium text-slate-800 dark:text-slate-200">400.000 ítems</span> (archivos y carpetas).
               Podés pedir un conteo completo del Drive configurado en el asistente (vault) para ver cuántos ítems hay hoy y
               cuánto margen queda. El recorrido se ejecuta en el <strong>worker Celery</strong> (varios minutos si hay
-              cientos de miles de archivos), así evitamos cortes del proxy (504). Podés seguir usando el panel; el
-              resultado aparece abajo al terminar.
+              cientos de miles de archivos), así evitamos cortes del proxy (504). El estado y el total también aparecen en{' '}
+              <strong>Historial (Logs)</strong> mientras corre y al terminar (persistido en Redis).
             </p>
             <div className="flex flex-wrap items-center gap-2">
               <Button
@@ -276,10 +290,10 @@ export default function MaintenancePage() {
                 onClick={() => {
                   void vaultCountStart
                     .mutateAsync()
-                    .then((r) => {
-                      setVaultCountTaskId(r.task_id)
+                    .then(() => {
+                      void qc.invalidateQueries({ queryKey: ['vault-shared-drive-item-count-session'] })
                       toast.success(
-                        'Conteo encolado en el worker. Podés cambiar de pestaña; el panel consulta cada pocos segundos.',
+                        'Conteo encolado en el worker. Seguí el avance en esta página o en Historial (Logs).',
                       )
                     })
                     .catch((e: unknown) => {
@@ -295,6 +309,11 @@ export default function MaintenancePage() {
               </Button>
               {vaultCountBusy ? <Spinner size="sm" className="inline" /> : null}
             </div>
+            {vaultSessionFailed ? (
+              <Alert className="mt-4" color="failure">
+                {vaultSessionFailed}
+              </Alert>
+            ) : null}
             {vaultCountSnapshot ? (
               <div className="mt-4 text-sm space-y-2">
                 {vaultCountSnapshot.shared_drive_name || vaultCountSnapshot.shared_drive_id ? (
