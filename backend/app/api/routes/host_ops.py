@@ -1,6 +1,8 @@
 """Mantenimiento Docker del host y despliegue de la pila (opcional, super admin)."""
 from __future__ import annotations
 
+from datetime import UTC, datetime, timedelta
+
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import ValidationError
 from sqlalchemy.exc import DBAPIError
@@ -35,7 +37,9 @@ from app.services.host_ops_service import (
     start_stack_deploy_detached,
 )
 from app.services.vault_shared_drive_item_count_status import (
+    vault_item_count_publish_failure,
     vault_item_count_publish_running,
+    vault_item_count_publish_success,
     vault_item_count_read_session,
 )
 from app.services.settings_service import KEY_VAULT_SHARED_DRIVE_ID, get_value
@@ -121,12 +125,26 @@ async def vault_shared_drive_item_count_session_read(
     st = raw.get("state")
     if isinstance(st, str):
         st = st.strip().lower()
-    # Compat: estados tipo broker/Celery antes de que el worker escriba "running"
+
+    corrupt_msg = (
+        "Redis devolvió una sesión incompleta (sin id de tarea o sin datos coherentes). "
+        "Ejecutá de nuevo el conteo o borrá la clave host_ops:vault_shared_drive_item_count:status en Redis."
+    )
+
+    tid_cell = raw.get("task_id")
+    tid_s = str(tid_cell).strip() if tid_cell else ""
+
+    # Compat: encolado en broker — solo «en curso» si hay task_id; si no, Redis está corrupto.
     if st in ("pending", "queued", "received", "retry"):
+        if not tid_s:
+            return VaultSharedDriveItemCountSessionOut(state="failure", error=corrupt_msg)
         st = "running"
+
     if st not in ("running", "success", "failure"):
         return VaultSharedDriveItemCountSessionOut(state="idle")
-    res = raw.get("result")
+
+    if st == "running" and not tid_s:
+        return VaultSharedDriveItemCountSessionOut(state="failure", error=corrupt_msg)
 
     def _opt_int(val: object) -> int | None:
         if val is None:
@@ -136,29 +154,116 @@ async def vault_shared_drive_item_count_session_read(
         except (TypeError, ValueError):
             return None
 
-    parsed_result = None
-    result_parse_error = None
-    if st == "success":
-        if isinstance(res, dict):
-            try:
-                parsed_result = VaultSharedDriveItemCountOut.model_validate(res)
-            except ValidationError:
-                result_parse_error = "resultado_almacenado_invalido"
-        elif res is not None:
-            result_parse_error = "resultado_almacenado_invalido"
+    def _session_body_from_raw(state_ok: str) -> VaultSharedDriveItemCountSessionOut:
+        res = raw.get("result")
+        parsed_result_inner = None
+        result_parse_error_inner = None
+        if state_ok == "success":
+            if isinstance(res, dict):
+                try:
+                    parsed_result_inner = VaultSharedDriveItemCountOut.model_validate(res)
+                except ValidationError:
+                    result_parse_error_inner = "resultado_almacenado_invalido"
+            elif res is not None:
+                result_parse_error_inner = "resultado_almacenado_invalido"
+        return VaultSharedDriveItemCountSessionOut(
+            state=state_ok,  # type: ignore[arg-type]
+            task_id=tid_s or (str(raw["task_id"]) if raw.get("task_id") else None),
+            started_at=str(raw["started_at"]) if raw.get("started_at") else None,
+            finished_at=str(raw["finished_at"]) if raw.get("finished_at") else None,
+            result=parsed_result_inner,
+            error=str(raw["error"]) if raw.get("error") else None,
+            progress_items=_opt_int(raw.get("progress_items")),
+            pages_fetched=_opt_int(raw.get("pages_fetched")),
+            progress_updated_at=str(raw["progress_updated_at"]) if raw.get("progress_updated_at") else None,
+            result_parse_error=result_parse_error_inner,
+        )
 
-    return VaultSharedDriveItemCountSessionOut(
-        state=st,
-        task_id=str(raw["task_id"]) if raw.get("task_id") else None,
-        started_at=str(raw["started_at"]) if raw.get("started_at") else None,
-        finished_at=str(raw["finished_at"]) if raw.get("finished_at") else None,
-        result=parsed_result,
-        error=str(raw["error"]) if raw.get("error") else None,
-        progress_items=_opt_int(raw.get("progress_items")),
-        pages_fetched=_opt_int(raw.get("pages_fetched")),
-        progress_updated_at=str(raw["progress_updated_at"]) if raw.get("progress_updated_at") else None,
-        result_parse_error=result_parse_error,
-    )
+    if st == "running":
+        from celery.result import AsyncResult
+
+        from app.workers.celery_app import celery_app
+
+        ar = AsyncResult(tid_s, app=celery_app)
+        if ar.ready():
+            if ar.successful() and isinstance(ar.result, dict):
+                try:
+                    parsed_live = VaultSharedDriveItemCountOut.model_validate(ar.result)
+                except ValidationError:
+                    await vault_item_count_publish_failure(tid_s, "invalid_task_result")
+                    return VaultSharedDriveItemCountSessionOut(
+                        state="failure",
+                        task_id=tid_s,
+                        started_at=str(raw["started_at"]) if raw.get("started_at") else None,
+                        finished_at=None,
+                        result=None,
+                        error="invalid_task_result",
+                    )
+                await vault_item_count_publish_success(tid_s, ar.result)
+                return VaultSharedDriveItemCountSessionOut(
+                    state="success",
+                    task_id=tid_s,
+                    started_at=str(raw["started_at"]) if raw.get("started_at") else None,
+                    finished_at=None,
+                    result=parsed_live,
+                    error=None,
+                    progress_items=None,
+                    pages_fetched=None,
+                    progress_updated_at=None,
+                    result_parse_error=None,
+                )
+            err = str(ar.info) if ar.info is not None else "task_failed"
+            if ar.state == "REVOKED":
+                err = "task_revoked"
+            await vault_item_count_publish_failure(tid_s, err[:4000])
+            return VaultSharedDriveItemCountSessionOut(
+                state="failure",
+                task_id=tid_s,
+                started_at=str(raw["started_at"]) if raw.get("started_at") else None,
+                finished_at=None,
+                result=None,
+                error=err[:4000],
+            )
+
+        sa = raw.get("started_at")
+        try:
+            if sa:
+                sdt = datetime.fromisoformat(str(sa).replace("Z", "+00:00"))
+                if sdt.tzinfo is None:
+                    sdt = sdt.replace(tzinfo=UTC)
+                age = datetime.now(UTC) - sdt
+                if ar.state in ("PENDING", "RECEIVED") and age > timedelta(minutes=30):
+                    stale = (
+                        "La tarea lleva más de 30 minutos en cola sin avance en Celery (PENDING/RECEIVED). "
+                        "Comprobá el contenedor worker, el broker y que use el mismo Redis que esta app."
+                    )
+                    await vault_item_count_publish_failure(tid_s, stale)
+                    return VaultSharedDriveItemCountSessionOut(
+                        state="failure",
+                        task_id=tid_s,
+                        started_at=str(raw["started_at"]) if raw.get("started_at") else None,
+                        finished_at=None,
+                        result=None,
+                        error=stale,
+                    )
+                if ar.state in ("STARTED", "RETRY") and age > timedelta(minutes=90):
+                    stale = (
+                        "La sesión lleva más de 90 minutos sin resultado en Celery (el job tiene límite ~55 min). "
+                        "Probable worker caído o Redis desincronizado. Revisá logs del worker y reejecutá el conteo."
+                    )
+                    await vault_item_count_publish_failure(tid_s, stale)
+                    return VaultSharedDriveItemCountSessionOut(
+                        state="failure",
+                        task_id=tid_s,
+                        started_at=str(raw["started_at"]) if raw.get("started_at") else None,
+                        finished_at=None,
+                        result=None,
+                        error=stale,
+                    )
+        except (ValueError, TypeError):
+            pass
+
+    return _session_body_from_raw(st)
 
 
 @router.get("/config", response_model=HostOpsConfigOut)

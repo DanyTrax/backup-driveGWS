@@ -26,11 +26,17 @@ function useNowTick(active: boolean) {
   return now
 }
 
-function normalizeSessionState(s: string | undefined | null): string {
+function normalizeSessionState(
+  s: string | undefined | null,
+  taskId: string | undefined | null,
+): string {
   if (s == null || String(s).trim() === '') return 'unknown'
   const x = String(s).trim().toLowerCase()
-  // Misma semántica que el API: encolado / broker → UI de "en curso"
-  if (x === 'pending' || x === 'queued' || x === 'received' || x === 'retry') return 'running'
+  // Misma semántica que el API: encolado → "en curso" solo si hay task_id
+  if (x === 'pending' || x === 'queued' || x === 'received' || x === 'retry') {
+    if (taskId == null || String(taskId).trim() === '') return 'failure'
+    return 'running'
+  }
   return x
 }
 
@@ -51,7 +57,11 @@ export function VaultSharedDriveItemCountSessionPanel({
   session: VaultSharedDriveItemCountSession
   showHeading?: boolean
 }) {
-  const st = normalizeSessionState(session.state)
+  const stRaw = normalizeSessionState(session.state, session.task_id)
+  const st =
+    stRaw === 'running' && (session.task_id == null || String(session.task_id).trim() === '')
+      ? 'failure'
+      : stRaw
   const running = st === 'running'
   const now = useNowTick(running)
 
@@ -181,7 +191,10 @@ export function VaultSharedDriveItemCountSessionPanel({
 
       {st === 'failure' ? (
         <p className="text-red-700 dark:text-red-300">
-          {session.error ?? 'Falló el job de conteo en el worker.'}
+          {session.error ??
+            (stRaw === 'running'
+              ? 'Sesión «en curso» sin id de tarea en el servidor (Redis incompleto). Reejecutá el conteo o limpiá la clave en Redis.'
+              : 'Falló el job de conteo en el worker.')}
         </p>
       ) : null}
 
