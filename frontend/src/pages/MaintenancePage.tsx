@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { useQueryClient } from '@tanstack/react-query'
 import {
   Alert,
   Button,
@@ -11,7 +10,7 @@ import {
   TextInput,
 } from 'flowbite-react'
 import toast from 'react-hot-toast'
-import { HiServer, HiTrash, HiFolder } from 'react-icons/hi'
+import { HiServer, HiTrash } from 'react-icons/hi'
 import {
   useCleanupGybZipTmpRun,
   useDockerPruneRun,
@@ -20,12 +19,8 @@ import {
   useProfile,
   useStackDeployJob,
   useStackDeployRun,
-  useVaultSharedDriveItemCountStart,
-  useVaultSharedDriveItemCountSession,
-  vaultSharedDriveItemCountSessionLooksBusy,
 } from '../api/hooks'
 import type { StackDeployMode, StackDeployResult } from '../api/types'
-import { VaultSharedDriveItemCountSessionPanel } from '../components/VaultSharedDriveItemCountSessionPanel'
 
 const DOW_OPTS: { v: string; label: string }[] = [
   { v: '', label: 'Todos los días' },
@@ -64,42 +59,6 @@ export default function MaintenancePage() {
   const deployMut = useStackDeployRun()
   const [deployJobId, setDeployJobId] = useState<string | null>(null)
   const jobQ = useStackDeployJob(deployJobId)
-
-  const qc = useQueryClient()
-  const canHostOps = canDocker || canDeploy
-  const vaultCountSession = useVaultSharedDriveItemCountSession(canHostOps)
-  const vaultCountStart = useVaultSharedDriveItemCountStart()
-
-  const vaultCountBusy =
-    vaultCountStart.isPending || vaultSharedDriveItemCountSessionLooksBusy(vaultCountSession.data)
-
-  const vaultToastKeyRef = useRef<string | null>(null)
-  useEffect(() => {
-    const d = vaultCountSession.data
-    if (!d || d.state === 'idle' || d.state === 'running') return
-    if (d.state === 'failure' && vaultSharedDriveItemCountSessionLooksBusy(d)) return
-    const key =
-      d.state === 'success' && d.task_id
-        ? `ok-${d.task_id}-${d.result ? 'r' : 'x'}`
-        : d.state === 'failure' && d.task_id
-          ? `fail-${d.task_id}`
-          : d.state === 'failure'
-            ? `fail-${d.finished_at ?? 'x'}`
-            : null
-    if (!key || vaultToastKeyRef.current === key) return
-    vaultToastKeyRef.current = key
-    if (d.state === 'success' && d.result) {
-      if (d.result.ok) toast.success('Conteo del Drive de respaldo listo.')
-      else toast.error(d.result.error ?? 'No se pudo completar el conteo')
-    } else if (d.state === 'success' && !d.result) {
-      toast.error(
-        'Conteo marcado como finalizado pero sin totales en Redis. Revisá el worker Celery y volvé a ejecutar.',
-        { duration: 10_000 },
-      )
-    } else if (d.state === 'failure') {
-      toast.error(d.error ?? 'Falló el conteo en el worker')
-    }
-  }, [vaultCountSession.data])
 
   const stackTermScrollRef = useRef<HTMLDivElement>(null)
   const [stackTerm, setStackTerm] = useState<StackDeployTerminalState>({ kind: 'idle' })
@@ -269,54 +228,6 @@ export default function MaintenancePage() {
               </li>
             </ul>
           </Alert>
-
-          <Card>
-            <div className="flex items-center gap-2 mb-3">
-              <HiFolder className="h-5 w-5 text-slate-600 dark:text-slate-400" />
-              <h2 className="text-lg font-medium">Unidad de respaldo en Google Drive</h2>
-            </div>
-            <p className="text-sm text-slate-600 dark:text-slate-400 mb-4">
-              Google limita cada unidad compartida a unos{' '}
-              <span className="font-medium text-slate-800 dark:text-slate-200">400.000 ítems</span> (archivos y carpetas).
-              Podés pedir un conteo completo del Drive configurado en el asistente (vault) para ver cuántos ítems hay hoy y
-              cuánto margen queda. El recorrido se ejecuta en el <strong>worker Celery</strong> (varios minutos si hay
-              cientos de miles de archivos), así evitamos cortes del proxy (504). El estado y el total se muestran en esta
-              misma página (persistido en Redis) mientras corre y al terminar.
-            </p>
-            <div className="flex flex-wrap items-center gap-2">
-              <Button
-                color="light"
-                disabled={vaultCountBusy}
-                onClick={() => {
-                  void vaultCountStart
-                    .mutateAsync()
-                    .then(() => {
-                      void qc.invalidateQueries({ queryKey: ['vault-shared-drive-item-count-session'] })
-                      void qc.refetchQueries({ queryKey: ['vault-shared-drive-item-count-session'] })
-                      toast.success('Conteo encolado en el worker. Seguí el avance en esta página (Mantenimiento).')
-                    })
-                    .catch((e: unknown) => {
-                      const msg =
-                        e && typeof e === 'object' && 'message' in e
-                          ? String((e as { message?: string }).message)
-                          : 'Error de red o Redis/Celery (revisá que el worker esté arriba).'
-                      toast.error(msg)
-                    })
-                }}
-              >
-                {vaultCountBusy ? 'Contando ítems…' : 'Contar ítems en el Drive de respaldo'}
-              </Button>
-              {vaultCountBusy ? <Spinner size="sm" className="inline" /> : null}
-            </div>
-            {vaultCountSession.data && vaultCountSession.data.state !== 'idle' ? (
-              <div className="mt-4 rounded-lg border border-blue-200 dark:border-blue-800 bg-blue-50/50 dark:bg-blue-950/25 p-4">
-                <VaultSharedDriveItemCountSessionPanel
-                  session={vaultCountSession.data}
-                  showHeading={false}
-                />
-              </div>
-            ) : null}
-          </Card>
 
           {canDocker ? (
             <Card>

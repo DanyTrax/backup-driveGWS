@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Awaitable, Callable
 from typing import Any
 
 from googleapiclient.discovery import build
@@ -15,9 +14,6 @@ from app.services.computers_folder_names import (
     is_computers_backup_root_folder_name,
 )
 from app.services.google.credentials import drive_credentials
-
-GOOGLE_SHARED_DRIVE_MAX_ITEMS = 400_000
-"""Límite aproximado de ítems (archivos + carpetas) por unidad compartida en Google Drive."""
 
 
 async def build_drive_service(db: AsyncSession, subject: str | None = None):
@@ -394,80 +390,6 @@ async def id_is_under_vault_folder(
             return False
         current = parents[0]
     return False
-
-
-async def count_shared_drive_all_items(
-    db: AsyncSession,
-    *,
-    drive_id: str,
-    on_page_progress: Callable[[int, int], Awaitable[None]] | None = None,
-) -> dict[str, Any]:
-    """Cuenta todos los ítems no eliminados de una unidad compartida (archivos + carpetas).
-
-    Sirve para comparar con el límite de ~400.000 ítems de Google por unidad de respaldo.
-    """
-    drive_id = (drive_id or "").strip()
-    if not drive_id:
-        return {
-            "ok": False,
-            "error": "missing_shared_drive_id",
-            "total_items": 0,
-            "file_count": 0,
-            "folder_count": 0,
-        }
-
-    service = await _build_service(db)
-
-    def _page(token: str | None) -> dict[str, Any]:
-        kwargs: dict[str, Any] = {
-            "corpora": "drive",
-            "driveId": drive_id,
-            "q": "trashed = false",
-            "fields": "nextPageToken, files(mimeType)",
-            "pageSize": 1000,
-            "supportsAllDrives": True,
-            "includeItemsFromAllDrives": True,
-        }
-        if token:
-            kwargs["pageToken"] = token
-        return service.files().list(**kwargs).execute()
-
-    total = 0
-    files_n = 0
-    folders_n = 0
-    token: str | None = None
-    pages_fetched = 0
-    try:
-        while True:
-            resp = await asyncio.to_thread(_page, token)
-            for f in resp.get("files") or []:
-                total += 1
-                mime = str(f.get("mimeType") or "")
-                if mime == "application/vnd.google-apps.folder":
-                    folders_n += 1
-                else:
-                    files_n += 1
-            pages_fetched += 1
-            if on_page_progress:
-                await on_page_progress(total, pages_fetched)
-            token = resp.get("nextPageToken")
-            if not token:
-                break
-        return {
-            "ok": True,
-            "error": None,
-            "total_items": total,
-            "file_count": files_n,
-            "folder_count": folders_n,
-        }
-    except HttpError as exc:
-        return {
-            "ok": False,
-            "error": f"drive_http_{exc.resp.status}",
-            "total_items": total,
-            "file_count": files_n,
-            "folder_count": folders_n,
-        }
 
 
 async def list_drive_folder_children_page(

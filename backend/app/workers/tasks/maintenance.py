@@ -166,37 +166,6 @@ def dispatch_scheduled_backups() -> dict[str, Any]:
     return run_async(with_session(inner))
 
 
-@celery_app.task(
-    bind=True,
-    name="app.workers.tasks.maintenance.vault_shared_drive_item_count",
-    soft_time_limit=60 * 55,
-    time_limit=60 * 58,
-)
-def vault_shared_drive_item_count(self) -> dict[str, Any]:
-    """Cuenta ítems en la Shared Drive vault (Drive API paginada; puede tardar >10 min)."""
-    from app.services.host_ops_service import compute_vault_shared_drive_item_count
-    from app.services.vault_shared_drive_item_count_status import (
-        vault_item_count_publish_failure,
-        vault_item_count_publish_running,
-        vault_item_count_publish_success,
-    )
-
-    tid = str(self.request.id)
-
-    async def inner(db: AsyncSession) -> dict[str, Any]:
-        await vault_item_count_publish_running(tid)
-        try:
-            out = await compute_vault_shared_drive_item_count(db, publish_page_progress=True)
-            data = out.model_dump()
-            await vault_item_count_publish_success(tid, data)
-            return data
-        except Exception as exc:  # noqa: BLE001
-            await vault_item_count_publish_failure(tid, str(exc))
-            raise
-
-    return run_async(with_session(inner))
-
-
 @celery_app.task(name="app.workers.tasks.maintenance.cleanup_gyb_zip_tmp")
 def cleanup_gyb_zip_tmp() -> dict[str, Any]:
     """Ejecutar en worker: borra ``/tmp/msa_gyb_zip_*`` en ese contenedor."""

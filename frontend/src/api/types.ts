@@ -567,41 +567,6 @@ export interface HostOpsConfig {
   schedule: HostOpsSchedule
 }
 
-/** POST /admin/host-ops/vault-shared-drive-item-count — encola job Celery */
-export interface VaultSharedDriveItemCount {
-  ok: boolean
-  shared_drive_id: string | null
-  shared_drive_name: string | null
-  vault_root_folder_id: string | null
-  total_items: number
-  file_count: number
-  folder_count: number
-  item_limit: number
-  remaining_until_limit: number | null
-  error: string | null
-}
-
-/** GET /admin/host-ops/vault-shared-drive-item-count/{task_id} */
-export interface VaultSharedDriveItemCountJobState {
-  state: 'pending' | 'running' | 'success' | 'failure'
-  result: VaultSharedDriveItemCount | null
-  error: string | null
-}
-
-/** GET /admin/host-ops/vault-shared-drive-item-count/session */
-export interface VaultSharedDriveItemCountSession {
-  state: 'idle' | 'running' | 'success' | 'failure'
-  task_id: string | null
-  started_at: string | null
-  finished_at: string | null
-  result: VaultSharedDriveItemCount | null
-  error: string | null
-  progress_items?: number | null
-  pages_fetched?: number | null
-  progress_updated_at?: string | null
-  result_parse_error?: string | null
-}
-
 /** Paso devuelto por prune/deploy (salida de shell en el backend). */
 export interface HostOpsShellStep {
   cmd: string

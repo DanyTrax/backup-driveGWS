@@ -30,8 +30,6 @@ celery_app.conf.update(
     accept_content=["json"],
     timezone=settings.tz,
     enable_utc=True,
-    # Sin esto, AsyncResult queda PENDING hasta el final y el API puede confundir «en cola» con tareas largas.
-    task_track_started=True,
     task_acks_late=True,
     task_reject_on_worker_lost=True,
     worker_prefetch_multiplier=1,

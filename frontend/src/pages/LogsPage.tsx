@@ -536,6 +536,15 @@ export default function LogsPage() {
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-semibold">Historial de ejecuciones</h1>
+        <p className="text-slate-500">
+          Hacé clic en una fila para ver el detalle completo (IDs, rutas, error del servidor). Incluye{' '}
+          <strong>backups programados</strong> y, si tenés permiso de bóveda, las{' '}
+          <strong>materializaciones vault ZIP → servidor</strong> (mismo esquema de filas y telemetría en
+          vivo cuando el worker publica progreso). Podés cancelar una cuenta en curso o todo el lote desde el
+          botón de la fila; eliminar filas finalizadas con la X; exportar el listado actual de backups a PDF
+          o borrar en bloque las filas visibles de backup (no borra ejecuciones «running» ni sesiones de
+          materialización).
+        </p>
       </div>
       <Card>
         <div className="flex gap-3 flex-wrap items-center">
