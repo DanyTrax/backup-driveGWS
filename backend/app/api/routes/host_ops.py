@@ -121,6 +121,9 @@ async def vault_shared_drive_item_count_session_read(
     st = raw.get("state")
     if isinstance(st, str):
         st = st.strip().lower()
+    # Compat: estados tipo broker/Celery antes de que el worker escriba "running"
+    if st in ("pending", "queued", "received", "retry"):
+        st = "running"
     if st not in ("running", "success", "failure"):
         return VaultSharedDriveItemCountSessionOut(state="idle")
     res = raw.get("result")

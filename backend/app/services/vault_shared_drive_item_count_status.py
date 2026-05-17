@@ -13,10 +13,13 @@ TTL_DONE_SEC = 86400 * 7
 
 
 async def vault_item_count_publish_running(task_id: str) -> None:
+    tid = str(task_id or "").strip()
+    if not tid:
+        raise ValueError("vault_item_count_publish_running requires non-empty task_id")
     now = datetime.now(UTC).isoformat()
     payload = {
         "state": "running",
-        "task_id": task_id,
+        "task_id": tid,
         "started_at": now,
         "finished_at": None,
         "result": None,

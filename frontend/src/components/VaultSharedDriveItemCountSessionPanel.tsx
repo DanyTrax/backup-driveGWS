@@ -28,7 +28,10 @@ function useNowTick(active: boolean) {
 
 function normalizeSessionState(s: string | undefined | null): string {
   if (s == null || String(s).trim() === '') return 'unknown'
-  return String(s).trim().toLowerCase()
+  const x = String(s).trim().toLowerCase()
+  // Misma semántica que el API: encolado / broker → UI de "en curso"
+  if (x === 'pending' || x === 'queued' || x === 'received' || x === 'retry') return 'running'
+  return x
 }
 
 function CssSpinner({ className = '' }: { className?: string }) {
