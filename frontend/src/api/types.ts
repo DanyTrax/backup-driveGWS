@@ -521,6 +521,32 @@ export interface PlatformBackupResult {
   retention_deleted?: string[]
 }
 
+export interface PlatformBackupDriveFile {
+  id: string
+  name: string
+  created_time?: string | null
+}
+
+export interface PlatformBackupContext {
+  vault_configured: boolean
+  shared_drive_id?: string | null
+  shared_drive_name?: string | null
+  vault_root_folder_id?: string | null
+  platform_backup_folder_id?: string | null
+  folder_url?: string | null
+  vault_root_url?: string | null
+  recent_backups: PlatformBackupDriveFile[]
+  includes_summary: string
+  incoming_path_container: string
+}
+
+export interface PlatformBackupUploadResult {
+  ok: boolean
+  local_path?: string | null
+  drive_file_id?: string | null
+  error?: string | null
+}
+
 export interface HostOpsSchedule {
   enabled: boolean
   preset: 'light' | 'deep'

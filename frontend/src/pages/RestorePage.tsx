@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { Badge, Button, Card, Label, Select, TextInput } from 'flowbite-react'
+import { Alert, Badge, Button, Card, Checkbox, Label, Select, TextInput } from 'flowbite-react'
 import { Link } from 'react-router-dom'
 import { HiTrash, HiX } from 'react-icons/hi'
 import toast from 'react-hot-toast'
@@ -13,9 +13,11 @@ import {
   useGmailVaultMaterializeRecent,
   useProfile,
   usePromoteGmailVaultMaterialize,
+  usePlatformBackupContext,
+  usePlatformBackupUpload,
   useRestoreJobs,
 } from '../api/hooks'
-import type { GmailVaultMaterializeListItem, RestoreJob } from '../api/types'
+import type { GmailVaultMaterializeListItem, PlatformBackupContext, RestoreJob } from '../api/types'
 
 function formatApiErr(err: unknown): string {
   const ax = err as AxiosError<{ detail?: unknown }>
@@ -34,6 +36,154 @@ function materializeZipProgressText(m: GmailVaultMaterializeListItem): string {
   if (d != null && p != null) return `${d}/${p}`
   if (p != null) return `0/${p}`
   return '—'
+}
+
+function PlatformBackupContextPanel({
+  ctx,
+  canUpload,
+  pbAlsoDrive,
+  setPbAlsoDrive,
+  platformUpload,
+}: {
+  ctx: PlatformBackupContext
+  canUpload: boolean
+  pbAlsoDrive: boolean
+  setPbAlsoDrive: (v: boolean) => void
+  platformUpload: ReturnType<typeof usePlatformBackupUpload>
+}) {
+  async function onPickAge(e: React.ChangeEvent<HTMLInputElement>) {
+    const f = e.target.files?.[0]
+    e.target.value = ''
+    if (!f) return
+    try {
+      const r = await platformUpload.mutateAsync({ file: f, alsoUploadToDrive: pbAlsoDrive })
+      if (r.ok) {
+        toast.success(
+          r.drive_file_id
+            ? 'Archivo guardado en el volumen y subido a Platform-Backups en Drive.'
+            : `Archivo guardado en el contenedor${r.local_path ? `: ${r.local_path}` : ''}.`,
+        )
+      } else {
+        toast.error((r.error ?? 'Falló la operación').slice(0, 380))
+      }
+    } catch (err) {
+      toast.error(formatApiErr(err).slice(0, 380))
+    }
+  }
+
+  return (
+    <div className="space-y-4 text-sm">
+      {!ctx.vault_configured ? (
+        <Alert color="warning">
+          La bóveda de Drive no está configurada por completo. Completá el asistente inicial para asignar la unidad
+          compartida y la carpeta raíz del vault.
+        </Alert>
+      ) : null}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-slate-700 dark:text-slate-300">
+        <div>
+          <span className="text-slate-500 dark:text-slate-400">Unidad compartida (vault):</span>{' '}
+          <span className="font-medium">{ctx.shared_drive_name ?? '—'}</span>
+          {ctx.shared_drive_id ? (
+            <code className="block text-xs mt-1 break-all text-slate-500">{ctx.shared_drive_id}</code>
+          ) : null}
+        </div>
+        <div>
+          <span className="text-slate-500 dark:text-slate-400">Carpeta Platform-Backups (ID):</span>{' '}
+          <span className="font-medium font-mono text-xs break-all">
+            {ctx.platform_backup_folder_id ?? '— (se crea al primer backup)'}
+          </span>
+        </div>
+      </div>
+      <div className="flex flex-wrap gap-x-4 gap-y-1">
+        {ctx.folder_url ? (
+          <a
+            href={ctx.folder_url}
+            target="_blank"
+            rel="noreferrer"
+            className="text-blue-600 dark:text-blue-400 text-sm font-medium"
+          >
+            Abrir Platform-Backups en Google Drive
+          </a>
+        ) : null}
+        {ctx.vault_root_url ? (
+          <a
+            href={ctx.vault_root_url}
+            target="_blank"
+            rel="noreferrer"
+            className="text-blue-600 dark:text-blue-400 text-sm"
+          >
+            Abrir raíz de la bóveda
+          </a>
+        ) : null}
+      </div>
+      <p className="text-xs text-slate-500 dark:text-slate-400 border-t border-slate-100 dark:border-slate-800 pt-3">
+        {ctx.includes_summary}
+      </p>
+      <p className="text-xs text-slate-500 dark:text-slate-400">
+        Subidas manuales en el contenedor: <code className="text-xs">{ctx.incoming_path_container}</code>
+      </p>
+      {ctx.recent_backups.length > 0 ? (
+        <div className="overflow-x-auto">
+          <p className="text-slate-600 dark:text-slate-400 mb-2 font-medium text-sm">Archivos recientes en Drive</p>
+          <table className="min-w-full text-sm">
+            <thead className="text-left text-slate-500">
+              <tr>
+                <th className="py-2 pr-2">Nombre</th>
+                <th className="pr-2">Creado</th>
+                <th className="text-right w-24">Enlace</th>
+              </tr>
+            </thead>
+            <tbody>
+              {ctx.recent_backups.map((f) => (
+                <tr key={f.id} className="border-t border-slate-100 dark:border-slate-800">
+                  <td className="py-2 pr-2 max-w-[20rem] truncate" title={f.name}>
+                    {f.name}
+                  </td>
+                  <td className="pr-2 text-xs text-slate-500 whitespace-nowrap">{f.created_time ?? '—'}</td>
+                  <td className="text-right">
+                    <a
+                      href={`https://drive.google.com/file/d/${f.id}/view`}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-blue-600 dark:text-blue-400 text-xs"
+                    >
+                      Ver en Drive
+                    </a>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        <p className="text-slate-500 text-sm">
+          No hay archivos listados todavía. Tras el primer backup exitoso deberían aparecer aquí los{' '}
+          <code className="text-xs">.age</code>.
+        </p>
+      )}
+      {canUpload ? (
+        <div className="border-t border-slate-100 dark:border-slate-800 pt-4 space-y-3">
+          <Label value="Subir un archivo .age (si no está en Drive u otra copia)" />
+          <div className="flex flex-wrap items-center gap-2">
+            <Checkbox id="pb-also-drive" checked={pbAlsoDrive} onChange={(e) => setPbAlsoDrive(e.target.checked)} />
+            <Label htmlFor="pb-also-drive" value="Subir también a Google Drive (Platform-Backups)" className="cursor-pointer" />
+          </div>
+          <input
+            type="file"
+            accept=".age"
+            disabled={platformUpload.isPending}
+            className="block w-full text-sm text-slate-600 dark:text-slate-400 file:mr-3 file:rounded-lg file:border-0 file:bg-slate-200 file:px-3 file:py-2 dark:file:bg-slate-700"
+            onChange={(ev) => void onPickAge(ev)}
+          />
+        </div>
+      ) : (
+        <p className="text-xs text-amber-800 dark:text-amber-300">
+          Tu rol puede ver la ubicación en Drive; para subir archivos necesitás{' '}
+          <code className="text-xs">platform.backup</code>.
+        </p>
+      )}
+    </div>
+  )
 }
 
 const RESTORE_STATUS_OPTIONS: { value: string; label: string }[] = [
@@ -82,6 +232,12 @@ export default function RestorePage() {
   const perms = new Set(profile?.permissions ?? [])
   const canDeleteRestore = perms.has('restore.delete')
   const canCancelRestore = perms.has('restore.cancel')
+  const canPlatformCtx = perms.has('platform.backup') || perms.has('restore.view')
+  const canPlatformUpload = perms.has('platform.backup')
+
+  const { data: platformCtx, isLoading: platformCtxLoading } = usePlatformBackupContext(canPlatformCtx)
+  const platformUpload = usePlatformBackupUpload()
+  const [pbAlsoDrive, setPbAlsoDrive] = useState(true)
 
   const [restoreStatus, setRestoreStatus] = useState('')
   const [restoreScope, setRestoreScope] = useState('')
@@ -202,6 +358,37 @@ export default function RestorePage() {
         <h1 className="text-2xl font-semibold">Trabajos de restauración</h1>
         <p className="text-slate-500">Drive total, selectivo y Gmail granular</p>
       </div>
+
+      {canPlatformCtx ? (
+        <Card>
+          <h2 className="text-lg font-semibold mb-2">Respaldo cifrado de la plataforma (Postgres + configuración)</h2>
+          <p className="text-sm text-slate-600 dark:text-slate-400 mb-3">
+            Los archivos <code className="text-xs">.age</code> generados desde{' '}
+            <Link to="/settings" className="text-blue-600 dark:text-blue-400">
+              Configuración → Backup cifrado
+            </Link>{' '}
+            o por la tarea diaria del worker se guardan en la unidad compartida de respaldo, carpeta{' '}
+            <strong>Platform-Backups</strong>. La tabla inferior lista los respaldos detectados en Drive. Recuperar la
+            plataforma completa (BD + archivos del tarball) es una operación en el servidor: desencriptar con{' '}
+            <code className="text-xs">age</code>, extraer el <code className="text-xs">.tar.gz</code> y restaurar Postgres;
+            no confundir con los trabajos de restauración de cuentas más abajo.
+          </p>
+          {platformCtxLoading ? (
+            <p className="text-sm text-slate-500">Cargando contexto de la bóveda…</p>
+          ) : !platformCtx ? (
+            <p className="text-sm text-slate-500">No se pudo cargar el contexto.</p>
+          ) : (
+            <PlatformBackupContextPanel
+              ctx={platformCtx}
+              canUpload={canPlatformUpload}
+              pbAlsoDrive={pbAlsoDrive}
+              setPbAlsoDrive={setPbAlsoDrive}
+              platformUpload={platformUpload}
+            />
+          )}
+        </Card>
+      ) : null}
+
       <Card>
         <div className="flex flex-col gap-4 mb-4">
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 items-end">

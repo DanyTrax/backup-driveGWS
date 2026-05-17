@@ -28,7 +28,9 @@ import type {
   GybWorkRestoreFromVaultResult,
   GmailVaultManualZipFromWorkResult,
   MaildirRebuildFromGybResult,
+  PlatformBackupContext,
   PlatformBackupResult,
+  PlatformBackupUploadResult,
   PlatformRole,
   Profile,
   PurgeAllLocalMailResult,
@@ -969,8 +971,39 @@ export function useGitRefresh() {
 }
 
 export function usePlatformBackupRun() {
+  const qc = useQueryClient()
   return useMutation({
     mutationFn: async () => (await api.post<PlatformBackupResult>('/admin/platform-backup')).data,
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['platform-backup-context'] })
+    },
+  })
+}
+
+export function usePlatformBackupContext(enabled: boolean) {
+  return useQuery({
+    queryKey: ['platform-backup-context'],
+    queryFn: async () => (await api.get<PlatformBackupContext>('/admin/platform-backup/context')).data,
+    enabled,
+  })
+}
+
+export function usePlatformBackupUpload() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (opts: { file: File; alsoUploadToDrive: boolean }) => {
+      const fd = new FormData()
+      fd.append('file', opts.file)
+      fd.append('also_upload_to_drive', opts.alsoUploadToDrive ? 'true' : 'false')
+      return (
+        await api.post<PlatformBackupUploadResult>('/admin/platform-backup/upload', fd, {
+          headers: { 'Content-Type': 'multipart/form-data' },
+        })
+      ).data
+    },
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['platform-backup-context'] })
+    },
   })
 }
 

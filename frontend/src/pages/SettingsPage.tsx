@@ -381,12 +381,17 @@ export default function SettingsPage() {
         <Card>
           <h2 className="font-semibold mb-2">Git y respaldo de plataforma</h2>
           <p className="text-sm text-slate-500 mb-4">
-            <strong>En VPS con imagen Docker</strong> el código en <code className="text-xs">/app</code> no trae carpeta{' '}
-            <code className="text-xs">.git</code>: ahí tenés que actualizar con{' '}
-            <code className="text-xs">git pull</code> en el host (<code className="text-xs">/opt/stacks/backup-stack</code>) y{' '}
-            <code className="text-xs">docker compose up -d --build</code> desde <code className="text-xs">docker/</code>.
-            El botón solo sirve si montás un repo con <code className="text-xs">.git</code> y configurás{' '}
-            <code className="text-xs">GIT_WORKING_TREE</code> en <code className="text-xs">.env</code>.
+            <strong>Git refresh</strong> actualiza código si el contenedor tiene <code className="text-xs">.git</code>{' '}
+            (ver <code className="text-xs">GIT_WORKING_TREE</code>). En la imagen estándar conviene{' '}
+            <code className="text-xs">git pull</code> en el host y reconstruir. El <strong>backup cifrado</strong> incluye
+            Postgres (toda la configuración del panel en BD), <code className="text-xs">/app/config</code>, manifiestos,{' '}
+            rclone si existe y referencia de commit Git; se sube a la carpeta <strong>Platform-Backups</strong> dentro de la
+            bóveda en Drive. Podés ver el Drive asignado, archivos recientes y subir un <code className="text-xs">.age</code>{' '}
+            manual desde{' '}
+            <Link className="text-blue-600 dark:text-blue-400 font-medium" to="/restore">
+              Restaurar
+            </Link>
+            .
           </p>
           <div className="flex flex-wrap gap-2">
             {canGitRefresh ? (
