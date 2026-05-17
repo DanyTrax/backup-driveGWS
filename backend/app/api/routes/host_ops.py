@@ -166,13 +166,20 @@ async def vault_shared_drive_item_count_session_read(
                     result_parse_error_inner = "resultado_almacenado_invalido"
             elif res is not None:
                 result_parse_error_inner = "resultado_almacenado_invalido"
+        err_raw = raw.get("error")
+        err_str = str(err_raw).strip() if err_raw is not None and str(err_raw).strip() else None
+        if state_ok == "failure" and not err_str:
+            err_str = (
+                "El job de conteo terminó con error (sin detalle en Redis). "
+                "Reejecutá el conteo o revisá logs del worker."
+            )
         return VaultSharedDriveItemCountSessionOut(
             state=state_ok,  # type: ignore[arg-type]
             task_id=tid_s or (str(raw["task_id"]) if raw.get("task_id") else None),
             started_at=str(raw["started_at"]) if raw.get("started_at") else None,
             finished_at=str(raw["finished_at"]) if raw.get("finished_at") else None,
             result=parsed_result_inner,
-            error=str(raw["error"]) if raw.get("error") else None,
+            error=err_str,
             progress_items=_opt_int(raw.get("progress_items")),
             pages_fetched=_opt_int(raw.get("pages_fetched")),
             progress_updated_at=str(raw["progress_updated_at"]) if raw.get("progress_updated_at") else None,
@@ -186,8 +193,11 @@ async def vault_shared_drive_item_count_session_read(
 
         ar = AsyncResult(tid_s, app=celery_app)
 
-        # Progreso reciente en Redis = el worker sigue paginando; no usar solo el estado Celery (sin
-        # task_track_started, PENDING dura toda la ejecución y el chequeo «PENDING > 30 min» era un falso fallo).
+        pages_n = _opt_int(raw.get("pages_fetched")) or 0
+
+        # Si Redis ya tiene páginas contadas, Celery puede seguir en PENDING (típico sin task_track_started
+        # o entre páginas). No interpretar eso como «nunca la tomó el worker».
+        # Ventana amplia: entre páginas la API de Drive puede tardar sin actualizar progress_updated_at.
         pua = raw.get("progress_updated_at")
         recent_progress = False
         if pua:
@@ -195,7 +205,7 @@ async def vault_shared_drive_item_count_session_read(
                 pudt = datetime.fromisoformat(str(pua).replace("Z", "+00:00"))
                 if pudt.tzinfo is None:
                     pudt = pudt.replace(tzinfo=UTC)
-                recent_progress = datetime.now(UTC) - pudt <= timedelta(minutes=20)
+                recent_progress = datetime.now(UTC) - pudt <= timedelta(minutes=45)
             except (ValueError, TypeError):
                 pass
 
@@ -226,7 +236,7 @@ async def vault_shared_drive_item_count_session_read(
                     progress_updated_at=None,
                     result_parse_error=None,
                 )
-            err = str(ar.info) if ar.info is not None else "task_failed"
+            err = (str(ar.info) if ar.info is not None else "").strip() or "task_failed"
             if ar.state == "REVOKED":
                 err = "task_revoked"
             await vault_item_count_publish_failure(tid_s, err[:4000])
@@ -246,10 +256,14 @@ async def vault_shared_drive_item_count_session_read(
                 if sdt.tzinfo is None:
                     sdt = sdt.replace(tzinfo=UTC)
                 age = datetime.now(UTC) - sdt
-                if ar.state in ("PENDING", "RECEIVED") and age > timedelta(minutes=30):
+                if (
+                    pages_n == 0
+                    and ar.state in ("PENDING", "RECEIVED")
+                    and age > timedelta(minutes=50)
+                ):
                     stale = (
-                        "La tarea lleva más de 30 minutos en cola sin avance en Celery (PENDING/RECEIVED). "
-                        "Comprobá el contenedor worker, el broker y que use el mismo Redis que esta app."
+                        "La tarea lleva más de 50 minutos en cola sin avance en Celery (PENDING/RECEIVED) "
+                        "y sin ninguna página contada en Redis. Comprobá el worker y el broker."
                     )
                     await vault_item_count_publish_failure(tid_s, stale)
                     return VaultSharedDriveItemCountSessionOut(
