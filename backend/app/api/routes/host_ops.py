@@ -114,7 +114,7 @@ async def vault_shared_drive_item_count_status(
 async def vault_shared_drive_item_count_session_read(
     _: SysUser = Depends(require_any_permission("platform.host_docker", "platform.stack_deploy")),
 ) -> VaultSharedDriveItemCountSessionOut:
-    """Estado del último conteo (Redis): sirve para ver progreso o total desde Logs u otra vista."""
+    """Estado del último conteo (Redis): visible en Mantenimiento; el job sigue en Celery aunque cambies de pestaña."""
     raw = await vault_item_count_read_session()
     if not raw:
         return VaultSharedDriveItemCountSessionOut(state="idle")

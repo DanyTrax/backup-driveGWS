@@ -4,7 +4,6 @@ import type { AxiosError } from 'axios'
 import toast from 'react-hot-toast'
 import { HiDownload, HiTrash, HiX } from 'react-icons/hi'
 import { useSearchParams } from 'react-router-dom'
-import { VaultSharedDriveItemCountSessionPanel } from '../components/VaultSharedDriveItemCountSessionPanel'
 import {
   useBackupLogDetail,
   useBackupLogs,
@@ -17,7 +16,6 @@ import {
   useGmailVaultMaterializeSession,
   useProfile,
   useRetryGmailVault,
-  useVaultSharedDriveItemCountSession,
   downloadBackupLogsPdf,
 } from '../api/hooks'
 import type { BackupLog, GmailVaultMaterializeListItem } from '../api/types'
@@ -385,10 +383,6 @@ export default function LogsPage() {
   const canExportPdf = perms.has('logs.export')
   const canDeleteLogs = perms.has('logs.delete')
   const showVaultMat = perms.has('vault_drive.view_all') || perms.has('vault_drive.view_delegated')
-  const canSeeVaultItemCountSession =
-    perms.has('platform.host_docker') || perms.has('platform.stack_deploy')
-
-  const { data: vaultItemCountSession } = useVaultSharedDriveItemCountSession(canSeeVaultItemCountSession)
 
   const { data = [], isLoading } = useBackupLogs({ status: status || undefined })
   const { data: matRecent = [], isLoading: matRecentLoading } = useGmailVaultMaterializeRecent({
@@ -543,19 +537,6 @@ export default function LogsPage() {
       <div>
         <h1 className="text-2xl font-semibold">Historial de ejecuciones</h1>
       </div>
-      {canSeeVaultItemCountSession &&
-      vaultItemCountSession &&
-      vaultItemCountSession.state !== 'idle' ? (
-        <>
-          <Card className="border border-blue-200 dark:border-blue-900/40 bg-blue-50/40 dark:bg-blue-950/20">
-            <VaultSharedDriveItemCountSessionPanel session={vaultItemCountSession} />
-          </Card>
-          <p className="text-xs text-slate-500 -mt-4 mb-0 pl-1">
-            El conteo de ítems del vault es un trabajo aparte en Redis/Celery: no genera filas en la tabla de abajo (esa
-            lista es de ejecuciones de backup y materializaciones).
-          </p>
-        </>
-      ) : null}
       <Card>
         <div className="flex gap-3 flex-wrap items-center">
           <Select value={status} onChange={(e) => setStatus(e.target.value)}>

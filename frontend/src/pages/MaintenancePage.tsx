@@ -278,8 +278,8 @@ export default function MaintenancePage() {
               <span className="font-medium text-slate-800 dark:text-slate-200">400.000 ítems</span> (archivos y carpetas).
               Podés pedir un conteo completo del Drive configurado en el asistente (vault) para ver cuántos ítems hay hoy y
               cuánto margen queda. El recorrido se ejecuta en el <strong>worker Celery</strong> (varios minutos si hay
-              cientos de miles de archivos), así evitamos cortes del proxy (504). El estado y el total también aparecen en{' '}
-              <strong>Historial (Logs)</strong> mientras corre y al terminar (persistido en Redis).
+              cientos de miles de archivos), así evitamos cortes del proxy (504). El estado y el total se muestran en esta
+              misma página (persistido en Redis) mientras corre y al terminar.
             </p>
             <div className="flex flex-wrap items-center gap-2">
               <Button
@@ -291,9 +291,7 @@ export default function MaintenancePage() {
                     .then(() => {
                       void qc.invalidateQueries({ queryKey: ['vault-shared-drive-item-count-session'] })
                       void qc.refetchQueries({ queryKey: ['vault-shared-drive-item-count-session'] })
-                      toast.success(
-                        'Conteo encolado en el worker. Seguí el avance en esta página o en Historial (Logs).',
-                      )
+                      toast.success('Conteo encolado en el worker. Seguí el avance en esta página (Mantenimiento).')
                     })
                     .catch((e: unknown) => {
                       const msg =
