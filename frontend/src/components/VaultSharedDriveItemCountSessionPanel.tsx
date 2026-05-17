@@ -131,7 +131,7 @@ export function VaultSharedDriveItemCountSessionPanel({
   /** El API a veces devuelve failure por heurísticas Celery/Redis aunque el worker sigue publicando páginas. */
   const runFailureButLikelyStillCounting = st === 'failure' && hasPartialProgress && progressFresh
 
-  const showRunningChrome = running || runFailureButLikelyStillCounting
+  const showRunningChrome = st === 'running' || runFailureButLikelyStillCounting
   const now = useNowTick(showRunningChrome)
 
   if (st === 'idle') return null

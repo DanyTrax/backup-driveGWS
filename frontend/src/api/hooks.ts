@@ -884,8 +884,10 @@ export function useGybWorkMessage(
 }
 
 export function useBackupLogs(params?: { status?: string; taskId?: string }) {
+  const sk = params?.status ?? ''
+  const tk = params?.taskId ?? ''
   return useQuery({
-    queryKey: ['backup-logs', params],
+    queryKey: ['backup-logs', sk, tk],
     queryFn: async () => {
       const query = new URLSearchParams()
       if (params?.status) query.set('status', params.status)

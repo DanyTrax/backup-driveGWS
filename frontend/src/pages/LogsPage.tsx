@@ -1,9 +1,9 @@
-import { Badge, Button, Card, Modal, Select } from 'flowbite-react'
+import { Badge, Button, Card, Modal, Select, Alert } from 'flowbite-react'
 import { useEffect, useMemo, useState } from 'react'
 import type { AxiosError } from 'axios'
 import toast from 'react-hot-toast'
 import { HiDownload, HiTrash, HiX } from 'react-icons/hi'
-import { useSearchParams } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import {
   useBackupLogDetail,
   useBackupLogs,
@@ -16,9 +16,11 @@ import {
   useGmailVaultMaterializeSession,
   useProfile,
   useRetryGmailVault,
+  useVaultSharedDriveItemCountSession,
   downloadBackupLogsPdf,
 } from '../api/hooks'
 import type { BackupLog, GmailVaultMaterializeListItem } from '../api/types'
+import { VaultSharedDriveItemCountSessionPanel } from '../components/VaultSharedDriveItemCountSessionPanel'
 import { formatLogDateTime } from '../utils/logDateFormat'
 
 function truncateDetail(s: string | null | undefined, max = 140): string {
@@ -383,8 +385,17 @@ export default function LogsPage() {
   const canExportPdf = perms.has('logs.export')
   const canDeleteLogs = perms.has('logs.delete')
   const showVaultMat = perms.has('vault_drive.view_all') || perms.has('vault_drive.view_delegated')
+  const canHostOps = perms.has('platform.host_docker') || perms.has('platform.stack_deploy')
 
-  const { data = [], isLoading } = useBackupLogs({ status: status || undefined })
+  const backupLogsParams = useMemo(() => (status ? { status } : undefined), [status])
+  const {
+    data = [],
+    isLoading: backupLogsLoading,
+    isError: backupLogsError,
+    error: backupLogsErr,
+    refetch: refetchBackupLogs,
+  } = useBackupLogs(backupLogsParams)
+  const vaultCountSession = useVaultSharedDriveItemCountSession(canHostOps)
   const { data: matRecent = [], isLoading: matRecentLoading } = useGmailVaultMaterializeRecent({
     enabled: showVaultMat,
   })
@@ -566,9 +577,77 @@ export default function LogsPage() {
           ) : null}
         </div>
       </Card>
+      {canHostOps ? (
+        <Card>
+          <h2 className="text-lg font-medium text-slate-800 dark:text-slate-100 mb-2">
+            Conteo de ítems (Shared Drive vault)
+          </h2>
+          <p className="text-sm text-slate-600 dark:text-slate-400 mb-3">
+            Actividad del worker aparte de las tareas de backup de la tabla. Para encolar el conteo:{' '}
+            <Link to="/maintenance" className="text-blue-600 dark:text-blue-400 underline">
+              Mantenimiento
+            </Link>
+            .
+          </p>
+          {vaultCountSession.data && vaultCountSession.data.state !== 'idle' ? (
+            <div className="rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-900/40 p-3">
+              <VaultSharedDriveItemCountSessionPanel session={vaultCountSession.data} showHeading={false} />
+            </div>
+          ) : (
+            <p className="text-sm text-slate-500">
+              No hay sesión de conteo en Redis. Iniciá el conteo desde Mantenimiento si necesitás el total de ítems del
+              Drive de respaldo.
+            </p>
+          )}
+        </Card>
+      ) : null}
       <Card>
-        {isLoading || (showVaultMat && matRecentLoading) ? (
+        {backupLogsError ? (
+          <Alert color="failure" className="mb-4">
+            <span className="font-medium">No se pudo cargar el listado de backups desde el servidor.</span>
+            <div className="mt-2 text-sm">
+              <ExecutionDetailError err={backupLogsErr} />
+            </div>
+            <Button className="mt-3" color="light" size="xs" onClick={() => void refetchBackupLogs()}>
+              Reintentar listado de backups
+            </Button>
+          </Alert>
+        ) : null}
+        {backupLogsLoading || (showVaultMat && matRecentLoading) ? (
           <p className="text-slate-500">Cargando…</p>
+        ) : mergedRows.length === 0 ? (
+          <div className="text-sm text-slate-600 dark:text-slate-300 space-y-2">
+            {backupLogsError ? (
+              <p className="text-slate-500">
+                No se pudieron obtener filas de backup; arriba está el detalle. Si tenés permisos de vault, las
+                materializaciones ZIP siguen en la misma tabla cuando están disponibles.
+              </p>
+            ) : (
+              <>
+                <p>
+                  No hay ejecuciones que coincidan con el filtro actual{status ? ` («${status}»)` : ''}. Si acabás de
+                  encolar una tarea manual:
+                </p>
+                <ul className="list-disc pl-5 space-y-1">
+                  <li>
+                    Probá filtro <strong>Todos los estados</strong> o <strong>En ejecución</strong> y esperá unos
+                    segundos (el worker crea las filas de a poco).
+                  </li>
+                  <li>
+                    En{' '}
+                    <Link to="/tasks" className="text-blue-600 dark:text-blue-400 underline">
+                      Tareas de backup
+                    </Link>{' '}
+                    el resumen del lote muestra jobs activos con enlace <strong>ver log</strong>.
+                  </li>
+                  <li>
+                    Si antes veías filas y ahora no, revisá permiso <code className="text-xs">logs.view</code> y la
+                    consola del navegador por errores 401/403.
+                  </li>
+                </ul>
+              </>
+            )}
+          </div>
         ) : (
           <div className="overflow-x-auto">
             <table className="min-w-full text-sm">
