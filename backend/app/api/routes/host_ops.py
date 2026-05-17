@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
+from pydantic import ValidationError
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -121,9 +122,26 @@ async def vault_shared_drive_item_count_session_read(
     if st not in ("running", "success", "failure"):
         return VaultSharedDriveItemCountSessionOut(state="idle")
     res = raw.get("result")
-    parsed_result = (
-        VaultSharedDriveItemCountOut.model_validate(res) if isinstance(res, dict) else None
-    )
+
+    def _opt_int(val: object) -> int | None:
+        if val is None:
+            return None
+        try:
+            return int(val)  # type: ignore[arg-type]
+        except (TypeError, ValueError):
+            return None
+
+    parsed_result = None
+    result_parse_error = None
+    if st == "success":
+        if isinstance(res, dict):
+            try:
+                parsed_result = VaultSharedDriveItemCountOut.model_validate(res)
+            except ValidationError:
+                result_parse_error = "resultado_almacenado_invalido"
+        elif res is not None:
+            result_parse_error = "resultado_almacenado_invalido"
+
     return VaultSharedDriveItemCountSessionOut(
         state=st,
         task_id=str(raw["task_id"]) if raw.get("task_id") else None,
@@ -131,6 +149,10 @@ async def vault_shared_drive_item_count_session_read(
         finished_at=str(raw["finished_at"]) if raw.get("finished_at") else None,
         result=parsed_result,
         error=str(raw["error"]) if raw.get("error") else None,
+        progress_items=_opt_int(raw.get("progress_items")),
+        pages_fetched=_opt_int(raw.get("pages_fetched")),
+        progress_updated_at=str(raw["progress_updated_at"]) if raw.get("progress_updated_at") else None,
+        result_parse_error=result_parse_error,
     )
 
 

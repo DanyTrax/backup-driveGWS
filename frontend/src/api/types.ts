@@ -570,6 +570,10 @@ export interface VaultSharedDriveItemCountSession {
   finished_at: string | null
   result: VaultSharedDriveItemCount | null
   error: string | null
+  progress_items?: number | null
+  pages_fetched?: number | null
+  progress_updated_at?: string | null
+  result_parse_error?: string | null
 }
 
 /** Paso devuelto por prune/deploy (salida de shell en el backend). */

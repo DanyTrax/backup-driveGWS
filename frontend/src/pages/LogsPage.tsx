@@ -4,6 +4,7 @@ import type { AxiosError } from 'axios'
 import toast from 'react-hot-toast'
 import { HiDownload, HiTrash, HiX } from 'react-icons/hi'
 import { useSearchParams } from 'react-router-dom'
+import { VaultSharedDriveItemCountSessionPanel } from '../components/VaultSharedDriveItemCountSessionPanel'
 import {
   useBackupLogDetail,
   useBackupLogs,
@@ -541,92 +542,12 @@ export default function LogsPage() {
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-semibold">Historial de ejecuciones</h1>
-        <p className="text-slate-500">
-          Hacé clic en una fila para ver el detalle completo (IDs, rutas, error del servidor). Incluye{' '}
-          <strong>backups programados</strong> y, si tenés permiso de bóveda, las{' '}
-          <strong>materializaciones vault ZIP → servidor</strong> (mismo esquema de filas y telemetría en
-          vivo cuando el worker publica progreso). Si encolaste el <strong>conteo de ítems del vault</strong> desde
-          Mantenimiento, el estado en vivo y el último total también figuran en la tarjeta azul arriba cuando corresponde.
-          Podés cancelar una cuenta en curso o todo el lote desde el botón de la fila; eliminar filas finalizadas con la
-          X; exportar el listado actual de backups a PDF o borrar en bloque las filas visibles de backup (no borra
-          ejecuciones «running» ni sesiones de materialización).
-        </p>
       </div>
       {canSeeVaultItemCountSession &&
       vaultItemCountSession &&
       vaultItemCountSession.state !== 'idle' ? (
         <Card className="border border-blue-200 dark:border-blue-900/40 bg-blue-50/40 dark:bg-blue-950/20">
-          <div className="flex items-start gap-3">
-            {vaultItemCountSession.state === 'running' ? (
-              <span className="mt-0.5 inline-flex h-2.5 w-2.5 shrink-0 rounded-full bg-blue-500 animate-pulse" />
-            ) : null}
-            <div className="min-w-0 flex-1 text-sm space-y-2">
-              <div className="font-medium text-slate-800 dark:text-slate-100">
-                Conteo de ítems — Shared Drive de respaldo (Mantenimiento)
-              </div>
-              {vaultItemCountSession.state === 'running' ? (
-                <p className="text-slate-600 dark:text-slate-300">
-                  En ejecución en el worker… Inicio local:{' '}
-                  <span className="font-medium">
-                    {formatLogDateTime(vaultItemCountSession.started_at)}
-                  </span>
-                  . Celery id:{' '}
-                  <code className="text-xs break-all">{vaultItemCountSession.task_id ?? '—'}</code>
-                </p>
-              ) : null}
-              {vaultItemCountSession.state === 'success' && vaultItemCountSession.result ? (
-                <div className="space-y-1 text-slate-700 dark:text-slate-200">
-                  {vaultItemCountSession.result.shared_drive_name ||
-                  vaultItemCountSession.result.shared_drive_id ? (
-                    <p>
-                      Unidad:{' '}
-                      <span className="font-medium">
-                        {vaultItemCountSession.result.shared_drive_name ??
-                          vaultItemCountSession.result.shared_drive_id}
-                      </span>
-                    </p>
-                  ) : null}
-                  {vaultItemCountSession.result.ok ? (
-                    <>
-                      <p>
-                        <span className="font-semibold">
-                          {vaultItemCountSession.result.total_items.toLocaleString('es-AR')}
-                        </span>{' '}
-                        ítems ({vaultItemCountSession.result.file_count.toLocaleString('es-AR')} archivos,{' '}
-                        {vaultItemCountSession.result.folder_count.toLocaleString('es-AR')} carpetas).
-                        {vaultItemCountSession.finished_at ? (
-                          <>
-                            {' '}
-                            Fin:{' '}
-                            <span className="text-slate-500">
-                              {formatLogDateTime(vaultItemCountSession.finished_at)}
-                            </span>
-                          </>
-                        ) : null}
-                      </p>
-                      {vaultItemCountSession.result.remaining_until_limit != null ? (
-                        <p className="text-slate-500 text-xs">
-                          Margen hasta ~{vaultItemCountSession.result.item_limit.toLocaleString('es-AR')} ítems:{' '}
-                          <span className="font-medium text-slate-700 dark:text-slate-200">
-                            {vaultItemCountSession.result.remaining_until_limit.toLocaleString('es-AR')}
-                          </span>
-                        </p>
-                      ) : null}
-                    </>
-                  ) : (
-                    <p className="text-amber-700 dark:text-amber-300">
-                      {vaultItemCountSession.result.error ?? 'Conteo no OK (revisá configuración vault).'}
-                    </p>
-                  )}
-                </div>
-              ) : null}
-              {vaultItemCountSession.state === 'failure' ? (
-                <p className="text-red-700 dark:text-red-300">
-                  {vaultItemCountSession.error ?? 'Falló el job de conteo en el worker.'}
-                </p>
-              ) : null}
-            </div>
-          </div>
+          <VaultSharedDriveItemCountSessionPanel session={vaultItemCountSession} />
         </Card>
       ) : null}
       <Card>

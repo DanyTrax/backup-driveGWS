@@ -24,6 +24,7 @@ import {
   useVaultSharedDriveItemCountSession,
 } from '../api/hooks'
 import type { StackDeployMode, StackDeployResult } from '../api/types'
+import { VaultSharedDriveItemCountSessionPanel } from '../components/VaultSharedDriveItemCountSessionPanel'
 
 const DOW_OPTS: { v: string; label: string }[] = [
   { v: '', label: 'Todos los días' },
@@ -309,6 +310,14 @@ export default function MaintenancePage() {
               </Button>
               {vaultCountBusy ? <Spinner size="sm" className="inline" /> : null}
             </div>
+            {vaultCountSession.data?.state === 'running' ? (
+              <div className="mt-4 rounded-lg border border-blue-200 dark:border-blue-800 bg-blue-50/50 dark:bg-blue-950/25 p-4">
+                <VaultSharedDriveItemCountSessionPanel
+                  session={vaultCountSession.data}
+                  showHeading={false}
+                />
+              </div>
+            ) : null}
             {vaultSessionFailed ? (
               <Alert className="mt-4" color="failure">
                 {vaultSessionFailed}

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 from googleapiclient.discovery import build
@@ -399,6 +400,7 @@ async def count_shared_drive_all_items(
     db: AsyncSession,
     *,
     drive_id: str,
+    on_page_progress: Callable[[int, int], Awaitable[None]] | None = None,
 ) -> dict[str, Any]:
     """Cuenta todos los ítems no eliminados de una unidad compartida (archivos + carpetas).
 
@@ -434,6 +436,7 @@ async def count_shared_drive_all_items(
     files_n = 0
     folders_n = 0
     token: str | None = None
+    pages_fetched = 0
     try:
         while True:
             resp = await asyncio.to_thread(_page, token)
@@ -444,6 +447,9 @@ async def count_shared_drive_all_items(
                     folders_n += 1
                 else:
                     files_n += 1
+            pages_fetched += 1
+            if on_page_progress:
+                await on_page_progress(total, pages_fetched)
             token = resp.get("nextPageToken")
             if not token:
                 break

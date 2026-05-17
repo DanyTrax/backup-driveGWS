@@ -494,11 +494,16 @@ def host_ops_public_config() -> dict[str, Any]:
     }
 
 
-async def compute_vault_shared_drive_item_count(db: AsyncSession):
+async def compute_vault_shared_drive_item_count(
+    db: AsyncSession,
+    *,
+    publish_page_progress: bool = False,
+):
     """Ejecuta el conteo completo vía Drive API (puede tardar mucho; usar desde worker Celery)."""
     from app.schemas.host_ops import VaultSharedDriveItemCountOut
     from app.services.google.drive import GOOGLE_SHARED_DRIVE_MAX_ITEMS, check_shared_drive, count_shared_drive_all_items
     from app.services.settings_service import KEY_VAULT_ROOT_FOLDER_ID, KEY_VAULT_SHARED_DRIVE_ID, get_value
+    from app.services.vault_shared_drive_item_count_status import vault_item_count_update_running_progress
 
     drive_id = (await get_value(db, KEY_VAULT_SHARED_DRIVE_ID) or "").strip()
     root_id = (await get_value(db, KEY_VAULT_ROOT_FOLDER_ID) or "").strip()
@@ -512,7 +517,15 @@ async def compute_vault_shared_drive_item_count(db: AsyncSession):
     drive_name = None
     if chk.get("ok") and isinstance(chk.get("drive"), dict):
         drive_name = str(chk["drive"].get("name") or "") or None
-    counted = await count_shared_drive_all_items(db, drive_id=drive_id)
+    async def _page_hook(items: int, pages: int) -> None:
+        if publish_page_progress:
+            await vault_item_count_update_running_progress(items=items, pages_fetched=pages)
+
+    counted = await count_shared_drive_all_items(
+        db,
+        drive_id=drive_id,
+        on_page_progress=_page_hook if publish_page_progress else None,
+    )
     total = int(counted.get("total_items") or 0)
     ok = bool(counted.get("ok"))
     err = counted.get("error")

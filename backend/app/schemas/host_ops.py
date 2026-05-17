@@ -73,3 +73,10 @@ class VaultSharedDriveItemCountSessionOut(BaseModel):
     finished_at: str | None = None
     result: VaultSharedDriveItemCountOut | None = None
     error: str | None = None
+    progress_items: int | None = None
+    pages_fetched: int | None = None
+    progress_updated_at: str | None = None
+    result_parse_error: str | None = Field(
+        default=None,
+        description="Si state=success pero el payload en Redis no valida el schema.",
+    )

@@ -186,7 +186,7 @@ def vault_shared_drive_item_count(self) -> dict[str, Any]:
     async def inner(db: AsyncSession) -> dict[str, Any]:
         await vault_item_count_publish_running(tid)
         try:
-            out = await compute_vault_shared_drive_item_count(db)
+            out = await compute_vault_shared_drive_item_count(db, publish_page_progress=True)
             data = out.model_dump()
             await vault_item_count_publish_success(tid, data)
             return data

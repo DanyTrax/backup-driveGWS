@@ -998,7 +998,7 @@ export function useVaultSharedDriveItemCountSession(enabled: boolean) {
         )
       ).data,
     enabled,
-    refetchInterval: (q) => (q.state.data?.state === 'running' ? 3000 : false),
+    refetchInterval: (q) => (q.state.data?.state === 'running' ? 2000 : false),
   })
 }
 
