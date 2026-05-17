@@ -492,3 +492,40 @@ def host_ops_public_config() -> dict[str, Any]:
         "compose_dir": compose_dir,
         "runner_image_configured": bool((s.host_stack_deploy_runner_image or "").strip()),
     }
+
+
+async def compute_vault_shared_drive_item_count(db: AsyncSession):
+    """Ejecuta el conteo completo vía Drive API (puede tardar mucho; usar desde worker Celery)."""
+    from app.schemas.host_ops import VaultSharedDriveItemCountOut
+    from app.services.google.drive import GOOGLE_SHARED_DRIVE_MAX_ITEMS, check_shared_drive, count_shared_drive_all_items
+    from app.services.settings_service import KEY_VAULT_ROOT_FOLDER_ID, KEY_VAULT_SHARED_DRIVE_ID, get_value
+
+    drive_id = (await get_value(db, KEY_VAULT_SHARED_DRIVE_ID) or "").strip()
+    root_id = (await get_value(db, KEY_VAULT_ROOT_FOLDER_ID) or "").strip()
+    if not drive_id:
+        return VaultSharedDriveItemCountOut(
+            ok=False,
+            vault_root_folder_id=root_id or None,
+            error="missing_shared_drive_id",
+        )
+    chk = await check_shared_drive(db, drive_id)
+    drive_name = None
+    if chk.get("ok") and isinstance(chk.get("drive"), dict):
+        drive_name = str(chk["drive"].get("name") or "") or None
+    counted = await count_shared_drive_all_items(db, drive_id=drive_id)
+    total = int(counted.get("total_items") or 0)
+    ok = bool(counted.get("ok"))
+    err = counted.get("error")
+    remaining = max(0, GOOGLE_SHARED_DRIVE_MAX_ITEMS - total) if ok else None
+    return VaultSharedDriveItemCountOut(
+        ok=ok,
+        shared_drive_id=drive_id,
+        shared_drive_name=drive_name,
+        vault_root_folder_id=root_id or None,
+        total_items=total,
+        file_count=int(counted.get("file_count") or 0),
+        folder_count=int(counted.get("folder_count") or 0),
+        item_limit=GOOGLE_SHARED_DRIVE_MAX_ITEMS,
+        remaining_until_limit=remaining,
+        error=str(err) if err else None,
+    )

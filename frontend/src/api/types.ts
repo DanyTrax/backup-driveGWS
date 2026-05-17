@@ -541,7 +541,7 @@ export interface HostOpsConfig {
   schedule: HostOpsSchedule
 }
 
-/** GET /admin/host-ops/vault-shared-drive-item-count */
+/** POST /admin/host-ops/vault-shared-drive-item-count — encola job Celery */
 export interface VaultSharedDriveItemCount {
   ok: boolean
   shared_drive_id: string | null
@@ -552,6 +552,13 @@ export interface VaultSharedDriveItemCount {
   folder_count: number
   item_limit: number
   remaining_until_limit: number | null
+  error: string | null
+}
+
+/** GET /admin/host-ops/vault-shared-drive-item-count/{task_id} */
+export interface VaultSharedDriveItemCountJobState {
+  state: 'pending' | 'running' | 'success' | 'failure'
+  result: VaultSharedDriveItemCount | null
   error: string | null
 }
 

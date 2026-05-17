@@ -19,7 +19,8 @@ import {
   useProfile,
   useStackDeployJob,
   useStackDeployRun,
-  useVaultSharedDriveItemCount,
+  useVaultSharedDriveItemCountStart,
+  useVaultSharedDriveItemCountStatus,
 } from '../api/hooks'
 import type { StackDeployMode, StackDeployResult, VaultSharedDriveItemCount } from '../api/types'
 
@@ -61,8 +62,16 @@ export default function MaintenancePage() {
   const [deployJobId, setDeployJobId] = useState<string | null>(null)
   const jobQ = useStackDeployJob(deployJobId)
 
-  const vaultCountMut = useVaultSharedDriveItemCount()
+  const vaultCountStart = useVaultSharedDriveItemCountStart()
+  const [vaultCountTaskId, setVaultCountTaskId] = useState<string | null>(null)
+  const vaultCountStatus = useVaultSharedDriveItemCountStatus(vaultCountTaskId)
   const [vaultCountSnapshot, setVaultCountSnapshot] = useState<VaultSharedDriveItemCount | null>(null)
+
+  const vaultCountBusy =
+    vaultCountStart.isPending ||
+    (!!vaultCountTaskId &&
+      vaultCountStatus.data?.state !== 'success' &&
+      vaultCountStatus.data?.state !== 'failure')
 
   const stackTermScrollRef = useRef<HTMLDivElement>(null)
   const [stackTerm, setStackTerm] = useState<StackDeployTerminalState>({ kind: 'idle' })
@@ -132,6 +141,20 @@ export default function MaintenancePage() {
       }
     }
   }, [jobQ.data, deployJobId])
+
+  useEffect(() => {
+    const d = vaultCountStatus.data
+    if (!d || !vaultCountTaskId) return
+    if (d.state === 'success' && d.result) {
+      setVaultCountSnapshot(d.result)
+      if (d.result.ok) toast.success('Conteo del Drive de respaldo listo.')
+      else toast.error(d.result.error ?? 'No se pudo completar el conteo')
+      setVaultCountTaskId(null)
+    } else if (d.state === 'failure') {
+      toast.error(d.error ?? 'Falló el conteo en el worker')
+      setVaultCountTaskId(null)
+    }
+  }, [vaultCountStatus.data, vaultCountTaskId])
 
   if (!canDocker && !canDeploy) {
     return (
@@ -242,33 +265,35 @@ export default function MaintenancePage() {
               Google limita cada unidad compartida a unos{' '}
               <span className="font-medium text-slate-800 dark:text-slate-200">400.000 ítems</span> (archivos y carpetas).
               Podés pedir un conteo completo del Drive configurado en el asistente (vault) para ver cuántos ítems hay hoy y
-              cuánto margen queda. La operación recorre toda la unidad vía API y puede tardar varios minutos si hay muchos
-              objetos; no cierres la pestaña hasta que termine.
+              cuánto margen queda. El recorrido se ejecuta en el <strong>worker Celery</strong> (varios minutos si hay
+              cientos de miles de archivos), así evitamos cortes del proxy (504). Podés seguir usando el panel; el
+              resultado aparece abajo al terminar.
             </p>
             <div className="flex flex-wrap items-center gap-2">
               <Button
                 color="light"
-                disabled={vaultCountMut.isPending}
+                disabled={vaultCountBusy}
                 onClick={() => {
-                  void vaultCountMut
+                  void vaultCountStart
                     .mutateAsync()
-                    .then((d) => {
-                      setVaultCountSnapshot(d)
-                      if (d.ok) toast.success('Conteo del Drive de respaldo listo.')
-                      else toast.error(d.error ?? 'No se pudo completar el conteo')
+                    .then((r) => {
+                      setVaultCountTaskId(r.task_id)
+                      toast.success(
+                        'Conteo encolado en el worker. Podés cambiar de pestaña; el panel consulta cada pocos segundos.',
+                      )
                     })
                     .catch((e: unknown) => {
                       const msg =
                         e && typeof e === 'object' && 'message' in e
                           ? String((e as { message?: string }).message)
-                          : 'Error de red o tiempo agotado (probá de nuevo).'
+                          : 'Error de red o Redis/Celery (revisá que el worker esté arriba).'
                       toast.error(msg)
                     })
                 }}
               >
-                {vaultCountMut.isPending ? 'Contando ítems…' : 'Contar ítems en el Drive de respaldo'}
+                {vaultCountBusy ? 'Contando ítems…' : 'Contar ítems en el Drive de respaldo'}
               </Button>
-              {vaultCountMut.isPending ? <Spinner size="sm" className="inline" /> : null}
+              {vaultCountBusy ? <Spinner size="sm" className="inline" /> : null}
             </div>
             {vaultCountSnapshot ? (
               <div className="mt-4 text-sm space-y-2">

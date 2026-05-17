@@ -15,6 +15,7 @@ import type {
   HostOpsConfig,
   HostOpsSchedule,
   VaultSharedDriveItemCount,
+  VaultSharedDriveItemCountJobState,
   StackDeployJobStart,
   StackDeployJobStatus,
   StackDeployMode,
@@ -980,16 +981,27 @@ export function useHostOpsConfig() {
   })
 }
 
-const VAULT_SHARED_DRIVE_COUNT_TIMEOUT_MS = 600_000
-
-export function useVaultSharedDriveItemCount() {
+export function useVaultSharedDriveItemCountStart() {
   return useMutation({
-    mutationFn: async () =>
+    mutationFn: async (): Promise<{ task_id: string }> =>
+      (await api.post<{ task_id: string }>('/admin/host-ops/vault-shared-drive-item-count')).data,
+  })
+}
+
+export function useVaultSharedDriveItemCountStatus(taskId: string | null) {
+  return useQuery({
+    queryKey: ['vault-shared-drive-item-count', taskId],
+    queryFn: async () =>
       (
-        await api.get<VaultSharedDriveItemCount>('/admin/host-ops/vault-shared-drive-item-count', {
-          timeout: VAULT_SHARED_DRIVE_COUNT_TIMEOUT_MS,
-        })
+        await api.get<VaultSharedDriveItemCountJobState>(
+          `/admin/host-ops/vault-shared-drive-item-count/${taskId}`,
+        )
       ).data,
+    enabled: !!taskId,
+    refetchInterval: (q) => {
+      const s = q.state.data?.state
+      return s === 'success' || s === 'failure' ? false : 2500
+    },
   })
 }
 

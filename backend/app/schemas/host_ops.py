@@ -50,3 +50,15 @@ class VaultSharedDriveItemCountOut(BaseModel):
     item_limit: int = Field(default=400_000, description="Referencia: máx. ítems por unidad compartida en Drive.")
     remaining_until_limit: int | None = None
     error: str | None = None
+
+
+class VaultSharedDriveItemCountJobStartOut(BaseModel):
+    """Respuesta inmediata al encolar el conteo (evita 504 del proxy mientras recorre la unidad)."""
+
+    task_id: str
+
+
+class VaultSharedDriveItemCountJobStateOut(BaseModel):
+    state: Literal["pending", "running", "success", "failure"]
+    result: VaultSharedDriveItemCountOut | None = None
+    error: str | None = None
