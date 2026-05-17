@@ -1,4 +1,4 @@
-import { Alert, Spinner } from 'flowbite-react'
+import { Alert } from 'flowbite-react'
 import { useEffect, useState } from 'react'
 import type { VaultSharedDriveItemCountSession } from '../api/types'
 import { formatLogDateTime } from '../utils/logDateFormat'
@@ -26,6 +26,21 @@ function useNowTick(active: boolean) {
   return now
 }
 
+function normalizeSessionState(s: string | undefined | null): string {
+  if (s == null || String(s).trim() === '') return 'unknown'
+  return String(s).trim().toLowerCase()
+}
+
+function CssSpinner({ className = '' }: { className?: string }) {
+  return (
+    <div
+      className={`h-8 w-8 shrink-0 rounded-full border-2 border-blue-600 border-t-transparent dark:border-blue-400 animate-spin ${className}`}
+      role="status"
+      aria-label="Cargando"
+    />
+  )
+}
+
 export function VaultSharedDriveItemCountSessionPanel({
   session,
   showHeading = true,
@@ -33,14 +48,21 @@ export function VaultSharedDriveItemCountSessionPanel({
   session: VaultSharedDriveItemCountSession
   showHeading?: boolean
 }) {
-  const running = session.state === 'running'
+  const st = normalizeSessionState(session.state)
+  const running = st === 'running'
   const now = useNowTick(running)
 
-  if (session.state === 'idle') return null
+  if (st === 'idle') return null
 
   const started = session.started_at ? Date.parse(session.started_at) : NaN
   const elapsedMs =
     running && session.started_at && !Number.isNaN(started) ? Math.max(0, now - started) : null
+
+  const res = session.result
+  const totalItems = res != null && typeof res.total_items === 'number' ? res.total_items : 0
+  const fileCount = res != null && typeof res.file_count === 'number' ? res.file_count : 0
+  const folderCount = res != null && typeof res.folder_count === 'number' ? res.folder_count : 0
+  const itemLimit = res != null && typeof res.item_limit === 'number' ? res.item_limit : 400_000
 
   return (
     <div className="text-sm space-y-2">
@@ -52,7 +74,7 @@ export function VaultSharedDriveItemCountSessionPanel({
 
       {running ? (
         <div className="flex flex-wrap items-start gap-3">
-          <Spinner size="md" className="shrink-0" />
+          <CssSpinner />
           <div className="min-w-0 flex-1 space-y-1">
             <p className="font-medium text-slate-800 dark:text-slate-100">
               Recorriendo la unidad con la API de Google…
@@ -85,7 +107,9 @@ export function VaultSharedDriveItemCountSessionPanel({
               </p>
             ) : (
               <p className="text-slate-500 text-xs">
-                La primera cifra aparece al terminar la primera página de la API (puede tardar unos segundos).
+                La primera cifra aparece al terminar la primera página de la API (puede tardar unos segundos). Si el
+                worker Celery no está en marcha, el conteo no avanza: revisá el contenedor{' '}
+                <code className="text-[10px]">worker</code> y Redis.
               </p>
             )}
             {session.progress_updated_at ? (
@@ -100,24 +124,19 @@ export function VaultSharedDriveItemCountSessionPanel({
         </div>
       ) : null}
 
-      {session.state === 'success' && session.result ? (
+      {st === 'success' && res ? (
         <div className="space-y-1 text-slate-700 dark:text-slate-200">
-          {session.result.shared_drive_name || session.result.shared_drive_id ? (
+          {res.shared_drive_name || res.shared_drive_id ? (
             <p>
               Unidad:{' '}
-              <span className="font-medium">
-                {session.result.shared_drive_name ?? session.result.shared_drive_id}
-              </span>
+              <span className="font-medium">{res.shared_drive_name ?? res.shared_drive_id}</span>
             </p>
           ) : null}
-          {session.result.ok ? (
+          {res.ok ? (
             <>
               <p>
-                <span className="font-semibold tabular-nums">
-                  {session.result.total_items.toLocaleString('es-AR')}
-                </span>{' '}
-                ítems ({session.result.file_count.toLocaleString('es-AR')} archivos,{' '}
-                {session.result.folder_count.toLocaleString('es-AR')} carpetas).
+                <span className="font-semibold tabular-nums">{totalItems.toLocaleString('es-AR')}</span> ítems (
+                {fileCount.toLocaleString('es-AR')} archivos, {folderCount.toLocaleString('es-AR')} carpetas).
                 {session.finished_at ? (
                   <>
                     {' '}
@@ -126,35 +145,48 @@ export function VaultSharedDriveItemCountSessionPanel({
                   </>
                 ) : null}
               </p>
-              {session.result.remaining_until_limit != null ? (
+              {res.remaining_until_limit != null ? (
                 <p className="text-slate-500 text-xs">
-                  Margen hasta ~{session.result.item_limit.toLocaleString('es-AR')} ítems:{' '}
+                  Margen hasta ~{itemLimit.toLocaleString('es-AR')} ítems:{' '}
                   <span className="font-medium text-slate-700 dark:text-slate-200 tabular-nums">
-                    {session.result.remaining_until_limit.toLocaleString('es-AR')}
+                    {res.remaining_until_limit.toLocaleString('es-AR')}
                   </span>
                 </p>
+              ) : null}
+              {totalItems >= itemLimit ? (
+                <Alert color="warning">
+                  El conteo alcanza o supera el límite de referencia de Google (~400k ítems). Conviene planificar otra
+                  unidad o depuración antes de seguir cargando respaldos.
+                </Alert>
               ) : null}
             </>
           ) : (
             <p className="text-amber-700 dark:text-amber-300">
-              {session.result.error ?? 'Conteo no OK (revisá configuración vault).'}
+              {res.error ?? 'Conteo no OK (revisá configuración vault).'}
             </p>
           )}
         </div>
       ) : null}
 
-      {session.state === 'success' && !session.result ? (
+      {st === 'success' && !res ? (
         <Alert color="warning">
           {session.result_parse_error
-            ? 'El resultado guardado en el servidor no tiene el formato esperado. Volvé a ejecutar el conteo desde Mantenimiento.'
-            : 'Conteo marcado como finalizado pero no hay totales guardados. Revisá el worker o reejecutá el conteo.'}
+            ? 'El resultado guardado en el servidor no tiene el formato esperado. Volvé a ejecutar el conteo desde Mantenimiento (revisá logs del worker).'
+            : 'Conteo marcado como finalizado pero no hay totales guardados. ¿El worker terminó sin publicar resultado? Revisá logs de Celery y reejecutá el conteo.'}
         </Alert>
       ) : null}
 
-      {session.state === 'failure' ? (
+      {st === 'failure' ? (
         <p className="text-red-700 dark:text-red-300">
           {session.error ?? 'Falló el job de conteo en el worker.'}
         </p>
+      ) : null}
+
+      {st !== 'running' && st !== 'success' && st !== 'failure' ? (
+        <Alert color="warning">
+          Estado de sesión no reconocido: <code className="text-xs">{String(session.state)}</code>. Datos: task_id{' '}
+          {session.task_id ?? '—'}.
+        </Alert>
       ) : null}
     </div>
   )

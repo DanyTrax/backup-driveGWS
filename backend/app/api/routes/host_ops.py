@@ -119,6 +119,8 @@ async def vault_shared_drive_item_count_session_read(
     if not raw:
         return VaultSharedDriveItemCountSessionOut(state="idle")
     st = raw.get("state")
+    if isinstance(st, str):
+        st = st.strip().lower()
     if st not in ("running", "success", "failure"):
         return VaultSharedDriveItemCountSessionOut(state="idle")
     res = raw.get("result")

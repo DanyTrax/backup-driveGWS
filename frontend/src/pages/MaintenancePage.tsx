@@ -72,21 +72,13 @@ export default function MaintenancePage() {
   const vaultCountBusy =
     vaultCountStart.isPending || vaultCountSession.data?.state === 'running'
 
-  const vaultCountSnapshot =
-    vaultCountSession.data?.state === 'success' && vaultCountSession.data.result
-      ? vaultCountSession.data.result
-      : null
-
-  const vaultSessionFailed =
-    vaultCountSession.data?.state === 'failure' ? vaultCountSession.data.error : null
-
   const vaultToastKeyRef = useRef<string | null>(null)
   useEffect(() => {
     const d = vaultCountSession.data
     if (!d || d.state === 'idle' || d.state === 'running') return
     const key =
       d.state === 'success' && d.task_id
-        ? `ok-${d.task_id}`
+        ? `ok-${d.task_id}-${d.result ? 'r' : 'x'}`
         : d.state === 'failure' && d.task_id
           ? `fail-${d.task_id}`
           : d.state === 'failure'
@@ -97,6 +89,11 @@ export default function MaintenancePage() {
     if (d.state === 'success' && d.result) {
       if (d.result.ok) toast.success('Conteo del Drive de respaldo listo.')
       else toast.error(d.result.error ?? 'No se pudo completar el conteo')
+    } else if (d.state === 'success' && !d.result) {
+      toast.error(
+        'Conteo marcado como finalizado pero sin totales en Redis. Revisá el worker Celery y volvé a ejecutar.',
+        { duration: 10_000 },
+      )
     } else if (d.state === 'failure') {
       toast.error(d.error ?? 'Falló el conteo en el worker')
     }
@@ -293,6 +290,7 @@ export default function MaintenancePage() {
                     .mutateAsync()
                     .then(() => {
                       void qc.invalidateQueries({ queryKey: ['vault-shared-drive-item-count-session'] })
+                      void qc.refetchQueries({ queryKey: ['vault-shared-drive-item-count-session'] })
                       toast.success(
                         'Conteo encolado en el worker. Seguí el avance en esta página o en Historial (Logs).',
                       )
@@ -310,56 +308,12 @@ export default function MaintenancePage() {
               </Button>
               {vaultCountBusy ? <Spinner size="sm" className="inline" /> : null}
             </div>
-            {vaultCountSession.data?.state === 'running' ? (
+            {vaultCountSession.data && vaultCountSession.data.state !== 'idle' ? (
               <div className="mt-4 rounded-lg border border-blue-200 dark:border-blue-800 bg-blue-50/50 dark:bg-blue-950/25 p-4">
                 <VaultSharedDriveItemCountSessionPanel
                   session={vaultCountSession.data}
                   showHeading={false}
                 />
-              </div>
-            ) : null}
-            {vaultSessionFailed ? (
-              <Alert className="mt-4" color="failure">
-                {vaultSessionFailed}
-              </Alert>
-            ) : null}
-            {vaultCountSnapshot ? (
-              <div className="mt-4 text-sm space-y-2">
-                {vaultCountSnapshot.shared_drive_name || vaultCountSnapshot.shared_drive_id ? (
-                  <p className="text-slate-700 dark:text-slate-300">
-                    Unidad:{' '}
-                    <span className="font-medium">
-                      {vaultCountSnapshot.shared_drive_name ?? vaultCountSnapshot.shared_drive_id}
-                    </span>
-                  </p>
-                ) : null}
-                {vaultCountSnapshot.ok ? (
-                  <>
-                    <p className="text-slate-800 dark:text-slate-200">
-                      <span className="font-semibold">{vaultCountSnapshot.total_items.toLocaleString('es-AR')}</span> ítems
-                      en total ({vaultCountSnapshot.file_count.toLocaleString('es-AR')} archivos,{' '}
-                      {vaultCountSnapshot.folder_count.toLocaleString('es-AR')} carpetas).
-                    </p>
-                    {vaultCountSnapshot.remaining_until_limit != null ? (
-                      <p className="text-slate-600 dark:text-slate-400">
-                        Margen aproximado hasta el límite de referencia ({vaultCountSnapshot.item_limit.toLocaleString('es-AR')}{' '}
-                        ítems):{' '}
-                        <span className="font-medium text-slate-800 dark:text-slate-200">
-                          {vaultCountSnapshot.remaining_until_limit.toLocaleString('es-AR')} ítems
-                        </span>
-                        .
-                      </p>
-                    ) : null}
-                    {vaultCountSnapshot.total_items >= vaultCountSnapshot.item_limit ? (
-                      <Alert color="warning">
-                        El conteo alcanza o supera el límite de referencia de Google. Conviene planificar otra unidad o
-                        depuración antes de seguir cargando respaldos.
-                      </Alert>
-                    ) : null}
-                  </>
-                ) : (
-                  <Alert color="failure">{vaultCountSnapshot.error ?? 'Error al contar ítems en Drive.'}</Alert>
-                )}
               </div>
             ) : null}
           </Card>

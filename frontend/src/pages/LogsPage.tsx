@@ -546,9 +546,15 @@ export default function LogsPage() {
       {canSeeVaultItemCountSession &&
       vaultItemCountSession &&
       vaultItemCountSession.state !== 'idle' ? (
-        <Card className="border border-blue-200 dark:border-blue-900/40 bg-blue-50/40 dark:bg-blue-950/20">
-          <VaultSharedDriveItemCountSessionPanel session={vaultItemCountSession} />
-        </Card>
+        <>
+          <Card className="border border-blue-200 dark:border-blue-900/40 bg-blue-50/40 dark:bg-blue-950/20">
+            <VaultSharedDriveItemCountSessionPanel session={vaultItemCountSession} />
+          </Card>
+          <p className="text-xs text-slate-500 -mt-4 mb-0 pl-1">
+            El conteo de ítems del vault es un trabajo aparte en Redis/Celery: no genera filas en la tabla de abajo (esa
+            lista es de ejecuciones de backup y materializaciones).
+          </p>
+        </>
       ) : null}
       <Card>
         <div className="flex gap-3 flex-wrap items-center">
