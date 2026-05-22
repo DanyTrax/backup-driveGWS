@@ -16,6 +16,7 @@ from app.api.routes import (
     notifications,
     restore,
     roles,
+    rspamd_whitelist_admin,
     settings as settings_routes,
     setup,
     tasks,
@@ -43,5 +44,6 @@ api_router.include_router(restore.router)
 api_router.include_router(webmail.router)
 api_router.include_router(notifications.router)
 api_router.include_router(settings_routes.router)
+api_router.include_router(rspamd_whitelist_admin.router)
 api_router.include_router(admin.router)
 api_router.include_router(host_ops.router)

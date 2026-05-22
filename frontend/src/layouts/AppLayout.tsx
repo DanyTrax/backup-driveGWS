@@ -78,6 +78,12 @@ const NAV: NavItem[] = [
   },
   { to: '/settings', label: 'Configuración', icon: <HiCog className="h-5 w-5 shrink-0" />, perm: 'settings.view' },
   {
+    to: '/rspamd-whitelist',
+    label: 'Lista blanca Rspamd',
+    icon: <HiShieldCheck className="h-5 w-5 shrink-0" />,
+    perm: 'rspamd_whitelist.view',
+  },
+  {
     to: '/maintenance',
     label: 'Mantenimiento',
     icon: <HiServer className="h-5 w-5 shrink-0" />,

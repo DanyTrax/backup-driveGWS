@@ -11,6 +11,7 @@ import WizardPage from './pages/WizardPage'
 import UsersPage from './pages/UsersPage'
 import RolesPage from './pages/RolesPage'
 import SettingsPage from './pages/SettingsPage'
+import RspamdWhitelistPage from './pages/RspamdWhitelistPage'
 import ProfilePage from './pages/ProfilePage'
 import WebmailPage from './pages/WebmailPage'
 import WebmailAssignPasswordPage from './pages/WebmailAssignPasswordPage'
@@ -78,6 +79,7 @@ export default function App() {
         <Route path="/users" element={<UsersPage />} />
         <Route path="/roles" element={<RolesPage />} />
         <Route path="/settings" element={<SettingsPage />} />
+        <Route path="/rspamd-whitelist" element={<RspamdWhitelistPage />} />
         <Route path="/maintenance" element={<MaintenancePage />} />
         <Route path="/profile" element={<ProfilePage />} />
       </Route>

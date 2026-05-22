@@ -5,18 +5,20 @@ PoC: listas desde variables de entorno hasta tener CRUD en panel.
 """
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException, Query, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import PlainTextResponse, Response
+from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.deps import get_db
 from app.core.config import get_settings
 from app.services.rspamd_whitelist_service import (
     WhitelistEntryKind,
     WhitelistNormalizeError,
     normalize_whitelist_input,
-    parse_env_entry_lines,
     render_rspamd_map,
     split_entries,
 )
+from app.services.rspamd_whitelist_store import entries_for_feed
 
 router = APIRouter(prefix="/security", tags=["rspamd-security"])
 
@@ -36,12 +38,10 @@ def _verify_feed_token(token: str | None) -> None:
         raise HTTPException(status.HTTP_403_FORBIDDEN, detail="invalid_or_missing_token")
 
 
-def _entries_from_env() -> list:
+async def _entries_for_feed(db: AsyncSession) -> list:
     settings = get_settings()
     blob = (settings.rspamd_whitelist_entries or "").strip()
-    if not blob:
-        return []
-    return parse_env_entry_lines(blob)
+    return await entries_for_feed(db, env_blob=blob)
 
 
 def _plain_map_response(body: str, *, head_only: bool) -> PlainTextResponse:
@@ -70,6 +70,7 @@ def _plain_map_response(body: str, *, head_only: bool) -> PlainTextResponse:
 async def whitelist_domains_inc(
     request: Request,
     token: str | None = Query(default=None),
+    db: AsyncSession = Depends(get_db),
 ) -> Response:
     """
     Una línea = un dominio (sin @). Para bloque multimap::
@@ -79,7 +80,7 @@ async def whitelist_domains_inc(
         map = \"https://HOST/security/whitelist_dominios.inc?token=...\";
     """
     _verify_feed_token(token)
-    entries = _entries_from_env()
+    entries = await _entries_for_feed(db)
     body = render_rspamd_map(entries, kind=WhitelistEntryKind.domain, title="whitelist domains")
     return _plain_map_response(body, head_only=(request.method == "HEAD"))
 
@@ -93,27 +94,35 @@ async def whitelist_domains_inc(
 async def whitelist_emails_inc(
     request: Request,
     token: str | None = Query(default=None),
+    db: AsyncSession = Depends(get_db),
 ) -> Response:
     _verify_feed_token(token)
-    entries = _entries_from_env()
+    entries = await _entries_for_feed(db)
     body = render_rspamd_map(entries, kind=WhitelistEntryKind.email, title="whitelist emails")
     return _plain_map_response(body, head_only=(request.method == "HEAD"))
 
 
 @router.get("/whitelist_preview", summary="Vista previa JSON (misma lista que los .inc)")
-async def whitelist_preview(token: str | None = Query(default=None)) -> dict:
+async def whitelist_preview(
+    token: str | None = Query(default=None),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
     """Útil para probar sin Mailcow: curl con el mismo ?token=."""
     _verify_feed_token(token)
-    entries = _entries_from_env()
+    entries = await _entries_for_feed(db)
     domains, emails = split_entries(entries)
     settings = get_settings()
     host = (settings.domain_platform or "localhost").strip()
     base = f"https://{host}/security"
     base_api = f"https://{host}/api/security"
     tok_q = "?token=***" if token else ""
+    from app.services.rspamd_whitelist_store import count_entries
+
+    source = "database" if await count_entries(db) > 0 else "env"
     return {
         "domains": domains,
         "emails": emails,
+        "source": source,
         "feed_urls": {
             "domains_inc": f"{base}/whitelist_dominios.inc{tok_q}",
             "emails_inc": f"{base}/whitelist_correos.inc{tok_q}",

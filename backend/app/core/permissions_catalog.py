@@ -83,6 +83,16 @@ PERMISSIONS: tuple[PermissionSpec, ...] = (
     PermissionSpec("settings", "view", "Ver configuración del sistema"),
     PermissionSpec("settings", "edit", "Modificar configuración del sistema"),
     PermissionSpec("settings", "branding", "Cambiar branding (logo, colores, nombre, pie de página)"),
+    PermissionSpec(
+        "rspamd_whitelist",
+        "view",
+        "Ver lista blanca Rspamd (remitentes que no deben marcarse como spam)",
+    ),
+    PermissionSpec(
+        "rspamd_whitelist",
+        "edit",
+        "Agregar y eliminar entradas de la lista blanca Rspamd",
+    ),
     PermissionSpec("platform", "refresh", "Ejecutar Git Refresh"),
     PermissionSpec("platform", "backup", "Ejecutar platform backup manualmente"),
     PermissionSpec(
@@ -138,6 +148,8 @@ DEFAULT_ROLE_PERMISSIONS: dict[UserRole, frozenset[str]] = {
             "vault_drive.view_all", "vault_drive.delegate",
             "settings.view",
             "settings.branding",
+            "rspamd_whitelist.view",
+            "rspamd_whitelist.edit",
             "platform.refresh",
             "notifications.manage_global",
             "audit.view",
@@ -151,6 +163,7 @@ DEFAULT_ROLE_PERMISSIONS: dict[UserRole, frozenset[str]] = {
             "logs.view", "logs.export",
             "restore.view",
             "settings.view",
+            "rspamd_whitelist.view",
             "audit.view",
             "mailbox.view_delegated",
             "vault_drive.view_delegated",

@@ -113,13 +113,34 @@ Recargar Rspamd en Mailcow (según vuestra doc; suele ser reinicio del contenedo
 3. Enviá un correo **desde** ese dominio hacia un buzón en Mailcow.
 4. En la UI de Rspamd / cabeceras `X-Spamd-Result`, buscá símbolos `PLATAFORMA_FROM_*` y score bajo.
 
-## 6. Seguridad (producción)
+## 6. Panel (lista blanca en sistembk)
+
+Ruta: **Lista blanca Rspamd** en el menú (`/rspamd-whitelist`).
+
+| Permiso | Rol típico |
+|---------|------------|
+| `rspamd_whitelist.view` | Ver tabla y vista previa del feed |
+| `rspamd_whitelist.edit` | Agregar / eliminar reglas |
+
+Si hay filas en la base de datos, los `.inc` salen de ahí; si la tabla está vacía, se usa `RSPAMD_WHITELIST_ENTRIES` del `.env`.
+
+Tras `git pull` y migración:
+
+```bash
+cd /opt/stacks/backup-stack/docker
+docker compose --env-file ../.env up -d app
+# alembic corre en el entrypoint de app al arrancar
+```
+
+Asigná los permisos nuevos en **Roles** (roles personalizados) o usá Operador / Super Admin (ya los incluyen tras migración `0020`).
+
+## 7. Seguridad (producción)
 
 - El token en la URL es simple; en NPM podés restringir `/security/whitelist_*.inc` a la IP de salida del contenedor Mailcow.
 - No commitear el token en git; solo en `.env`.
 - Más adelante: CRUD en panel + BD; estos endpoints siguen generando los `.inc`.
 
-## 7. NPM
+## 8. NPM
 
 Si el proxy solo enruta `/api` a `app`, añadí también:
 

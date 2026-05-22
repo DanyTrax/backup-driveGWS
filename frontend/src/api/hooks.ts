@@ -34,6 +34,9 @@ import type {
   PurgeAllLocalMailResult,
   RestoreJob,
   RestoreBulkDeleteResult,
+  RspamdWhitelistEntry,
+  RspamdWhitelistFeedPreview,
+  RspamdWhitelistList,
   RunTaskResult,
   SetupState,
   VaultDriveAccount,
@@ -1062,6 +1065,49 @@ export function useStackDeployJob(jobName: string | null) {
       const d = q.state.data
       if (!d) return 2500
       return d.phase === 'running' ? 2500 : false
+    },
+  })
+}
+
+export function useRspamdWhitelist(page: number, pageSize: number, q: string) {
+  return useQuery({
+    queryKey: ['rspamd-whitelist', page, pageSize, q],
+    queryFn: async () => {
+      const params: Record<string, string | number> = { page, page_size: pageSize }
+      if (q.trim()) params.q = q.trim()
+      return (await api.get<RspamdWhitelistList>('/rspamd-whitelist', { params })).data
+    },
+  })
+}
+
+export function useRspamdWhitelistPreview() {
+  return useQuery({
+    queryKey: ['rspamd-whitelist-preview'],
+    queryFn: async () => (await api.get<RspamdWhitelistFeedPreview>('/rspamd-whitelist/preview')).data,
+  })
+}
+
+export function useAddRspamdWhitelistEntry() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (raw: string) =>
+      (await api.post<RspamdWhitelistEntry>('/rspamd-whitelist', { raw })).data,
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['rspamd-whitelist'] })
+      void qc.invalidateQueries({ queryKey: ['rspamd-whitelist-preview'] })
+    },
+  })
+}
+
+export function useBulkDeleteRspamdWhitelist() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (ids: string[]) => {
+      await api.post('/rspamd-whitelist/bulk-delete', { ids })
+    },
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['rspamd-whitelist'] })
+      void qc.invalidateQueries({ queryKey: ['rspamd-whitelist-preview'] })
     },
   })
 }

@@ -604,3 +604,28 @@ export interface StackDeployJobStatus {
   exit_code?: number
   result?: StackDeployResult | null
 }
+
+export interface RspamdWhitelistEntry {
+  id: string
+  raw_input: string
+  kind: 'domain' | 'email'
+  value: string
+  map_file: string
+  created_by_email: string | null
+  created_at: string
+}
+
+export interface RspamdWhitelistList {
+  items: RspamdWhitelistEntry[]
+  total: number
+  page: number
+  page_size: number
+}
+
+export interface RspamdWhitelistFeedPreview {
+  domains: string[]
+  emails: string[]
+  entry_count: number
+  source: 'database' | 'env' | string
+  feed_urls: Record<string, string>
+}
