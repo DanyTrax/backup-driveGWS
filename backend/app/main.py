@@ -4,7 +4,7 @@ from __future__ import annotations
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -48,8 +48,9 @@ def create_app() -> FastAPI:
     app.add_middleware(SecurityHeadersMiddleware)
 
     app.include_router(api_router, prefix="/api")
-    # Rspamd (Mailcow) lee mapas HTTP en /security/... (sin /api), p. ej. whitelist_dominios.inc
+    # Rspamd: /security/... (URL en multimap) y /api/security/... (si NPM solo enruta /api al backend)
     app.include_router(rspamd_security.router)
+    app.include_router(rspamd_security.router, prefix="/api")
 
     static_dir = Path(__file__).resolve().parent.parent / "static"
     if static_dir.exists():
@@ -66,6 +67,9 @@ def create_app() -> FastAPI:
 
         @app.get("/{full_path:path}", include_in_schema=False)
         async def spa_fallback(full_path: str):  # noqa: ARG001
+            # No devolver el SPA en rutas de API públicas (evita HTML confuso si falta rebuild)
+            if full_path == "security" or full_path.startswith("security/"):
+                raise HTTPException(status_code=404, detail="not_found")
             if index_html.exists():
                 return FileResponse(index_html)
             return {"detail": "frontend not built"}

@@ -92,6 +92,7 @@ async def whitelist_preview(token: str | None = Query(default=None)) -> dict:
     settings = get_settings()
     host = (settings.domain_platform or "localhost").strip()
     base = f"https://{host}/security"
+    base_api = f"https://{host}/api/security"
     tok_q = "?token=***" if token else ""
     return {
         "domains": domains,
@@ -99,6 +100,8 @@ async def whitelist_preview(token: str | None = Query(default=None)) -> dict:
         "feed_urls": {
             "domains_inc": f"{base}/whitelist_dominios.inc{tok_q}",
             "emails_inc": f"{base}/whitelist_correos.inc{tok_q}",
+            "domains_inc_via_api": f"{base_api}/whitelist_dominios.inc{tok_q}",
+            "emails_inc_via_api": f"{base_api}/whitelist_correos.inc{tok_q}",
         },
         "entry_count": len(entries),
     }

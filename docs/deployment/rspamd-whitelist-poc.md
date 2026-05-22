@@ -12,23 +12,41 @@ RSPAMD_WHITELIST_FEED_TOKEN=poné_un_secreto_largo_aqui
 RSPAMD_WHITELIST_ENTRIES=dominio-prueba.com,@otro-dominio.com,ventas@tercero.com
 ```
 
-Reiniciar solo **`app`** (no hace falta `worker` para backups):
+Reiniciar **`app`** con imagen **reconstruida** (un `up -d` sin `build` deja el código viejo → verás HTML del panel):
 
 ```bash
-cd /opt/stacks/backup-stack/docker
+cd /opt/stacks/backup-stack
+git pull
+cd docker
+docker compose --env-file ../.env build app
 docker compose --env-file ../.env up -d app
+```
+
+**Importante:** en `.env` usá el token **real**, no el texto `el_token_generado`:
+
+```bash
+RSPAMD_WHITELIST_FEED_TOKEN=OBwTsRvO87PJ-nubyMCkShEvwxM5x3yEGvaNDwRbJus
 ```
 
 ## 2. Probar desde el VPS (sin Mailcow)
 
-Sustituí `HOST`, `TOKEN` y dominio real:
+Sustituí `HOST`, `TOKEN` (el de `.env`) y dominio real:
 
 ```bash
-curl -sS "https://HOST/security/whitelist_preview?token=TOKEN" | jq .
-curl -sS "https://HOST/security/whitelist_dominios.inc?token=TOKEN"
-curl -sS "https://HOST/security/whitelist_correos.inc?token=TOKEN"
-curl -sS "https://HOST/security/normalize_test?q=@ejemplo.com&token=TOKEN" | jq .
+# 1) Directo al contenedor (salta NPM) — debe devolver texto, no HTML
+docker exec msa-backup-app wget -qO- \
+  'http://127.0.0.1:8000/security/whitelist_dominios.inc?token=TU_TOKEN' | head
+
+# 2) Por HTTPS (NPM debe enrutar /security o /api/security al backend)
+curl -sS "https://HOST/security/whitelist_dominios.inc?token=TU_TOKEN"
+# Si NPM solo proxy /api:
+curl -sS "https://HOST/api/security/whitelist_dominios.inc?token=TU_TOKEN"
+
+curl -sS "https://HOST/security/whitelist_preview?token=TU_TOKEN" | jq .
+curl -sS "https://HOST/security/whitelist_correos.inc?token=TU_TOKEN"
 ```
+
+Si ves **HTML** (`<!doctype html>`), la petición no llegó al API nuevo: falta `build app` o falta location `/security` en NPM.
 
 Salida esperada de `whitelist_dominios.inc`:
 
