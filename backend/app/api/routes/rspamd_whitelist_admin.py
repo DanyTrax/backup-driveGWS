@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import (
@@ -134,7 +134,12 @@ async def add_whitelist_entry(
     return _entry_out(row)
 
 
-@router.post("/bulk-delete", status_code=status.HTTP_204_NO_CONTENT)
+@router.post(
+    "/bulk-delete",
+    status_code=status.HTTP_204_NO_CONTENT,
+    response_class=Response,
+    response_model=None,
+)
 async def bulk_delete_whitelist_entries(
     payload: RspamdWhitelistBulkDeleteIn,
     request: Request,
