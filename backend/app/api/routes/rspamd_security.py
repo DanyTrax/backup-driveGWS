@@ -5,7 +5,7 @@ PoC: listas desde variables de entorno hasta tener CRUD en panel.
 """
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, HTTPException, Query, Request, status
 from fastapi.responses import PlainTextResponse, Response
 
 from app.core.config import get_settings
@@ -44,12 +44,33 @@ def _entries_from_env() -> list:
     return parse_env_entry_lines(blob)
 
 
-@router.get(
+def _plain_map_response(body: str, *, head_only: bool) -> PlainTextResponse:
+    """Rspamd HTTP maps suelen usar HEAD (ETag); sin HEAD devuelve 405 y el mapa queda Not loaded."""
+    headers = {"Cache-Control": "no-store"}
+    if head_only:
+        headers["Content-Length"] = str(len(body.encode("utf-8")))
+        return PlainTextResponse(
+            content="",
+            media_type="text/plain; charset=utf-8",
+            headers=headers,
+        )
+    return PlainTextResponse(
+        content=body,
+        media_type="text/plain; charset=utf-8",
+        headers=headers,
+    )
+
+
+@router.api_route(
     "/whitelist_dominios.inc",
+    methods=["GET", "HEAD"],
     response_class=PlainTextResponse,
     summary="Mapa Rspamd: dominios (filter=email:domain)",
 )
-async def whitelist_domains_inc(token: str | None = Query(default=None)) -> Response:
+async def whitelist_domains_inc(
+    request: Request,
+    token: str | None = Query(default=None),
+) -> Response:
     """
     Una línea = un dominio (sin @). Para bloque multimap::
 
@@ -60,27 +81,23 @@ async def whitelist_domains_inc(token: str | None = Query(default=None)) -> Resp
     _verify_feed_token(token)
     entries = _entries_from_env()
     body = render_rspamd_map(entries, kind=WhitelistEntryKind.domain, title="whitelist domains")
-    return PlainTextResponse(
-        content=body,
-        media_type="text/plain; charset=utf-8",
-        headers={"Cache-Control": "no-store"},
-    )
+    return _plain_map_response(body, head_only=(request.method == "HEAD"))
 
 
-@router.get(
+@router.api_route(
     "/whitelist_correos.inc",
+    methods=["GET", "HEAD"],
     response_class=PlainTextResponse,
     summary="Mapa Rspamd: correos completos (filter=email)",
 )
-async def whitelist_emails_inc(token: str | None = Query(default=None)) -> Response:
+async def whitelist_emails_inc(
+    request: Request,
+    token: str | None = Query(default=None),
+) -> Response:
     _verify_feed_token(token)
     entries = _entries_from_env()
     body = render_rspamd_map(entries, kind=WhitelistEntryKind.email, title="whitelist emails")
-    return PlainTextResponse(
-        content=body,
-        media_type="text/plain; charset=utf-8",
-        headers={"Cache-Control": "no-store"},
-    )
+    return _plain_map_response(body, head_only=(request.method == "HEAD"))
 
 
 @router.get("/whitelist_preview", summary="Vista previa JSON (misma lista que los .inc)")
