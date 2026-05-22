@@ -10,6 +10,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from app.api.router import api_router
+from app.api.routes import rspamd_security
 from app.core.config import get_settings
 from app.core.logging import get_logger, setup_logging
 from app.middleware.security_headers import SecurityHeadersMiddleware
@@ -47,6 +48,8 @@ def create_app() -> FastAPI:
     app.add_middleware(SecurityHeadersMiddleware)
 
     app.include_router(api_router, prefix="/api")
+    # Rspamd (Mailcow) lee mapas HTTP en /security/... (sin /api), p. ej. whitelist_dominios.inc
+    app.include_router(rspamd_security.router)
 
     static_dir = Path(__file__).resolve().parent.parent / "static"
     if static_dir.exists():

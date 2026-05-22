@@ -85,6 +85,11 @@ class Settings(BaseSettings):
     feature_mfa_required_for_superadmin: bool = False
     feature_web_push: bool = False
 
+    #: Token en query ``?token=`` para feeds /security/whitelist_*.inc (Rspamd multimap HTTP).
+    rspamd_whitelist_feed_token: str = ""
+    #: PoC: líneas o dominios separados por coma/newline hasta CRUD en panel.
+    rspamd_whitelist_entries: str = ""
+
     git_refresh_mode: Literal["webhook", "bind_mount", "both"] = "webhook"
     git_repo_url: str = ""
     git_branch: str = "main"
