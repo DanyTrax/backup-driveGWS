@@ -1,9 +1,11 @@
 import { useMemo, useState } from 'react'
-import { Badge, Button, Card, Checkbox, Label, TextInput } from 'flowbite-react'
+import { Badge, Button, Card, Checkbox, Label, Modal, Textarea, TextInput } from 'flowbite-react'
 import toast from 'react-hot-toast'
 import {
   useAddRspamdWhitelistEntry,
   useBulkDeleteRspamdWhitelist,
+  useImportRspamdWhitelist,
+  useImportRspamdWhitelistFromEnv,
   useRspamdWhitelist,
   useRspamdWhitelistPreview,
 } from '../api/hooks'
@@ -22,11 +24,15 @@ export default function RspamdWhitelistPage() {
   const [q, setQ] = useState('')
   const [newRule, setNewRule] = useState('')
   const [selected, setSelected] = useState<Set<string>>(() => new Set())
+  const [importOpen, setImportOpen] = useState(false)
+  const [importText, setImportText] = useState('')
 
   const listQ = useRspamdWhitelist(page, pageSize, q)
   const previewQ = useRspamdWhitelistPreview()
   const addM = useAddRspamdWhitelistEntry()
   const deleteM = useBulkDeleteRspamdWhitelist()
+  const importM = useImportRspamdWhitelist()
+  const importEnvM = useImportRspamdWhitelistFromEnv()
 
   const items = listQ.data?.items ?? []
   const total = listQ.data?.total ?? 0
@@ -83,6 +89,52 @@ export default function RspamdWhitelistPage() {
     }
   }
 
+  function reportImportResult(res: { added: number; skipped_duplicate: number; invalid: string[] }) {
+    const parts = [`${res.added} agregada(s)`]
+    if (res.skipped_duplicate) parts.push(`${res.skipped_duplicate} duplicada(s) omitida(s)`)
+    if (res.invalid.length) parts.push(`${res.invalid.length} inválida(s)`)
+    toast.success(parts.join(' · ') + '. Rspamd ~5 min.')
+    if (res.invalid.length) {
+      toast.error(res.invalid.slice(0, 3).join('; ') + (res.invalid.length > 3 ? '…' : ''), {
+        duration: 8000,
+      })
+    }
+  }
+
+  async function onImport() {
+    const text = importText.trim()
+    if (!text) {
+      toast.error('Pegá dominios o correos separados por coma o por línea.')
+      return
+    }
+    try {
+      const res = await importM.mutateAsync(text)
+      reportImportResult(res)
+      setImportOpen(false)
+      setImportText('')
+      setPage(1)
+    } catch (err: unknown) {
+      const st = (err as { response?: { status?: number } })?.response?.status
+      if (st === 403) toast.error('Sin permiso (rspamd_whitelist.edit).')
+      else toast.error('No se pudo importar.')
+    }
+  }
+
+  async function onImportFromEnv() {
+    try {
+      const res = await importEnvM.mutateAsync()
+      reportImportResult(res)
+      setPage(1)
+    } catch (err: unknown) {
+      const st = (err as { response?: { status?: number } })?.response?.status
+      const msg = (err as { response?: { data?: { detail?: { message?: string } } } })?.response?.data
+        ?.detail?.message
+      if (st === 403) toast.error('Sin permiso (rspamd_whitelist.edit).')
+      else if (st === 400) toast.error(msg || 'No hay entradas en .env.')
+      else toast.error('No se pudo importar desde .env.')
+    }
+  }
+
   async function onBulkDelete() {
     if (selected.size === 0) {
       toast.error('Seleccioná al menos una fila.')
@@ -124,7 +176,7 @@ export default function RspamdWhitelistPage() {
       </div>
 
       {previewQ.data ? (
-        <Card className="text-sm">
+        <Card className="text-sm space-y-2">
           <p className="text-slate-500 dark:text-slate-400">
             Fuente activa del feed:{' '}
             <Badge color={previewQ.data.source === 'database' ? 'success' : 'warning'}>
@@ -134,6 +186,24 @@ export default function RspamdWhitelistPage() {
             {previewQ.data.entry_count} entrada(s) — dominios: {previewQ.data.domains.length}, correos:{' '}
             {previewQ.data.emails.length}
           </p>
+          {previewQ.data.env_pending_in_db ? (
+            <p className="text-amber-800 dark:text-amber-300 text-xs">
+              El archivo <code className="text-xs">whitelist_*.inc</code> usa el <strong>.env</strong>, pero la
+              tabla del panel está vacía. Importá las reglas para gestionarlas aquí (misma lista en Rspamd).
+              {previewQ.data.domains.length > 0 ? (
+                <>
+                  {' '}
+                  Dominios en feed:{' '}
+                  <span className="font-mono">{previewQ.data.domains.join(', ')}</span>
+                </>
+              ) : null}
+            </p>
+          ) : null}
+          {canEdit && previewQ.data.env_pending_in_db ? (
+            <Button size="xs" color="warning" onClick={() => void onImportFromEnv()} disabled={importEnvM.isPending}>
+              Importar entradas del .env al panel
+            </Button>
+          ) : null}
         </Card>
       ) : null}
 
@@ -154,6 +224,9 @@ export default function RspamdWhitelistPage() {
             </div>
             <Button onClick={() => void onAdd()} disabled={addM.isPending}>
               Agregar elemento
+            </Button>
+            <Button color="gray" onClick={() => setImportOpen(true)}>
+              Importar lista
             </Button>
           </div>
         </Card>
@@ -237,7 +310,9 @@ export default function RspamdWhitelistPage() {
                       >
                         {q
                           ? 'Sin resultados para la búsqueda.'
-                          : 'Lista vacía. Agregá reglas o definí RSPAMD_WHITELIST_ENTRIES en .env hasta migrar.'}
+                          : previewQ.data?.env_pending_in_db
+                            ? 'La tabla está vacía: el feed sale del .env. Usá «Importar entradas del .env» o «Importar lista».'
+                            : 'Lista vacía. Agregá o importá reglas.'}
                       </td>
                     </tr>
                   ) : (
@@ -325,6 +400,30 @@ export default function RspamdWhitelistPage() {
           </>
         )}
       </Card>
+
+      <Modal show={importOpen} onClose={() => setImportOpen(false)} size="3xl">
+        <Modal.Header>Importar lista blanca</Modal.Header>
+        <Modal.Body>
+          <p className="text-sm text-slate-500 dark:text-slate-400 mb-3">
+            Pegá dominios y/o correos separados por <strong>coma</strong> o <strong>una por línea</strong>.
+            Ejemplo: <code className="text-xs">themsagroup.com, grupoy.com.co, lusha.com, ventas@proveedor.com</code>
+          </p>
+          <Textarea
+            rows={8}
+            placeholder="dominio.com, otro.com, @tercero.com, user@mail.com"
+            value={importText}
+            onChange={(e) => setImportText(e.target.value)}
+          />
+        </Modal.Body>
+        <Modal.Footer>
+          <Button onClick={() => void onImport()} disabled={importM.isPending}>
+            Importar
+          </Button>
+          <Button color="gray" onClick={() => setImportOpen(false)}>
+            Cancelar
+          </Button>
+        </Modal.Footer>
+      </Modal>
     </div>
   )
 }

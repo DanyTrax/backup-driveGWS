@@ -627,5 +627,12 @@ export interface RspamdWhitelistFeedPreview {
   emails: string[]
   entry_count: number
   source: 'database' | 'env' | string
+  env_pending_in_db?: boolean
   feed_urls: Record<string, string>
+}
+
+export interface RspamdWhitelistImportResult {
+  added: number
+  skipped_duplicate: number
+  invalid: string[]
 }

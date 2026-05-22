@@ -36,6 +36,7 @@ import type {
   RestoreBulkDeleteResult,
   RspamdWhitelistEntry,
   RspamdWhitelistFeedPreview,
+  RspamdWhitelistImportResult,
   RspamdWhitelistList,
   RunTaskResult,
   SetupState,
@@ -1105,6 +1106,30 @@ export function useBulkDeleteRspamdWhitelist() {
     mutationFn: async (ids: string[]) => {
       await api.post('/rspamd-whitelist/bulk-delete', { ids })
     },
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['rspamd-whitelist'] })
+      void qc.invalidateQueries({ queryKey: ['rspamd-whitelist-preview'] })
+    },
+  })
+}
+
+export function useImportRspamdWhitelist() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (text: string) =>
+      (await api.post<RspamdWhitelistImportResult>('/rspamd-whitelist/import', { text })).data,
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['rspamd-whitelist'] })
+      void qc.invalidateQueries({ queryKey: ['rspamd-whitelist-preview'] })
+    },
+  })
+}
+
+export function useImportRspamdWhitelistFromEnv() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async () =>
+      (await api.post<RspamdWhitelistImportResult>('/rspamd-whitelist/import-from-env')).data,
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ['rspamd-whitelist'] })
       void qc.invalidateQueries({ queryKey: ['rspamd-whitelist-preview'] })

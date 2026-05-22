@@ -106,6 +106,35 @@ async def delete_entries(
     return len(rows)
 
 
+async def import_bulk(
+    db: AsyncSession,
+    *,
+    blob: str,
+    actor_user_id: uuid.UUID | None,
+) -> dict[str, int | list[str]]:
+    """Importa reglas separadas por coma o salto de línea."""
+    added = 0
+    skipped_duplicate = 0
+    invalid: list[str] = []
+    for chunk in blob.replace(",", "\n").splitlines():
+        line = chunk.strip().strip('"').strip("'")
+        if not line or line.startswith("#"):
+            continue
+        try:
+            await create_entry(db, raw=line, actor_user_id=actor_user_id)
+            added += 1
+        except ValueError as exc:
+            if str(exc) == "duplicate_entry":
+                skipped_duplicate += 1
+            else:
+                invalid.append(f"{line}: {exc}")
+    return {
+        "added": added,
+        "skipped_duplicate": skipped_duplicate,
+        "invalid": invalid,
+    }
+
+
 async def entries_for_feed(
     db: AsyncSession,
     *,
