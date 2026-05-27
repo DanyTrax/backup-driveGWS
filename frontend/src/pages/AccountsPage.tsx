@@ -14,6 +14,7 @@ import {
   useVaultPools,
 } from '../api/hooks'
 import type { AccountAccessCheck, VaultMode, WorkspaceAccount } from '../api/types'
+import { formatVaultAssignmentError } from '../api/errors'
 import { useAuthStore } from '../stores/auth'
 import { hideGybVaultDriveUi, hideMaildirWebmailUi } from '../config/ui'
 
@@ -248,8 +249,7 @@ export default function AccountsPage() {
       toast.success('Asignación de bóveda guardada.')
       setVaultAccount(null)
     } catch (err: unknown) {
-      const msg = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail
-      toast.error(typeof msg === 'string' ? msg : 'No se pudo guardar.')
+      toast.error(formatVaultAssignmentError(err))
     }
   }
 
@@ -505,6 +505,11 @@ export default function AccountsPage() {
                   delegado en Workspace).
                 </p>
               ) : null}
+              <p className="text-xs text-slate-500">
+                Si falla al guardar, desmarcá re-provisionar y guardá de nuevo (solo cambia el destino; las
+                carpetas se crean en el próximo backup). Si sigue fallando, revisá permisos y que la SA sea
+                Manager del pool.
+              </p>
               <div className="flex items-center gap-2">
                 <Checkbox
                   id="vault-reprovision"

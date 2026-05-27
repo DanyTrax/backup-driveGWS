@@ -7,9 +7,11 @@ from typing import TYPE_CHECKING
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from googleapiclient.errors import HttpError
 from sqlalchemy.orm import selectinload
 
 from app.models.vault_pool import VaultPool
+from app.services.google.credentials import GoogleNotConfigured
 from app.services.google.drive import (
     add_service_account_to_shared_drive,
     check_shared_drive,
@@ -165,7 +167,14 @@ async def apply_vault_assignment(
         await ensure_dedicated_shared_drive(db, account)
 
     if reprovision and account.is_backup_enabled:
-        await provision_account_vault(db, account)
+        try:
+            await provision_account_vault(db, account)
+        except HttpError as exc:
+            raise VaultAssignmentError(
+                f"vault_provision_google_failed:http_{exc.resp.status}"
+            ) from exc
+        except GoogleNotConfigured as exc:
+            raise VaultAssignmentError("google_not_configured") from exc
 
     await db.flush()
     return account

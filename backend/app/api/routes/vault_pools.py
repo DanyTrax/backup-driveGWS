@@ -267,7 +267,24 @@ async def set_account_vault_assignment(
             reprovision=payload.reprovision,
         )
     except VaultAssignmentError as exc:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+        msg = str(exc)
+        if msg.startswith("vault_provision_google_failed"):
+            raise HTTPException(
+                status.HTTP_502_BAD_GATEWAY,
+                detail={
+                    "error": msg,
+                    "message": (
+                        "Google no permitió crear las carpetas en el pool. "
+                        "Comprobá que la SA sea Manager de la unidad y que el pool tenga el ID correcto de BackupRoot."
+                    ),
+                },
+            ) from exc
+        if msg == "google_not_configured":
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST,
+                detail={"error": msg, "message": "Falta configurar la Service Account o el admin delegado."},
+            ) from exc
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=msg) from exc
 
     target = await resolve_vault_target(db, acc)
     await record_audit(
