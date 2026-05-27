@@ -3,13 +3,12 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
-
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from googleapiclient.errors import HttpError
 from sqlalchemy.orm import selectinload
 
+from app.models.accounts import GwAccount
 from app.models.vault_pool import VaultPool
 from app.services.google.credentials import GoogleNotConfigured
 from app.services.google.drive import (
@@ -23,9 +22,6 @@ from app.services.settings_service import (
     KEY_VAULT_SHARED_DRIVE_ID,
     get_value,
 )
-
-if TYPE_CHECKING:
-    from app.models.accounts import GwAccount
 
 VAULT_MODE_DEFAULT = "default"
 VAULT_MODE_POOL = "pool"
