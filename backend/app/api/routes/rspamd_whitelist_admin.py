@@ -23,6 +23,7 @@ from app.schemas.rspamd_whitelist import (
     RspamdWhitelistImportIn,
     RspamdWhitelistImportOut,
     RspamdWhitelistListOut,
+    RspamdWhitelistUpdateIn,
 )
 from app.services.audit_service import record_audit
 from app.services.rspamd_whitelist_service import WhitelistEntryKind, split_entries
@@ -33,6 +34,7 @@ from app.services.rspamd_whitelist_store import (
     entries_for_feed,
     import_bulk,
     list_entries,
+    update_entry,
 )
 
 router = APIRouter(prefix="/rspamd-whitelist", tags=["rspamd-whitelist"])
@@ -45,6 +47,7 @@ def _entry_out(row) -> RspamdWhitelistEntryOut:
         raw_input=row.raw_input,
         kind=row.kind,
         value=row.value,
+        include_subdomains=bool(getattr(row, "include_subdomains", False)),
         map_file=(
             "whitelist_dominios.inc"
             if kind == WhitelistEntryKind.domain
@@ -108,7 +111,12 @@ async def add_whitelist_entry(
     current: SysUser = Depends(require_permission("rspamd_whitelist.edit")),
 ) -> RspamdWhitelistEntryOut:
     try:
-        row = await create_entry(db, raw=payload.raw, actor_user_id=current.id)
+        row = await create_entry(
+            db,
+            raw=payload.raw,
+            include_subdomains=payload.include_subdomains,
+            actor_user_id=current.id,
+        )
     except ValueError as exc:
         msg = str(exc)
         if msg == "duplicate_entry":
@@ -132,6 +140,61 @@ async def add_whitelist_entry(
         target_id=str(row.id),
         message="rspamd_whitelist_added",
         metadata={"raw": row.raw_input, "kind": row.kind, "value": row.value},
+    )
+    await db.commit()
+    return _entry_out(row)
+
+
+@router.patch("/{entry_id}", response_model=RspamdWhitelistEntryOut)
+async def patch_whitelist_entry(
+    entry_id: str,
+    payload: RspamdWhitelistUpdateIn,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    current: SysUser = Depends(require_permission("rspamd_whitelist.edit")),
+) -> RspamdWhitelistEntryOut:
+    try:
+        eid = uuid.UUID(entry_id)
+    except ValueError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="invalid_id") from exc
+
+    try:
+        row = await update_entry(
+            db,
+            entry_id=eid,
+            raw=payload.raw,
+            include_subdomains=payload.include_subdomains,
+        )
+    except ValueError as exc:
+        msg = str(exc)
+        if msg == "duplicate_entry":
+            raise HTTPException(
+                status.HTTP_409_CONFLICT,
+                detail={"error": "duplicate_entry", "message": "Esa regla ya existe en la lista."},
+            ) from exc
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            detail={"error": "invalid_entry", "message": msg},
+        ) from exc
+    if row is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="entry_not_found")
+
+    await record_audit(
+        db,
+        action=AuditAction.SETTING_CHANGED,
+        actor_user_id=current.id,
+        actor_label=current.email,
+        ip_address=get_client_ip(request),
+        user_agent=get_user_agent(request),
+        target_table="rspamd_whitelist_entries",
+        target_id=str(row.id),
+        message="rspamd_whitelist_updated",
+        metadata={
+            "raw": row.raw_input,
+            "kind": row.kind,
+            "value": row.value,
+            "include_subdomains": bool(getattr(row, "include_subdomains", False)),
+        },
     )
     await db.commit()
     return _entry_out(row)

@@ -8,7 +8,9 @@ import {
   useImportRspamdWhitelistFromEnv,
   useRspamdWhitelist,
   useRspamdWhitelistPreview,
+  useUpdateRspamdWhitelistEntry,
 } from '../api/hooks'
+import type { RspamdWhitelistEntry } from '../api/types'
 import { useAuthStore } from '../stores/auth'
 
 const PAGE_SIZES = [10, 25, 50, 100] as const
@@ -23,9 +25,13 @@ export default function RspamdWhitelistPage() {
   const [search, setSearch] = useState('')
   const [q, setQ] = useState('')
   const [newRule, setNewRule] = useState('')
+  const [newRuleIncludeSubdomains, setNewRuleIncludeSubdomains] = useState(false)
   const [selected, setSelected] = useState<Set<string>>(() => new Set())
   const [importOpen, setImportOpen] = useState(false)
   const [importText, setImportText] = useState('')
+  const [editRow, setEditRow] = useState<RspamdWhitelistEntry | null>(null)
+  const [editRule, setEditRule] = useState('')
+  const [editIncludeSubdomains, setEditIncludeSubdomains] = useState(false)
 
   const listQ = useRspamdWhitelist(page, pageSize, q)
   const previewQ = useRspamdWhitelistPreview()
@@ -33,6 +39,7 @@ export default function RspamdWhitelistPage() {
   const deleteM = useBulkDeleteRspamdWhitelist()
   const importM = useImportRspamdWhitelist()
   const importEnvM = useImportRspamdWhitelistFromEnv()
+  const updateM = useUpdateRspamdWhitelistEntry()
 
   const items = listQ.data?.items ?? []
   const total = listQ.data?.total ?? 0
@@ -73,9 +80,10 @@ export default function RspamdWhitelistPage() {
       return
     }
     try {
-      await addM.mutateAsync(raw)
+      await addM.mutateAsync({ raw, include_subdomains: newRuleIncludeSubdomains })
       toast.success('Regla agregada. Rspamd la verá en ~5 min.')
       setNewRule('')
+      setNewRuleIncludeSubdomains(false)
       setSelected(new Set())
     } catch (err: unknown) {
       const st = (err as { response?: { status?: number; data?: { detail?: { message?: string } } } })
@@ -86,6 +94,40 @@ export default function RspamdWhitelistPage() {
       else if (st === 409) toast.error('Esa regla ya existe.')
       else if (st === 400) toast.error(msg || 'Regla inválida.')
       else toast.error('No se pudo agregar.')
+    }
+  }
+
+  function openEdit(row: RspamdWhitelistEntry) {
+    setEditRow(row)
+    setEditRule(row.raw_input)
+    setEditIncludeSubdomains(Boolean(row.include_subdomains))
+  }
+
+  async function onSaveEdit() {
+    if (!editRow) return
+    const raw = editRule.trim()
+    if (!raw) {
+      toast.error('La regla no puede quedar vacía.')
+      return
+    }
+    try {
+      await updateM.mutateAsync({
+        id: editRow.id,
+        raw,
+        include_subdomains: editIncludeSubdomains,
+      })
+      toast.success('Regla actualizada.')
+      setEditRow(null)
+    } catch (err: unknown) {
+      const st = (err as { response?: { status?: number; data?: { detail?: { message?: string } } } })
+        ?.response?.status
+      const msg = (err as { response?: { data?: { detail?: { message?: string } } } })?.response?.data?.detail
+        ?.message
+      if (st === 403) toast.error('Sin permiso (rspamd_whitelist.edit).')
+      else if (st === 409) toast.error('Esa regla ya existe.')
+      else if (st === 400) toast.error(msg || 'Regla inválida.')
+      else if (st === 404) toast.error('La regla ya no existe.')
+      else toast.error('No se pudo actualizar.')
     }
   }
 
@@ -221,6 +263,14 @@ export default function RspamdWhitelistPage() {
                   if (e.key === 'Enter') void onAdd()
                 }}
               />
+              <div className="mt-2 flex items-center gap-2">
+                <Checkbox
+                  id="new-rule-subdomains"
+                  checked={newRuleIncludeSubdomains}
+                  onChange={(e) => setNewRuleIncludeSubdomains(e.target.checked)}
+                />
+                <Label htmlFor="new-rule-subdomains" value="Incluir subdominios (ej: .dominio.com en el feed)" />
+              </div>
             </div>
             <Button onClick={() => void onAdd()} disabled={addM.isPending}>
               Agregar elemento
@@ -296,16 +346,18 @@ export default function RspamdWhitelistPage() {
                     <th className="py-2 pr-3">Regla</th>
                     <th className="py-2 pr-3">Normalizado</th>
                     <th className="py-2 pr-3">Tipo</th>
+                    <th className="py-2 pr-3">Subdominios</th>
                     <th className="py-2 pr-3">Mapa</th>
                     <th className="py-2 pr-3">Creado por</th>
                     <th className="py-2">Fecha</th>
+                    {canEdit ? <th className="py-2 text-right">Acción</th> : null}
                   </tr>
                 </thead>
                 <tbody>
                   {items.length === 0 ? (
                     <tr>
                       <td
-                        colSpan={canEdit ? 7 : 6}
+                        colSpan={canEdit ? 9 : 7}
                         className="py-8 text-center text-slate-500"
                       >
                         {q
@@ -337,11 +389,29 @@ export default function RspamdWhitelistPage() {
                             {row.kind === 'domain' ? 'Dominio' : 'Correo'}
                           </Badge>
                         </td>
+                        <td className="py-2 pr-3 text-xs">
+                          {row.kind === 'domain' ? (
+                            row.include_subdomains ? (
+                              <Badge color="success">Sí</Badge>
+                            ) : (
+                              <Badge color="gray">No</Badge>
+                            )
+                          ) : (
+                            <span className="text-slate-400">N/A</span>
+                          )}
+                        </td>
                         <td className="py-2 pr-3 text-xs text-slate-500">{row.map_file}</td>
                         <td className="py-2 pr-3 text-xs">{row.created_by_email ?? '—'}</td>
                         <td className="py-2 text-xs text-slate-500 whitespace-nowrap">
                           {new Date(row.created_at).toLocaleString()}
                         </td>
+                        {canEdit ? (
+                          <td className="py-2 text-right">
+                            <Button size="xs" color="gray" onClick={() => openEdit(row)}>
+                              Editar
+                            </Button>
+                          </td>
+                        ) : null}
                       </tr>
                     ))
                   )}
@@ -420,6 +490,40 @@ export default function RspamdWhitelistPage() {
             Importar
           </Button>
           <Button color="gray" onClick={() => setImportOpen(false)}>
+            Cancelar
+          </Button>
+        </Modal.Footer>
+      </Modal>
+
+      <Modal show={Boolean(editRow)} onClose={() => setEditRow(null)} size="lg">
+        <Modal.Header>Editar regla</Modal.Header>
+        <Modal.Body className="space-y-3">
+          <div>
+            <Label htmlFor="edit-rule" value="Regla" />
+            <TextInput
+              id="edit-rule"
+              value={editRule}
+              onChange={(e) => setEditRule(e.target.value)}
+              placeholder="dominio.com o user@dominio.com"
+            />
+          </div>
+          <div className="flex items-center gap-2">
+            <Checkbox
+              id="edit-rule-subdomains"
+              checked={editIncludeSubdomains}
+              onChange={(e) => setEditIncludeSubdomains(e.target.checked)}
+            />
+            <Label
+              htmlFor="edit-rule-subdomains"
+              value="Incluir subdominios (solo aplica cuando la regla es de dominio)"
+            />
+          </div>
+        </Modal.Body>
+        <Modal.Footer>
+          <Button onClick={() => void onSaveEdit()} disabled={updateM.isPending}>
+            Guardar cambios
+          </Button>
+          <Button color="gray" onClick={() => setEditRow(null)}>
             Cancelar
           </Button>
         </Modal.Footer>

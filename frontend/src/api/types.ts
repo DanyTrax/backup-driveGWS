@@ -610,6 +610,7 @@ export interface RspamdWhitelistEntry {
   raw_input: string
   kind: 'domain' | 'email'
   value: string
+  include_subdomains: boolean
   map_file: string
   created_by_email: string | null
   created_at: string

@@ -1091,8 +1091,25 @@ export function useRspamdWhitelistPreview() {
 export function useAddRspamdWhitelistEntry() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: async (raw: string) =>
-      (await api.post<RspamdWhitelistEntry>('/rspamd-whitelist', { raw })).data,
+    mutationFn: async (payload: { raw: string; include_subdomains: boolean }) =>
+      (await api.post<RspamdWhitelistEntry>('/rspamd-whitelist', payload)).data,
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['rspamd-whitelist'] })
+      void qc.invalidateQueries({ queryKey: ['rspamd-whitelist-preview'] })
+    },
+  })
+}
+
+export function useUpdateRspamdWhitelistEntry() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (payload: { id: string; raw: string; include_subdomains: boolean }) =>
+      (
+        await api.patch<RspamdWhitelistEntry>(`/rspamd-whitelist/${payload.id}`, {
+          raw: payload.raw,
+          include_subdomains: payload.include_subdomains,
+        })
+      ).data,
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ['rspamd-whitelist'] })
       void qc.invalidateQueries({ queryKey: ['rspamd-whitelist-preview'] })

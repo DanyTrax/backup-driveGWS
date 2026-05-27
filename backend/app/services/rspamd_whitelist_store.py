@@ -22,6 +22,25 @@ def row_to_normalized(row: RspamdWhitelistEntry) -> NormalizedWhitelistEntry:
     return NormalizedWhitelistEntry(kind=kind, value=row.value, raw_input=row.raw_input)
 
 
+def row_to_normalized_feed_entries(row: RspamdWhitelistEntry) -> list[NormalizedWhitelistEntry]:
+    base = row_to_normalized(row)
+    out = [base]
+    # Para dominio + "incluir subdominios", publicamos también ".dominio.com" en el feed.
+    if (
+        row.kind == WhitelistEntryKind.domain.value
+        and bool(getattr(row, "include_subdomains", False))
+        and not row.value.startswith(".")
+    ):
+        out.append(
+            NormalizedWhitelistEntry(
+                kind=WhitelistEntryKind.domain,
+                value=f".{row.value}",
+                raw_input=row.raw_input,
+            )
+        )
+    return out
+
+
 async def count_entries(db: AsyncSession) -> int:
     return int((await db.execute(select(func.count()).select_from(RspamdWhitelistEntry))).scalar_one())
 
@@ -63,12 +82,17 @@ async def create_entry(
     db: AsyncSession,
     *,
     raw: str,
+    include_subdomains: bool = False,
     actor_user_id: uuid.UUID | None,
 ) -> RspamdWhitelistEntry:
     try:
         ent = normalize_whitelist_input(raw)
     except WhitelistNormalizeError as exc:
         raise ValueError(str(exc)) from exc
+
+    include_subdomains = bool(include_subdomains)
+    if ent.kind != WhitelistEntryKind.domain:
+        include_subdomains = False
 
     existing = (
         await db.execute(
@@ -85,6 +109,7 @@ async def create_entry(
         raw_input=ent.raw_input,
         kind=ent.kind.value,
         value=ent.value,
+        include_subdomains=include_subdomains,
         created_by_user_id=actor_user_id,
     )
     db.add(row)
@@ -104,6 +129,53 @@ async def delete_entries(
     for row in rows:
         await db.delete(row)
     return len(rows)
+
+
+async def update_entry(
+    db: AsyncSession,
+    *,
+    entry_id: uuid.UUID,
+    raw: str,
+    include_subdomains: bool = False,
+) -> RspamdWhitelistEntry | None:
+    row = (
+        await db.execute(
+            select(RspamdWhitelistEntry).options(selectinload(RspamdWhitelistEntry.created_by)).where(
+                RspamdWhitelistEntry.id == entry_id
+            )
+        )
+    ).scalar_one_or_none()
+    if row is None:
+        return None
+
+    try:
+        ent = normalize_whitelist_input(raw)
+    except WhitelistNormalizeError as exc:
+        raise ValueError(str(exc)) from exc
+
+    include_subdomains = bool(include_subdomains)
+    if ent.kind != WhitelistEntryKind.domain:
+        include_subdomains = False
+
+    duplicate = (
+        await db.execute(
+            select(RspamdWhitelistEntry).where(
+                RspamdWhitelistEntry.id != entry_id,
+                RspamdWhitelistEntry.kind == ent.kind.value,
+                RspamdWhitelistEntry.value == ent.value,
+            )
+        )
+    ).scalar_one_or_none()
+    if duplicate:
+        raise ValueError("duplicate_entry")
+
+    row.raw_input = ent.raw_input
+    row.kind = ent.kind.value
+    row.value = ent.value
+    row.include_subdomains = include_subdomains
+    await db.flush()
+    await db.refresh(row, attribute_names=["created_by"])
+    return row
 
 
 async def import_bulk(
@@ -143,5 +215,14 @@ async def entries_for_feed(
     """BD si hay filas; si no, PoC desde ``RSPAMD_WHITELIST_ENTRIES`` en .env."""
     rows = (await db.execute(select(RspamdWhitelistEntry).order_by(RspamdWhitelistEntry.value.asc()))).scalars().all()
     if rows:
-        return [row_to_normalized(r) for r in rows]
+        out: list[NormalizedWhitelistEntry] = []
+        seen: set[tuple[str, str]] = set()
+        for row in rows:
+            for ent in row_to_normalized_feed_entries(row):
+                key = (ent.kind.value, ent.value)
+                if key in seen:
+                    continue
+                seen.add(key)
+                out.append(ent)
+        return out
     return parse_env_entry_lines(env_blob)

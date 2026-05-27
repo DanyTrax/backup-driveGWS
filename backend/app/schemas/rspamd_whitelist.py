@@ -11,6 +11,7 @@ class RspamdWhitelistEntryOut(BaseModel):
     raw_input: str
     kind: str
     value: str
+    include_subdomains: bool = False
     map_file: str
     created_by_email: str | None = None
     created_at: datetime
@@ -25,6 +26,12 @@ class RspamdWhitelistListOut(BaseModel):
 
 class RspamdWhitelistCreateIn(BaseModel):
     raw: str = Field(..., min_length=1, max_length=320)
+    include_subdomains: bool = False
+
+
+class RspamdWhitelistUpdateIn(BaseModel):
+    raw: str = Field(..., min_length=1, max_length=320)
+    include_subdomains: bool = False
 
 
 class RspamdWhitelistBulkDeleteIn(BaseModel):
