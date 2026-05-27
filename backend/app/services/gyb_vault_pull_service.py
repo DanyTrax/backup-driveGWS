@@ -102,7 +102,7 @@ async def restore_gyb_workdir_from_vault(
         return _on_line
 
     async with rclone_service.build_rclone_vault_dest_only_config(
-        db, vault_folder_id=vault_id
+        db, vault_folder_id=vault_id, account=account
     ) as cfg:
         argv = rclone_service.build_rclone_vault_to_local_argv(
             str(work_root),

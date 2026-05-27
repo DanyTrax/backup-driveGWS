@@ -258,7 +258,7 @@ async def run_materialization_job(db: AsyncSession, session_id: uuid.UUID, celer
         staging.mkdir(exist_ok=True)
         extracted_root.mkdir(exist_ok=True)
 
-        async with build_rclone_vault_dest_only_config(db, vault_folder_id=vid) as cfg:
+        async with build_rclone_vault_dest_only_config(db, vault_folder_id=vid, account=acc) as cfg:
             entries = await rclone_lsjson_zips_for_account(cfg, row.account_id)
             picked = select_zip_entries_for_window(entries, ws, we)
             prog = dict(row.progress_json or {})

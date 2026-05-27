@@ -136,29 +136,22 @@ async def approve_account(
     approved_by_user_id: str,
 ) -> None:
     """Habilita backup y asegura el vault en Drive (reutiliza carpetas si ya existían tras un revoke)."""
-    from app.services.google.drive import ensure_account_vault
-    from app.services.settings_service import (
-        KEY_VAULT_ROOT_FOLDER_ID,
-        KEY_VAULT_SHARED_DRIVE_ID,
-        get_value,
+    from app.services.vault_assignment_service import (
+        VAULT_MODE_DEFAULT,
+        VaultAssignmentError,
+        provision_account_vault,
     )
 
     if account.workspace_status == AccountStatus.DELETED_IN_WORKSPACE.value:
         raise ValueError("account_deleted_in_workspace")
 
-    root = await get_value(db, KEY_VAULT_ROOT_FOLDER_ID)
-    if not root:
-        raise ValueError("vault_root_folder_not_configured")
-    drive_id = await get_value(db, KEY_VAULT_SHARED_DRIVE_ID)
+    if not (account.vault_mode or VAULT_MODE_DEFAULT).strip():
+        account.vault_mode = VAULT_MODE_DEFAULT
 
-    folders = await ensure_account_vault(
-        db,
-        email=account.email,
-        root_folder_id=root,
-        drive_id=drive_id,
-        preferred_account_folder_id=(account.drive_vault_folder_id or "").strip() or None,
-    )
-    account.drive_vault_folder_id = folders.get("root")
+    try:
+        await provision_account_vault(db, account)
+    except VaultAssignmentError as exc:
+        raise ValueError(str(exc)) from exc
     account.is_backup_enabled = True
     account.backup_enabled_at = datetime.now(timezone.utc)
     account.backup_enabled_by = uuid.UUID(approved_by_user_id)

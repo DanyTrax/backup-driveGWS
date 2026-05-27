@@ -212,7 +212,7 @@ async def run_gmail_zip_vault_push_phase(
         )
 
         async with rclone_service.build_rclone_vault_dest_only_config(
-            db, vault_folder_id=vault_id
+            db, vault_folder_id=vault_id, account=account
         ) as push_cfg:
             mk_argv = rclone_service.build_rclone_mkdir_dest_argv(
                 push_cfg, dest_subpath=parent_rel

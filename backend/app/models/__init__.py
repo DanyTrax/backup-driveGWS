@@ -13,6 +13,7 @@ from app.models.vault_drive_delegation import SysUserVaultDriveDelegation
 from app.models.notifications import Notification, SysUserNotificationPref
 from app.models.restore import RestoreJob
 from app.models.rspamd_whitelist import RspamdWhitelistEntry
+from app.models.vault_pool import VaultPool
 from app.models.settings import SysSetting
 from app.models.gmail_vault import GmailVaultAccountState, GmailVaultMaterialization
 from app.models.tasks import BackupLog, BackupTask, backup_task_accounts
@@ -44,6 +45,7 @@ __all__ = [
     # restore
     "RestoreJob",
     "RspamdWhitelistEntry",
+    "VaultPool",
     # webmail
     "WebmailAccessToken",
     # notifications

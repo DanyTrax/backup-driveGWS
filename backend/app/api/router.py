@@ -23,6 +23,7 @@ from app.api.routes import (
     users,
     vault_drive_browser,
     vault_gmail_materialize,
+    vault_pools,
     webmail,
 )
 
@@ -45,5 +46,6 @@ api_router.include_router(webmail.router)
 api_router.include_router(notifications.router)
 api_router.include_router(settings_routes.router)
 api_router.include_router(rspamd_whitelist_admin.router)
+api_router.include_router(vault_pools.router)
 api_router.include_router(admin.router)
 api_router.include_router(host_ops.router)

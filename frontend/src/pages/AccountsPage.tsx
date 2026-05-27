@@ -1,17 +1,19 @@
 import { useMemo, useRef, useState } from 'react'
 import type { AxiosError } from 'axios'
 import { Link } from 'react-router-dom'
-import { Badge, Button, Card, Modal, TextInput, ToggleSwitch } from 'flowbite-react'
+import { Badge, Button, Card, Checkbox, Label, Modal, Select, TextInput, ToggleSwitch } from 'flowbite-react'
 import { HiSearch, HiRefresh } from 'react-icons/hi'
 import toast from 'react-hot-toast'
 import {
   useAccounts,
   useApproveAccount,
   useRevokeAccount,
+  useSetAccountVaultAssignment,
   useStartVerifyAccessStream,
   useSyncAccounts,
+  useVaultPools,
 } from '../api/hooks'
-import type { AccountAccessCheck, WorkspaceAccount } from '../api/types'
+import type { AccountAccessCheck, VaultMode, WorkspaceAccount } from '../api/types'
 import { useAuthStore } from '../stores/auth'
 import { hideGybVaultDriveUi, hideMaildirWebmailUi } from '../config/ui'
 
@@ -87,10 +89,17 @@ export default function AccountsPage() {
   const approve = useApproveAccount()
   const revoke = useRevokeAccount()
   const startStream = useStartVerifyAccessStream()
+  const vaultAssignM = useSetAccountVaultAssignment()
+  const poolsQ = useVaultPools()
   const [liveVerify, setLiveVerify] = useState<LiveVerifyState | null>(null)
+  const [vaultAccount, setVaultAccount] = useState<WorkspaceAccount | null>(null)
+  const [vaultMode, setVaultMode] = useState<VaultMode>('default')
+  const [vaultPoolId, setVaultPoolId] = useState('')
+  const [vaultReprovision, setVaultReprovision] = useState(true)
   const wsRef = useRef<WebSocket | null>(null)
 
   const hasPermission = useAuthStore((s) => s.hasPermission)
+  const canEditVault = hasPermission('accounts.edit')
   const profile = useAuthStore((s) => s.profile)
   const delegatedMailboxIds = useMemo(
     () => new Set(profile?.mailbox_delegated_account_ids ?? []),
@@ -215,6 +224,35 @@ export default function AccountsPage() {
     toast.success('Sincronización con Workspace completada')
   }
 
+  function openVaultModal(a: WorkspaceAccount) {
+    setVaultAccount(a)
+    const mode = (a.vault_mode || 'default') as VaultMode
+    setVaultMode(mode === 'pool' || mode === 'dedicated' ? mode : 'default')
+    setVaultPoolId(a.vault_pool_id ?? '')
+    setVaultReprovision(true)
+  }
+
+  async function onSaveVaultAssignment() {
+    if (!vaultAccount) return
+    if (vaultMode === 'pool' && !vaultPoolId.trim()) {
+      toast.error('Elegí un pool.')
+      return
+    }
+    try {
+      await vaultAssignM.mutateAsync({
+        accountId: vaultAccount.id,
+        vault_mode: vaultMode,
+        vault_pool_id: vaultMode === 'pool' ? vaultPoolId.trim() : null,
+        reprovision: vaultReprovision,
+      })
+      toast.success('Asignación de bóveda guardada.')
+      setVaultAccount(null)
+    } catch (err: unknown) {
+      const msg = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail
+      toast.error(typeof msg === 'string' ? msg : 'No se pudo guardar.')
+    }
+  }
+
   const showModal = liveVerify !== null
   const result = liveVerify?.result
 
@@ -263,7 +301,7 @@ export default function AccountsPage() {
                   <th>IMAP</th>
                   <th>Bandeja local</th>
                   <th>GYB / bandeja</th>
-                  <th>Bóveda Drive</th>
+                  <th>Bóveda / pool</th>
                   <th>Datos locales</th>
                   <th>Último backup</th>
                   <th>Acceso</th>
@@ -343,16 +381,26 @@ export default function AccountsPage() {
                         <span className="text-slate-400 text-xs">—</span>
                       )}
                     </td>
-                    <td>
-                      {canOpenVaultDrive(a, hasPermission, delegatedVaultIds) ? (
-                        <Link to={`/vault-drive/${a.id}`}>
-                          <Button size="xs" color="light">
-                            Bóveda
-                          </Button>
-                        </Link>
-                      ) : (
-                        <span className="text-slate-400 text-xs">—</span>
-                      )}
+                    <td className="text-xs">
+                      <div className="space-y-1">
+                        <span className="text-slate-600 dark:text-slate-400 block max-w-[11rem]">
+                          {a.vault_label ?? 'Vault unificado'}
+                        </span>
+                        <div className="flex flex-wrap gap-1">
+                          {canOpenVaultDrive(a, hasPermission, delegatedVaultIds) ? (
+                            <Link to={`/vault-drive/${a.id}`}>
+                              <Button size="xs" color="light">
+                                Explorar
+                              </Button>
+                            </Link>
+                          ) : null}
+                          {canEditVault ? (
+                            <Button size="xs" color="gray" onClick={() => openVaultModal(a)}>
+                              Asignar
+                            </Button>
+                          ) : null}
+                        </div>
+                      </div>
                     </td>
                     <td>
                       {hasPermission('accounts.purge_mail_local') ? (
@@ -416,6 +464,70 @@ export default function AccountsPage() {
           </div>
         )}
       </Card>
+
+      <Modal show={vaultAccount !== null} onClose={() => setVaultAccount(null)} size="lg">
+        <Modal.Header>Asignación de bóveda</Modal.Header>
+        <Modal.Body className="space-y-4 text-sm">
+          {vaultAccount ? (
+            <>
+              <p className="text-slate-600 dark:text-slate-400">{vaultAccount.email}</p>
+              <div>
+                <Label value="Modo" />
+                <Select value={vaultMode} onChange={(e) => setVaultMode(e.target.value as VaultMode)}>
+                  <option value="default">Unificado (vault actual del wizard)</option>
+                  <option value="pool">Otro pool (Shared Drive registrado)</option>
+                  <option value="dedicated">Dedicado (1 Shared Drive por cuenta)</option>
+                </Select>
+              </div>
+              {vaultMode === 'pool' ? (
+                <div>
+                  <Label value="Pool" />
+                  <Select value={vaultPoolId} onChange={(e) => setVaultPoolId(e.target.value)}>
+                    <option value="">— Elegir —</option>
+                    {(poolsQ.data ?? []).map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.name} ({p.account_count} cuentas)
+                      </option>
+                    ))}
+                  </Select>
+                  <p className="text-xs text-slate-500 mt-1">
+                    Registrá pools en{' '}
+                    <Link to="/vault-pools" className="text-blue-600 underline">
+                      Pools de bóveda
+                    </Link>
+                    .
+                  </p>
+                </div>
+              ) : null}
+              {vaultMode === 'dedicated' ? (
+                <p className="text-xs text-amber-700 dark:text-amber-300">
+                  Se creará automáticamente una Shared Drive para esta cuenta (requiere permisos del admin
+                  delegado en Workspace).
+                </p>
+              ) : null}
+              <div className="flex items-center gap-2">
+                <Checkbox
+                  id="vault-reprovision"
+                  checked={vaultReprovision}
+                  onChange={(e) => setVaultReprovision(e.target.checked)}
+                />
+                <Label
+                  htmlFor="vault-reprovision"
+                  value="Re-provisionar carpetas 1-GMAIL / 2-DRIVE / 3-REPORTS (si backup activo)"
+                />
+              </div>
+            </>
+          ) : null}
+        </Modal.Body>
+        <Modal.Footer>
+          <Button onClick={() => void onSaveVaultAssignment()} disabled={vaultAssignM.isPending}>
+            Guardar
+          </Button>
+          <Button color="gray" onClick={() => setVaultAccount(null)}>
+            Cancelar
+          </Button>
+        </Modal.Footer>
+      </Modal>
 
       <Modal show={showModal} onClose={closeVerifyModal} size="xl">
         <Modal.Header>Comprobación de acceso</Modal.Header>

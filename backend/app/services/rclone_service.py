@@ -17,7 +17,7 @@ import tempfile
 from contextlib import asynccontextmanager, suppress
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import AsyncIterator, Iterable
+from typing import TYPE_CHECKING, AsyncIterator, Iterable
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -25,11 +25,10 @@ from app.core.config import Settings, get_settings
 from app.services.backup_batch_registry import is_log_cancelled
 from app.services.google.credentials import load_sa_info
 from app.utils.async_process import SUBPROCESS_PIPE_LIMIT
-from app.services.settings_service import (
-    KEY_VAULT_ROOT_FOLDER_ID,
-    KEY_VAULT_SHARED_DRIVE_ID,
-    get_value,
-)
+from app.services.vault_assignment_service import resolve_shared_drive_id
+
+if TYPE_CHECKING:
+    from app.models.accounts import GwAccount
 
 _RCLONE_STATS_PCT = re.compile(r"(\d+(?:\.\d+)?)\s*%")
 
@@ -181,10 +180,11 @@ async def build_rclone_config(
     impersonate_email: str,
     vault_folder_id: str,
     source_root_folder_id: str | None = None,
+    account: GwAccount | None = None,
 ) -> AsyncIterator[RcloneConfig]:
     """Materialize a per-account rclone.conf in a secure temp dir."""
     sa_info = await load_sa_info(db)
-    team_drive_id = await get_value(db, KEY_VAULT_SHARED_DRIVE_ID)
+    team_drive_id = await resolve_shared_drive_id(db, account)
 
     tmpdir = tempfile.mkdtemp(prefix="rclone_cfg_", dir="/tmp")
     sa_path = str(Path(tmpdir) / "sa.json")
@@ -245,10 +245,11 @@ async def build_rclone_vault_dest_only_config(
     db: AsyncSession,
     *,
     vault_folder_id: str,
+    account: GwAccount | None = None,
 ) -> AsyncIterator[RcloneConfig]:
     """Sólo remoto ``dest:`` hacia el vault (Shared Drive + carpeta de cuenta). ``rclone copy`` local→Drive."""
     sa_info = await load_sa_info(db)
-    team_drive_id = await get_value(db, KEY_VAULT_SHARED_DRIVE_ID)
+    team_drive_id = await resolve_shared_drive_id(db, account)
 
     tmpdir = tempfile.mkdtemp(prefix="rclone_dst_", dir="/tmp")
     sa_path = str(Path(tmpdir) / "sa.json")

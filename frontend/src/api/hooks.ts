@@ -38,6 +38,9 @@ import type {
   RspamdWhitelistFeedPreview,
   RspamdWhitelistImportResult,
   RspamdWhitelistList,
+  AccountVaultAssignmentResult,
+  VaultMode,
+  VaultPool,
   RunTaskResult,
   SetupState,
   VaultDriveAccount,
@@ -1138,6 +1141,81 @@ export function useImportRspamdWhitelist() {
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ['rspamd-whitelist'] })
       void qc.invalidateQueries({ queryKey: ['rspamd-whitelist-preview'] })
+    },
+  })
+}
+
+export function useVaultPools() {
+  return useQuery({
+    queryKey: ['vault-pools'],
+    queryFn: async () => (await api.get<VaultPool[]>('/vault-pools')).data,
+  })
+}
+
+export function useCreateVaultPool() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (body: {
+      name: string
+      shared_drive_id: string
+      root_folder_id: string
+      description: string | null
+    }) => (await api.post<VaultPool>('/vault-pools', body)).data,
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ['vault-pools'] }),
+  })
+}
+
+export function useUpdateVaultPool() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (payload: {
+      id: string
+      body: Partial<{
+        name: string
+        shared_drive_id: string
+        root_folder_id: string
+        description: string | null
+      }>
+    }) => (await api.patch<VaultPool>(`/vault-pools/${payload.id}`, payload.body)).data,
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['vault-pools'] })
+      void qc.invalidateQueries({ queryKey: ['accounts'] })
+    },
+  })
+}
+
+export function useDeleteVaultPool() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (id: string) => {
+      await api.delete(`/vault-pools/${id}`)
+    },
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ['vault-pools'] }),
+  })
+}
+
+export function useSetAccountVaultAssignment() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (payload: {
+      accountId: string
+      vault_mode: VaultMode
+      vault_pool_id: string | null
+      reprovision: boolean
+    }) =>
+      (
+        await api.put<AccountVaultAssignmentResult>(
+          `/vault-pools/accounts/${payload.accountId}/vault-assignment`,
+          {
+            vault_mode: payload.vault_mode,
+            vault_pool_id: payload.vault_pool_id,
+            reprovision: payload.reprovision,
+          },
+        )
+      ).data,
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['accounts'] })
+      void qc.invalidateQueries({ queryKey: ['vault-pools'] })
     },
   })
 }

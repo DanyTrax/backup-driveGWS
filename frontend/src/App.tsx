@@ -12,6 +12,7 @@ import UsersPage from './pages/UsersPage'
 import RolesPage from './pages/RolesPage'
 import SettingsPage from './pages/SettingsPage'
 import RspamdWhitelistPage from './pages/RspamdWhitelistPage'
+import VaultPoolsPage from './pages/VaultPoolsPage'
 import ProfilePage from './pages/ProfilePage'
 import WebmailPage from './pages/WebmailPage'
 import WebmailAssignPasswordPage from './pages/WebmailAssignPasswordPage'
@@ -80,6 +81,7 @@ export default function App() {
         <Route path="/roles" element={<RolesPage />} />
         <Route path="/settings" element={<SettingsPage />} />
         <Route path="/rspamd-whitelist" element={<RspamdWhitelistPage />} />
+        <Route path="/vault-pools" element={<VaultPoolsPage />} />
         <Route path="/maintenance" element={<MaintenancePage />} />
         <Route path="/profile" element={<ProfilePage />} />
       </Route>

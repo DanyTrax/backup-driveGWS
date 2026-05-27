@@ -13,7 +13,7 @@ from app.services.computers_folder_names import (
     fold_display_name,
     is_computers_backup_root_folder_name,
 )
-from app.services.google.credentials import drive_credentials
+from app.services.google.credentials import drive_credentials, load_sa_info
 
 
 async def build_drive_service(db: AsyncSession, subject: str | None = None):
@@ -49,6 +49,50 @@ async def get_drive_about(db: AsyncSession) -> dict[str, Any]:
     return await asyncio.to_thread(
         lambda: service.about().get(fields="user,storageQuota").execute()
     )
+
+
+async def create_shared_drive(
+    db: AsyncSession,
+    *,
+    name: str,
+    request_id: str,
+) -> dict[str, Any]:
+    """Crea una Shared Drive impersonando al admin delegado (DWD)."""
+    service = await _build_service(db)
+
+    def _op() -> dict[str, Any]:
+        body = {"name": name[:250]}
+        return (
+            service.drives()
+            .create(requestId=request_id, body=body, fields="id,name")
+            .execute()
+        )
+
+    return await asyncio.to_thread(_op)
+
+
+async def add_service_account_to_shared_drive(db: AsyncSession, *, drive_id: str) -> None:
+    """Concede rol organizer a la SA para que rclone pueda escribir en la unidad."""
+    sa_info = await load_sa_info(db)
+    sa_email = str(sa_info.get("client_email", "")).strip()
+    if not sa_email:
+        raise ValueError("service_account_email_missing")
+    service = await _build_service(db)
+
+    def _op() -> None:
+        service.permissions().create(
+            fileId=drive_id,
+            body={
+                "type": "user",
+                "role": "organizer",
+                "emailAddress": sa_email,
+            },
+            supportsAllDrives=True,
+            sendNotificationEmail=False,
+            fields="id",
+        ).execute()
+
+    await asyncio.to_thread(_op)
 
 
 async def check_shared_drive(db: AsyncSession, drive_id: str) -> dict[str, Any]:

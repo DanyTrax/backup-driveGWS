@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.services.drive_snapshot_retention_plan import folder_ids_to_prune
 from app.services.google.drive import delete_drive_file, get_folder_by_name, list_child_folders
-from app.services.settings_service import KEY_VAULT_SHARED_DRIVE_ID, get_value
+from app.services.vault_assignment_service import resolve_shared_drive_id
 from app.services.vault_layout import VAULT_DIR_DRIVE, use_separated_vault_layout
 
 if TYPE_CHECKING:
@@ -27,7 +27,9 @@ async def list_dated_run_snapshot_children(
     vault_id = account.drive_vault_folder_id
     if not vault_id:
         return []
-    drive_id = await get_value(db, KEY_VAULT_SHARED_DRIVE_ID)
+    drive_id = await resolve_shared_drive_id(db, account)
+    if not drive_id:
+        return []
     prefix = str(filters.get("dated_run_prefix", "MSA_Runs")).strip("/") or "MSA_Runs"
 
     parent_id = vault_id
@@ -71,7 +73,9 @@ async def prune_after_drive_backup(
     if not vault_id:
         return 0
 
-    drive_id = await get_value(db, KEY_VAULT_SHARED_DRIVE_ID)
+    drive_id = await resolve_shared_drive_id(db, account)
+    if not drive_id:
+        return 0
     prefix = str(filters.get("dated_run_prefix", "MSA_Runs")).strip("/") or "MSA_Runs"
 
     parent_id = vault_id

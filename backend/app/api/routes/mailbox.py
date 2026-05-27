@@ -354,7 +354,7 @@ async def gyb_vault_work_list_folders(
     vault_id = (acc.drive_vault_folder_id or "").strip()
     if not vault_id:
         raise HTTPException(status.HTTP_409_CONFLICT, "missing_drive_vault_folder_id")
-    async with build_rclone_vault_dest_only_config(db, vault_folder_id=vault_id) as cfg:
+    async with build_rclone_vault_dest_only_config(db, vault_folder_id=vault_id, account=acc) as cfg:
         try:
             rows = await asyncio.to_thread(
                 get_gyb_vault_eml_rows_cached,
@@ -408,7 +408,7 @@ async def gyb_vault_work_list_messages(
     if not vault_id:
         raise HTTPException(status.HTTP_409_CONFLICT, "missing_drive_vault_folder_id")
     q_clean = q.strip()
-    async with build_rclone_vault_dest_only_config(db, vault_folder_id=vault_id) as cfg:
+    async with build_rclone_vault_dest_only_config(db, vault_folder_id=vault_id, account=acc) as cfg:
         try:
             rows = await asyncio.to_thread(
                 get_gyb_vault_eml_rows_cached,
@@ -478,7 +478,7 @@ async def gyb_vault_work_get_message(
     vault_id = (acc.drive_vault_folder_id or "").strip()
     if not vault_id:
         raise HTTPException(status.HTTP_409_CONFLICT, "missing_drive_vault_folder_id")
-    async with build_rclone_vault_dest_only_config(db, vault_folder_id=vault_id) as cfg:
+    async with build_rclone_vault_dest_only_config(db, vault_folder_id=vault_id, account=acc) as cfg:
         try:
             body = await asyncio.to_thread(lambda: read_gyb_vault_eml_message(cfg, key=key))
         except ValueError as exc:
@@ -524,7 +524,7 @@ async def gyb_vault_work_get_attachment_part(
     vault_id = (acc.drive_vault_folder_id or "").strip()
     if not vault_id:
         raise HTTPException(status.HTTP_409_CONFLICT, "missing_drive_vault_folder_id")
-    async with build_rclone_vault_dest_only_config(db, vault_folder_id=vault_id) as cfg:
+    async with build_rclone_vault_dest_only_config(db, vault_folder_id=vault_id, account=acc) as cfg:
         try:
             data, filename, content_type = await asyncio.to_thread(
                 read_gyb_vault_eml_leaf,

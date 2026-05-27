@@ -17,6 +17,11 @@ class AccountOut(BaseModel):
     backup_enabled_at: datetime | None
     imap_enabled: bool
     drive_vault_folder_id: str | None
+    vault_mode: str = "default"
+    vault_pool_id: str | None = None
+    vault_pool_name: str | None = None
+    dedicated_shared_drive_id: str | None = None
+    vault_label: str | None = None
     last_sync_at: datetime | None
     last_successful_backup_at: datetime | None
     total_bytes_cache: int | None

@@ -257,6 +257,29 @@ export interface AccountAccessCheck {
   maildir_layout_ok: boolean
 }
 
+export type VaultMode = 'default' | 'pool' | 'dedicated'
+
+export interface VaultPool {
+  id: string
+  name: string
+  shared_drive_id: string
+  root_folder_id: string
+  description: string | null
+  account_count: number
+  created_at: string
+}
+
+export interface AccountVaultAssignmentResult {
+  account_id: string
+  email: string
+  vault_mode: VaultMode
+  vault_pool_id: string | null
+  vault_pool_name: string | null
+  dedicated_shared_drive_id: string | null
+  drive_vault_folder_id: string | null
+  vault_label: string
+}
+
 export interface WorkspaceAccount {
   id: string
   email: string
@@ -268,6 +291,11 @@ export interface WorkspaceAccount {
   backup_enabled_at: string | null
   imap_enabled: boolean
   drive_vault_folder_id: string | null
+  vault_mode?: VaultMode | string
+  vault_pool_id?: string | null
+  vault_pool_name?: string | null
+  dedicated_shared_drive_id?: string | null
+  vault_label?: string | null
   last_sync_at: string | null
   last_successful_backup_at: string | null
   total_bytes_cache: number | null

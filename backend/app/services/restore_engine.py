@@ -63,7 +63,7 @@ async def restore_drive_job(
 
     try:
         async with rclone_service.build_rclone_config(
-            db, impersonate_email=account.email, vault_folder_id=vault
+            db, impersonate_email=account.email, vault_folder_id=vault, account=account
         ) as cfg:
             argv = rclone_service.build_rclone_argv(
                 cfg,

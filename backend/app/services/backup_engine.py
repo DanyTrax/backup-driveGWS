@@ -212,7 +212,7 @@ async def run_gmail_vault_push_phase(
         },
     )
     async with rclone_service.build_rclone_vault_dest_only_config(
-        db, vault_folder_id=vault_id
+        db, vault_folder_id=vault_id, account=account
     ) as push_cfg:
         await publish(
             log_id_str,
@@ -729,6 +729,7 @@ async def run_drive_backup(
             impersonate_email=account.email,
             vault_folder_id=vault,
             source_root_folder_id=source_root_folder_id,
+            account=account,
         ) as cfg:
             if task.scope == BackupScope.DRIVE_COMPUTADORAS.value:
                 ok_dir, pre_out = await rclone_service.rclone_verify_remote_dir(

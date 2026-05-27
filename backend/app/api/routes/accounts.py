@@ -10,6 +10,7 @@ from pathlib import Path
 from fastapi import APIRouter, BackgroundTasks, Body, Depends, HTTPException, Request, Response, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.api.deps import (
     get_client_ip,
@@ -97,6 +98,15 @@ def _maildir_ready(root: Path) -> bool:
     return all((root / sub).is_dir() for sub in ("cur", "new", "tmp"))
 
 
+def _vault_label_for_account(a: GwAccount) -> str:
+    mode = (a.vault_mode or "default").strip().lower()
+    if mode == "dedicated":
+        return "Vault dedicado (por cuenta)"
+    if mode == "pool" and a.vault_pool is not None:
+        return f"Pool: {a.vault_pool.name}"
+    return "Vault unificado (por defecto)"
+
+
 def _to_out(a: GwAccount) -> AccountOut:
     mroot = maildir_root_for_account(a)
     on_disk = _maildir_ready(mroot)
@@ -111,6 +121,11 @@ def _to_out(a: GwAccount) -> AccountOut:
         backup_enabled_at=a.backup_enabled_at,
         imap_enabled=a.imap_enabled,
         drive_vault_folder_id=a.drive_vault_folder_id,
+        vault_mode=a.vault_mode or "default",
+        vault_pool_id=str(a.vault_pool_id) if a.vault_pool_id else None,
+        vault_pool_name=a.vault_pool.name if a.vault_pool else None,
+        dedicated_shared_drive_id=a.dedicated_shared_drive_id,
+        vault_label=_vault_label_for_account(a),
         last_sync_at=a.last_sync_at,
         last_successful_backup_at=a.last_successful_backup_at,
         total_bytes_cache=a.total_bytes_cache,
@@ -126,7 +141,7 @@ async def list_accounts(
     db: AsyncSession = Depends(get_db),
     current: SysUser = Depends(require_permission("accounts.view")),
 ) -> list[AccountOut]:
-    stmt = select(GwAccount).order_by(GwAccount.email.asc())
+    stmt = select(GwAccount).options(selectinload(GwAccount.vault_pool)).order_by(GwAccount.email.asc())
     if enabled is not None:
         stmt = stmt.where(GwAccount.is_backup_enabled.is_(enabled))
     perms = get_user_permissions(current)

@@ -27,6 +27,7 @@ from app.models.enums import (
 
 if TYPE_CHECKING:
     from app.models.tasks import BackupTask
+    from app.models.vault_pool import VaultPool
 
 
 class GwAccount(UUIDPKMixin, TimestampMixin, Base):
@@ -80,6 +81,23 @@ class GwAccount(UUIDPKMixin, TimestampMixin, Base):
     # Si no es None, el admin vació la bandeja; UI muestra “sin bandeja” hasta próximo backup/provisión.
     maildir_user_cleared_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     drive_vault_folder_id: Mapped[str | None] = mapped_column(String(128))
+
+    # --- Vault assignment (default shared | extra pool | dedicated drive) ---
+    # default = vault global del wizard; pool = vault_pools; dedicated = Shared Drive propia
+    vault_mode: Mapped[str] = mapped_column(String(16), nullable=False, server_default="default")
+    vault_pool_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("vault_pools.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    dedicated_shared_drive_id: Mapped[str | None] = mapped_column(String(128))
+
+    vault_pool: Mapped[VaultPool | None] = relationship(
+        "VaultPool",
+        back_populates="accounts",
+        foreign_keys=[vault_pool_id],
+    )
 
     # --- Sync stats -------------------------------------------------------
     last_sync_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

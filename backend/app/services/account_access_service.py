@@ -141,6 +141,7 @@ async def verify_account_access(
                     db,
                     impersonate_email=email,
                     vault_folder_id=vault_id,
+                    account=account,
                 ) as cfg2:
                     rc2, text2 = await rclone_service.run_rclone(
                         [
