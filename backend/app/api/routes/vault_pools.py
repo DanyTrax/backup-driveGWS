@@ -196,7 +196,12 @@ async def patch_vault_pool(
     return _pool_out(row, cnt)
 
 
-@router.delete("/{pool_id}", status_code=status.HTTP_204_NO_CONTENT, response_class=Response)
+@router.delete(
+    "/{pool_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    response_class=Response,
+    response_model=None,
+)
 async def remove_vault_pool(
     pool_id: str,
     request: Request,
