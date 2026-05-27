@@ -75,7 +75,7 @@ export default function VaultPoolsPage() {
     } catch (err: unknown) {
       const st = (err as { response?: { status?: number; data?: { detail?: unknown } } })?.response
         ?.status
-      const detail = (err as { response?: { data?: { detail?: { message?: string } | string } } } })
+      const detail = (err as { response?: { data?: { detail?: { message?: string } | string } } })
         ?.response?.data?.detail
       const msg =
         typeof detail === 'object' && detail && 'message' in detail
