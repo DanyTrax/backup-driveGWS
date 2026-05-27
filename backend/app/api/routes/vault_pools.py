@@ -16,6 +16,7 @@ from app.schemas.vault_pools import (
     AccountVaultAssignmentOut,
     VaultPoolCreateIn,
     VaultPoolOut,
+    VaultPoolProvisionIn,
     VaultPoolUpdateIn,
 )
 from app.services.audit_service import record_audit
@@ -30,6 +31,7 @@ from app.services.vault_pool_store import (
     delete_pool,
     get_pool,
     list_pools,
+    provision_pool_in_google,
     update_pool,
 )
 
@@ -55,6 +57,53 @@ async def list_vault_pools(
 ) -> list[VaultPoolOut]:
     rows = await list_pools(db)
     return [_pool_out(p, cnt) for p, cnt in rows]
+
+
+@router.post("/provision", response_model=VaultPoolOut, status_code=status.HTTP_201_CREATED)
+async def provision_vault_pool(
+    payload: VaultPoolProvisionIn,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    current: SysUser = Depends(require_permission("settings.edit")),
+) -> VaultPoolOut:
+    """Crea la unidad compartida en Google, la SA como Manager y BackupRoot; registra el pool."""
+    try:
+        row = await provision_pool_in_google(
+            db,
+            name=payload.name,
+            description=payload.description,
+            root_folder_name=payload.root_folder_name,
+            drive_display_name=payload.drive_display_name,
+        )
+    except ValueError as exc:
+        msg = str(exc)
+        if msg == "duplicate_name":
+            raise HTTPException(status.HTTP_409_CONFLICT, detail="duplicate_name") from exc
+        if msg.startswith("google_shared_drive_create_failed"):
+            raise HTTPException(
+                status.HTTP_502_BAD_GATEWAY,
+                detail={"error": msg, "message": "Google no permitió crear la unidad compartida."},
+            ) from exc
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=msg) from exc
+
+    await record_audit(
+        db,
+        action=AuditAction.SETTING_CHANGED,
+        actor_user_id=current.id,
+        actor_label=current.email,
+        ip_address=get_client_ip(request),
+        user_agent=get_user_agent(request),
+        target_table="vault_pools",
+        target_id=str(row.id),
+        message="vault_pool_provisioned",
+        metadata={
+            "name": row.name,
+            "shared_drive_id": row.shared_drive_id,
+            "root_folder_id": row.root_folder_id,
+        },
+    )
+    await db.commit()
+    return _pool_out(row, 0)
 
 
 @router.post("", response_model=VaultPoolOut, status_code=status.HTTP_201_CREATED)

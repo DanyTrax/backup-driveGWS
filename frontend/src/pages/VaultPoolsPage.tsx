@@ -4,6 +4,7 @@ import toast from 'react-hot-toast'
 import {
   useCreateVaultPool,
   useDeleteVaultPool,
+  useProvisionVaultPool,
   useUpdateVaultPool,
   useVaultPools,
 } from '../api/hooks'
@@ -13,27 +14,38 @@ import { useAuthStore } from '../stores/auth'
 export default function VaultPoolsPage() {
   const canEdit = useAuthStore((s) => s.hasPermission('settings.edit'))
   const listQ = useVaultPools()
+  const provisionM = useProvisionVaultPool()
   const createM = useCreateVaultPool()
   const updateM = useUpdateVaultPool()
   const deleteM = useDeleteVaultPool()
 
-  const [createOpen, setCreateOpen] = useState(false)
+  const [provisionOpen, setProvisionOpen] = useState(false)
+  const [manualOpen, setManualOpen] = useState(false)
   const [editRow, setEditRow] = useState<VaultPool | null>(null)
   const [name, setName] = useState('')
   const [sharedDriveId, setSharedDriveId] = useState('')
   const [rootFolderId, setRootFolderId] = useState('')
+  const [rootFolderName, setRootFolderName] = useState('BackupRoot')
+  const [driveDisplayName, setDriveDisplayName] = useState('')
   const [description, setDescription] = useState('')
 
   function resetForm() {
     setName('')
     setSharedDriveId('')
     setRootFolderId('')
+    setRootFolderName('BackupRoot')
+    setDriveDisplayName('')
     setDescription('')
   }
 
-  function openCreate() {
+  function openProvision() {
     resetForm()
-    setCreateOpen(true)
+    setProvisionOpen(true)
+  }
+
+  function openManual() {
+    resetForm()
+    setManualOpen(true)
   }
 
   function openEdit(row: VaultPool) {
@@ -44,7 +56,40 @@ export default function VaultPoolsPage() {
     setDescription(row.description ?? '')
   }
 
-  async function onCreate() {
+  async function onProvision() {
+    const nm = name.trim()
+    if (!nm) {
+      toast.error('Indicá un nombre para el pool.')
+      return
+    }
+    try {
+      const row = await provisionM.mutateAsync({
+        name: nm,
+        description: description.trim() || null,
+        root_folder_name: rootFolderName.trim() || 'BackupRoot',
+        drive_display_name: driveDisplayName.trim() || null,
+      })
+      toast.success(`Pool creado en Google: ${row.name}`)
+      setProvisionOpen(false)
+      resetForm()
+    } catch (err: unknown) {
+      const st = (err as { response?: { status?: number; data?: { detail?: unknown } } })?.response
+        ?.status
+      const detail = (err as { response?: { data?: { detail?: { message?: string } | string } } } })
+        ?.response?.data?.detail
+      const msg =
+        typeof detail === 'object' && detail && 'message' in detail
+          ? String(detail.message)
+          : typeof detail === 'string'
+            ? detail
+            : null
+      if (st === 409) toast.error('Ya existe un pool con ese nombre en el panel.')
+      else if (st === 502) toast.error(msg || 'Google rechazó crear la unidad compartida.')
+      else toast.error(msg || 'No se pudo crear el pool automáticamente.')
+    }
+  }
+
+  async function onManualCreate() {
     try {
       await createM.mutateAsync({
         name: name.trim(),
@@ -52,11 +97,11 @@ export default function VaultPoolsPage() {
         root_folder_id: rootFolderId.trim(),
         description: description.trim() || null,
       })
-      toast.success('Pool creado.')
-      setCreateOpen(false)
+      toast.success('Pool registrado.')
+      setManualOpen(false)
       resetForm()
     } catch {
-      toast.error('No se pudo crear el pool (revisá IDs y permisos SA).')
+      toast.error('No se pudo registrar (revisá IDs y permisos SA).')
     }
   }
 
@@ -84,10 +129,10 @@ export default function VaultPoolsPage() {
       toast.error('Hay cuentas asignadas a este pool.')
       return
     }
-    if (!window.confirm(`¿Eliminar pool "${row.name}"?`)) return
+    if (!window.confirm(`¿Eliminar pool "${row.name}" del panel? (no borra la unidad en Google)`)) return
     try {
       await deleteM.mutateAsync(row.id)
-      toast.success('Pool eliminado.')
+      toast.success('Pool eliminado del panel.')
     } catch {
       toast.error('No se pudo eliminar.')
     }
@@ -99,13 +144,18 @@ export default function VaultPoolsPage() {
         <div>
           <h1 className="text-2xl font-semibold">Pools de bóveda</h1>
           <p className="text-slate-500 text-sm max-w-3xl mt-1">
-            Unidades compartidas adicionales para repartir cuentas y evitar el límite de 400k ítems.
-            Creá la Shared Drive en Google, agregá la SA como Manager y registrá aquí el ID de la unidad
-            y la carpeta raíz (ej. BackupRoot).
+            La plataforma puede <strong>crear la unidad compartida en Google</strong>, dar acceso a la
+            Service Account y preparar la carpeta raíz (por defecto <code className="text-xs">BackupRoot</code>
+            ). Luego asigná cuentas en <strong>Cuentas → Asignar</strong>.
           </p>
         </div>
         {canEdit ? (
-          <Button onClick={openCreate}>Nuevo pool</Button>
+          <div className="flex flex-wrap gap-2">
+            <Button onClick={openProvision}>Crear pool en Google</Button>
+            <Button color="gray" onClick={openManual}>
+              Registrar pool existente
+            </Button>
+          </div>
         ) : null}
       </div>
 
@@ -125,35 +175,92 @@ export default function VaultPoolsPage() {
                 </tr>
               </thead>
               <tbody>
-                {(listQ.data ?? []).map((row) => (
-                  <tr key={row.id} className="border-b border-slate-100 dark:border-slate-800">
-                    <td className="py-2 pr-3 font-medium">{row.name}</td>
-                    <td className="py-2 pr-3 font-mono text-xs">{row.shared_drive_id}</td>
-                    <td className="py-2 pr-3 font-mono text-xs">{row.root_folder_id}</td>
-                    <td className="py-2 pr-3">
-                      <Badge color={row.account_count > 0 ? 'info' : 'gray'}>{row.account_count}</Badge>
+                {(listQ.data ?? []).length === 0 ? (
+                  <tr>
+                    <td colSpan={canEdit ? 5 : 4} className="py-8 text-center text-slate-500">
+                      Sin pools. Usá «Crear pool en Google» para el primer vault adicional.
                     </td>
-                    {canEdit ? (
-                      <td className="py-2 text-right space-x-2">
-                        <Button size="xs" color="gray" onClick={() => openEdit(row)}>
-                          Editar
-                        </Button>
-                        <Button size="xs" color="failure" onClick={() => void onDelete(row)}>
-                          Eliminar
-                        </Button>
-                      </td>
-                    ) : null}
                   </tr>
-                ))}
+                ) : (
+                  (listQ.data ?? []).map((row) => (
+                    <tr key={row.id} className="border-b border-slate-100 dark:border-slate-800">
+                      <td className="py-2 pr-3 font-medium">{row.name}</td>
+                      <td className="py-2 pr-3 font-mono text-xs break-all">{row.shared_drive_id}</td>
+                      <td className="py-2 pr-3 font-mono text-xs break-all">{row.root_folder_id}</td>
+                      <td className="py-2 pr-3">
+                        <Badge color={row.account_count > 0 ? 'info' : 'gray'}>{row.account_count}</Badge>
+                      </td>
+                      {canEdit ? (
+                        <td className="py-2 text-right space-x-2">
+                          <Button size="xs" color="gray" onClick={() => openEdit(row)}>
+                            Editar
+                          </Button>
+                          <Button size="xs" color="failure" onClick={() => void onDelete(row)}>
+                            Eliminar
+                          </Button>
+                        </td>
+                      ) : null}
+                    </tr>
+                  ))
+                )}
               </tbody>
             </table>
           </div>
         )}
       </Card>
 
-      <Modal show={createOpen} onClose={() => setCreateOpen(false)} size="lg">
-        <Modal.Header>Nuevo pool de bóveda</Modal.Header>
+      <Modal show={provisionOpen} onClose={() => setProvisionOpen(false)} size="lg">
+        <Modal.Header>Crear pool en Google (automático)</Modal.Header>
+        <Modal.Body className="space-y-3 text-sm">
+          <p className="text-slate-500 dark:text-slate-400">
+            Se creará una unidad compartida, la Service Account quedará como Manager y la carpeta raíz
+            para las cuentas que asignes a este pool.
+          </p>
+          <div>
+            <Label value="Nombre del pool (panel)" />
+            <TextInput
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="Vault 02 — cuentas pesadas"
+            />
+          </div>
+          <div>
+            <Label value="Nombre en Google Drive (opcional)" />
+            <TextInput
+              value={driveDisplayName}
+              onChange={(e) => setDriveDisplayName(e.target.value)}
+              placeholder="MSA Backup — Vault 02"
+            />
+          </div>
+          <div>
+            <Label value="Carpeta raíz dentro del pool" />
+            <TextInput
+              value={rootFolderName}
+              onChange={(e) => setRootFolderName(e.target.value)}
+              placeholder="BackupRoot"
+            />
+          </div>
+          <div>
+            <Label value="Descripción (opcional)" />
+            <Textarea rows={2} value={description} onChange={(e) => setDescription(e.target.value)} />
+          </div>
+        </Modal.Body>
+        <Modal.Footer>
+          <Button onClick={() => void onProvision()} disabled={provisionM.isPending}>
+            Crear en Google
+          </Button>
+          <Button color="gray" onClick={() => setProvisionOpen(false)}>
+            Cancelar
+          </Button>
+        </Modal.Footer>
+      </Modal>
+
+      <Modal show={manualOpen} onClose={() => setManualOpen(false)} size="lg">
+        <Modal.Header>Registrar pool existente</Modal.Header>
         <Modal.Body className="space-y-3">
+          <p className="text-sm text-slate-500">
+            Solo si ya creaste la unidad compartida a mano en Google Drive.
+          </p>
           <FormFields
             name={name}
             setName={setName}
@@ -166,10 +273,10 @@ export default function VaultPoolsPage() {
           />
         </Modal.Body>
         <Modal.Footer>
-          <Button onClick={() => void onCreate()} disabled={createM.isPending}>
-            Crear
+          <Button onClick={() => void onManualCreate()} disabled={createM.isPending}>
+            Registrar
           </Button>
-          <Button color="gray" onClick={() => setCreateOpen(false)}>
+          <Button color="gray" onClick={() => setManualOpen(false)}>
             Cancelar
           </Button>
         </Modal.Footer>
@@ -216,23 +323,15 @@ function FormFields(props: {
     <>
       <div>
         <Label value="Nombre" />
-        <TextInput value={props.name} onChange={(e) => props.setName(e.target.value)} placeholder="MSA Vault 02" />
+        <TextInput value={props.name} onChange={(e) => props.setName(e.target.value)} />
       </div>
       <div>
         <Label value="Shared Drive ID" />
-        <TextInput
-          value={props.sharedDriveId}
-          onChange={(e) => props.setSharedDriveId(e.target.value)}
-          placeholder="0A…"
-        />
+        <TextInput value={props.sharedDriveId} onChange={(e) => props.setSharedDriveId(e.target.value)} />
       </div>
       <div>
         <Label value="Carpeta raíz (ID)" />
-        <TextInput
-          value={props.rootFolderId}
-          onChange={(e) => props.setRootFolderId(e.target.value)}
-          placeholder="ID de BackupRoot dentro del pool"
-        />
+        <TextInput value={props.rootFolderId} onChange={(e) => props.setRootFolderId(e.target.value)} />
       </div>
       <div>
         <Label value="Descripción (opcional)" />

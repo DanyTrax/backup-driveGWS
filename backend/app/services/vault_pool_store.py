@@ -3,12 +3,20 @@ from __future__ import annotations
 
 import uuid
 
+from googleapiclient.errors import HttpError
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.accounts import GwAccount
 from app.models.vault_pool import VaultPool
-from app.services.google.drive import check_shared_drive
+from app.services.google.drive import (
+    add_service_account_to_shared_drive,
+    check_shared_drive,
+    create_shared_drive,
+    ensure_folder,
+)
+
+DEFAULT_POOL_ROOT_FOLDER_NAME = "BackupRoot"
 
 
 async def list_pools(db: AsyncSession) -> list[tuple[VaultPool, int]]:
@@ -28,6 +36,62 @@ async def get_pool(db: AsyncSession, pool_id: uuid.UUID) -> VaultPool | None:
     ).scalar_one_or_none()
 
 
+async def _assert_unique_pool_name(db: AsyncSession, name: str, *, exclude_id: uuid.UUID | None = None) -> None:
+    nm = name.strip()
+    stmt = select(VaultPool).where(VaultPool.name == nm)
+    if exclude_id is not None:
+        stmt = stmt.where(VaultPool.id != exclude_id)
+    existing = (await db.execute(stmt)).scalar_one_or_none()
+    if existing:
+        raise ValueError("duplicate_name")
+
+
+async def provision_pool_in_google(
+    db: AsyncSession,
+    *,
+    name: str,
+    description: str | None = None,
+    root_folder_name: str = DEFAULT_POOL_ROOT_FOLDER_NAME,
+    drive_display_name: str | None = None,
+) -> VaultPool:
+    """Crea Shared Drive + permiso SA + carpeta raíz y registra el pool en BD."""
+    await _assert_unique_pool_name(db, name)
+
+    panel_name = name.strip()
+    drive_name = (drive_display_name or f"MSA Backup — {panel_name}").strip()[:250]
+    root_name = (root_folder_name or DEFAULT_POOL_ROOT_FOLDER_NAME).strip() or DEFAULT_POOL_ROOT_FOLDER_NAME
+    request_id = f"msa-vault-pool-{uuid.uuid4()}"
+
+    try:
+        created = await create_shared_drive(db, name=drive_name, request_id=request_id)
+    except HttpError as exc:
+        raise ValueError(f"google_shared_drive_create_failed:http_{exc.resp.status}") from exc
+
+    drive_id = str(created["id"])
+    await add_service_account_to_shared_drive(db, drive_id=drive_id)
+    root_folder = await ensure_folder(
+        db,
+        name=root_name,
+        parent_id=drive_id,
+        drive_id=drive_id,
+    )
+    root_id = str(root_folder["id"])
+
+    chk = await check_shared_drive(db, drive_id)
+    if not chk.get("ok"):
+        raise ValueError("shared_drive_not_accessible_after_create")
+
+    row = VaultPool(
+        name=panel_name,
+        shared_drive_id=drive_id,
+        root_folder_id=root_id,
+        description=(description or "").strip() or None,
+    )
+    db.add(row)
+    await db.flush()
+    return row
+
+
 async def create_pool(
     db: AsyncSession,
     *,
@@ -40,11 +104,7 @@ async def create_pool(
     if not chk.get("ok"):
         raise ValueError("shared_drive_not_accessible")
 
-    existing = (
-        await db.execute(select(VaultPool).where(VaultPool.name == name.strip()))
-    ).scalar_one_or_none()
-    if existing:
-        raise ValueError("duplicate_name")
+    await _assert_unique_pool_name(db, name)
 
     row = VaultPool(
         name=name.strip(),

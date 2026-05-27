@@ -1152,6 +1152,19 @@ export function useVaultPools() {
   })
 }
 
+export function useProvisionVaultPool() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (body: {
+      name: string
+      description?: string | null
+      root_folder_name?: string
+      drive_display_name?: string | null
+    }) => (await api.post<VaultPool>('/vault-pools/provision', body)).data,
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ['vault-pools'] }),
+  })
+}
+
 export function useCreateVaultPool() {
   const qc = useQueryClient()
   return useMutation({

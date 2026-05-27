@@ -20,10 +20,25 @@ class VaultPoolOut(BaseModel):
 
 
 class VaultPoolCreateIn(BaseModel):
+    """Registro manual de un pool ya creado en Google Drive."""
+
     name: str = Field(..., min_length=1, max_length=120)
     shared_drive_id: str = Field(..., min_length=4, max_length=128)
     root_folder_id: str = Field(..., min_length=4, max_length=128)
     description: str | None = Field(default=None, max_length=2000)
+
+
+class VaultPoolProvisionIn(BaseModel):
+    """La plataforma crea la Shared Drive, añade la SA y la carpeta raíz."""
+
+    name: str = Field(..., min_length=1, max_length=120, description="Nombre en panel y en Google")
+    description: str | None = Field(default=None, max_length=2000)
+    root_folder_name: str = Field(default="BackupRoot", min_length=1, max_length=120)
+    drive_display_name: str | None = Field(
+        default=None,
+        max_length=250,
+        description="Nombre de la unidad compartida en Drive; por defecto «MSA Backup — {name}»",
+    )
 
 
 class VaultPoolUpdateIn(BaseModel):

@@ -30,6 +30,6 @@ Google Shared Drives tienen un hard limit de **400 000 items** (archivos + carpe
 Si te acercás al límite:
 
 - Activá compresión `.tar.zst` por fecha (opción en la UI).
-- Usá **Pools de bóveda** en el panel: registrá Shared Drives extra y asigná cuentas pesadas a otro pool.
+- Usá **Pools de bóveda → Crear pool en Google**: la plataforma crea la Shared Drive, da acceso a la SA y la carpeta `BackupRoot`.
 - Por cuenta: **Asignar** en Cuentas → modo *Dedicado* (crea una Shared Drive solo para esa cuenta).
 - Las cuentas livianas pueden quedarse en *Unificado* (vault del wizard).
