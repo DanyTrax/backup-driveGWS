@@ -1018,17 +1018,50 @@ async def run_gmail_backup(
     manifest_path = work_root / "manifest.sha256"
     skip_maildir = vault_layout.gmail_skip_maildir_import(task.filters_json or {})
 
+    # Tras purgar workdir: si hay sellado ZIP en BD, GYB solo trae desde last_sealed − overlap.
+    gyb_search: str | None = None
+    if vault_layout.use_gmail_vault_zip_upload(task.filters_json or {}):
+        from app.services.gmail_vault_gyb_reseed import resolve_gyb_search_after_workdir_purge
+        from app.services.gmail_vault_zip_service import load_gmail_vault_account_state
+
+        st_for_gyb = await load_gmail_vault_account_state(
+            db, account_id=account.id, task_id=task.id
+        )
+        gyb_search = resolve_gyb_search_after_workdir_purge(
+            work_root=work_root,
+            last_sealed_at=st_for_gyb.last_sealed_at if st_for_gyb else None,
+            filters=task.filters_json or {},
+            task_timezone=task.timezone or "UTC",
+        )
+
     try:
         # 1) Una sola descarga GYB → work_root (sin tocar Maildir todavía).
         gyb_fin, gyb_tick = start_gmail_progress_ticker(
             log.id, log_id, work_root, mode="gyb"
         )
         try:
+            if gyb_search:
+                await publish(
+                    log_id,
+                    {
+                        "stage": "gyb_reseed_from_seal",
+                        "scope": "gmail",
+                        "account": account.email,
+                        "search": gyb_search,
+                        "hint_es": (
+                            "Workdir vacío con sellado ZIP: descarga solo el tramo "
+                            "después del último sellado (overlap_days), no el histórico completo."
+                        ),
+                    },
+                )
             async with gyb_service.prepare_gyb_workspace(
                 db, account_email=account.email, local_folder=str(work_root)
             ) as workspace:
                 argv = gyb_service.build_gyb_argv(
-                    workspace, email=account.email, action="backup"
+                    workspace,
+                    email=account.email,
+                    action="backup",
+                    search=gyb_search,
                 )
                 rc, output = await gyb_service.run_gyb(argv, cancel_log_id=log_id)
                 await db.refresh(log)

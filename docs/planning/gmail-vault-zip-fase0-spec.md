@@ -47,7 +47,7 @@ Siempre parametrizado por **`account_id`** y opcionalmente **`task_id`** si el l
 | Ítem | Descripción | Estado |
 |------|-------------|--------|
 | G1 | Menos ítems en Shared Drive vía ZIPs por periodo (vs muchos `.eml`). | ☐ |
-| G2 | Descarga GYB completa o parcial según **estado vault + BD** (sin full innecesario). | ☐ |
+| G2 | Descarga GYB completa o parcial según **estado vault + BD** (sin full innecesario). | ✅ reseed `--search after:` si workdir vacío + `last_sealed_at` |
 | G3 | Cadencia **GYB en servidor** ≠ cadencia **subida ZIP** (día de semana / semana / mes). | ☐ |
 | G4 | Manifiesto + logs auditables. | ☐ |
 | G5 | Visor vault: rango/fechas, progreso, TTL, unificar zips → experiencia tipo bandeja GYB. | ☐ |
