@@ -157,11 +157,7 @@ function describeLiveProgress(p: Record<string, unknown> | null | undefined): st
   }
   if (stage === 'vault_zip_done') {
     const vr = typeof p.vault_rel_zip === 'string' ? p.vault_rel_zip : ''
-    return (
-      `Subida ZIP al vault completada${vr ? `: ${vr}` : ''}. ` +
-      'Eso no cierra el backup: con empaquetado «mixed» o «legacy» suele seguir la subida del árbol .eml a 1-GMAIL/gyb_mbox (a menudo la fase más larga). ' +
-      'El badge «running», la fecha «Vault 1-GMAIL» y el «success» final corresponden a todo el pipeline; en JSON mirá si ya hay `vault_push` o `progress` con fase `vault_copy`.'
-    )
+    return `Sellado ZIP al vault completado${vr ? `: ${vr}` : ''}.`
   }
   if (stage === 'vault_zip_skipped') {
     const r = typeof p.reason === 'string' ? p.reason : ''
@@ -182,6 +178,18 @@ function describeLiveProgress(p: Record<string, unknown> | null | undefined): st
   }
   if (stage === 'gyb_workdir_purge') {
     return 'Vaciando el directorio de trabajo GYB en el servidor tras verificar la subida a Drive.'
+  }
+  if (stage === 'done') {
+    const sum = typeof p.summary_es === 'string' ? p.summary_es.trim() : ''
+    if (sum) return sum
+    if (String(p.status) === 'success') return 'Job finalizado correctamente.'
+    return 'Job finalizado.'
+  }
+  if (stage === 'gyb_reseed_from_seal') {
+    const search = typeof p.search === 'string' ? p.search : ''
+    return search
+      ? `GYB incremental tras workdir vacío (filtro Gmail: ${search}).`
+      : 'GYB incremental tras workdir vacío (filtro por sellado ZIP).'
   }
   if (stage === 'start') {
     const sc = String(p.scope ?? '')
@@ -969,6 +977,28 @@ export default function LogsPage() {
                 </div>
               ) : null}
 
+              {backupDetailQuery.data.status !== 'running' &&
+              backupDetailQuery.data.live_progress &&
+              Object.keys(backupDetailQuery.data.live_progress).length > 0 ? (
+                <div className="rounded-lg border border-emerald-200 dark:border-emerald-900/50 bg-emerald-50/60 dark:bg-emerald-950/20 p-4">
+                  <div className="text-xs font-semibold uppercase tracking-wide text-emerald-800 dark:text-emerald-300">
+                    Último evento del pipeline
+                  </div>
+                  <p className="text-sm text-slate-800 dark:text-slate-200 mt-2 leading-relaxed">
+                    {describeLiveProgress(backupDetailQuery.data.live_progress) ||
+                      `stage: ${String(backupDetailQuery.data.live_progress.stage ?? '—')}`}
+                  </p>
+                  <details className="mt-3 text-xs">
+                    <summary className="cursor-pointer text-slate-600 dark:text-slate-400 select-none">
+                      Ver JSON (p. ej. vault_zip_done)
+                    </summary>
+                    <pre className="mt-2 whitespace-pre-wrap break-all bg-slate-100 dark:bg-slate-900 p-2 rounded border border-slate-200 dark:border-slate-700 max-h-44 overflow-y-auto font-mono">
+                      {JSON.stringify(backupDetailQuery.data.live_progress, null, 2)}
+                    </pre>
+                  </details>
+                </div>
+              ) : null}
+
               <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-2 text-sm">
                 <div>
                   <dt className="text-slate-500">ID del log</dt>
@@ -1102,11 +1132,19 @@ export default function LogsPage() {
                 </div>
               </dl>
               <div>
-                <div className="text-sm text-slate-500 mb-1">Motivo / traza del servidor</div>
+                <div className="text-sm text-slate-500 mb-1">
+                  {backupDetailQuery.data.status === 'failed'
+                    ? 'Motivo / traza del servidor'
+                    : backupDetailQuery.data.error_summary?.trim()
+                      ? 'Resumen de la ejecución'
+                      : 'Motivo / traza del servidor'}
+                </div>
                 <pre className="text-xs whitespace-pre-wrap break-words bg-slate-100 dark:bg-slate-900 text-slate-800 dark:text-slate-200 rounded-lg p-3 max-h-64 overflow-y-auto border border-slate-200 dark:border-slate-700">
                   {backupDetailQuery.data.error_summary?.trim()
                     ? backupDetailQuery.data.error_summary
-                    : '— (sin mensaje; si falló Gmail, revisá que la imagen del worker tenga GYB y reconstruyá con docker compose build --no-cache worker)'}
+                    : backupDetailQuery.data.status === 'success'
+                      ? '— (sin resumen persistido; logs anteriores al despliegue reciente no guardaban el cierre del pipeline. Revisá «Último evento del pipeline» arriba si Redis aún lo tiene, o Drive 1-GMAIL/zips.)'
+                      : '— (sin mensaje; si falló Gmail, revisá que la imagen del worker tenga GYB y reconstruyá con docker compose build --no-cache worker)'}
                 </pre>
               </div>
             </>

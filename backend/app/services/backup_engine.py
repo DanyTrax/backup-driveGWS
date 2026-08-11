@@ -1294,10 +1294,21 @@ async def run_gmail_backup(
         await db.commit()
         return log
 
+    from app.services.backup_progress_summary import format_completion_summary_from_event
+    from app.services.progress_bus import last_event
+
+    pipeline_snap = await last_event(log_id)
+    completion_note = format_completion_summary_from_event(pipeline_snap)
+    if completion_note:
+        completion_note = f"{completion_note} Mensajes: {stats.messages}."
+    else:
+        completion_note = f"Backup Gmail OK. Mensajes: {stats.messages}."
+
     await _finalise_log(
         db,
         log,
         status=BackupStatus.SUCCESS,
+        error_summary=completion_note,
         stats={
             "messages": stats.messages,
             "files": files,
@@ -1347,7 +1358,15 @@ async def run_gmail_backup(
     if rel_rep:
         log.detail_log_path = rel_rep
         await db.flush()
-    await publish(log_id, {"stage": "done", "status": "success", "messages": stats.messages})
+    await publish(
+        log_id,
+        {
+            "stage": "done",
+            "status": "success",
+            "messages": stats.messages,
+            "summary_es": completion_note,
+        },
+    )
     await db.commit()
     return log
 
