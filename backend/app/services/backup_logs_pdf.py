@@ -15,6 +15,11 @@ _FONT_CANDIDATES = (
     ),
 )
 
+# A4 landscape usable width with margins 8+8 ≈ 281 mm — anchos deben sumar exactamente.
+_PAGE_USABLE_MM = 281.0
+_COL_W = (26.0, 26.0, 48.0, 40.0, 30.0, 18.0, 22.0, 14.0, 12.0, 16.0, 29.0)
+assert abs(sum(_COL_W) - _PAGE_USABLE_MM) < 0.01
+
 
 def _ascii_fold(text: str, max_len: int) -> str:
     s = (text or "").replace("\n", " ").strip()
@@ -24,10 +29,30 @@ def _ascii_fold(text: str, max_len: int) -> str:
     return norm.encode("ascii", "ignore").decode("ascii") or "—"
 
 
-def _dt_str(v: datetime | None) -> str:
+def _dt_short(v: datetime | None) -> str:
     if v is None:
         return "—"
-    return v.isoformat(timespec="seconds", sep=" ")
+    # Compacto para caber en columna sin solapar
+    return v.strftime("%y-%m-%d %H:%M")
+
+
+def _fmt_bytes(n: int | None) -> str:
+    try:
+        v = int(n or 0)
+    except (TypeError, ValueError):
+        return "—"
+    if v < 1000:
+        return str(v)
+    if v < 1_000_000:
+        return f"{v / 1000:.1f}K"
+    if v < 1_000_000_000:
+        return f"{v / 1_000_000:.1f}M"
+    return f"{v / 1_000_000_000:.2f}G"
+
+
+def _max_chars(width_mm: float, font_size: float = 6.5) -> int:
+    """Aprox. caracteres que caben sin desbordar la celda (DejaVu ~0.35*size mm)."""
+    return max(3, int(width_mm / max(font_size * 0.32, 1.5)))
 
 
 def render_backup_logs_pdf(
@@ -44,8 +69,8 @@ def render_backup_logs_pdf(
         ) from exc
 
     pdf = FPDF(orientation="L", unit="mm", format="A4")
-    pdf.set_auto_page_break(auto=True, margin=12)
-    pdf.set_margins(10, 10, 10)
+    pdf.set_auto_page_break(auto=True, margin=10)
+    pdf.set_margins(8, 10, 8)
 
     regular_path: Path | None = None
     bold_path: Path | None = None
@@ -60,81 +85,97 @@ def render_backup_logs_pdf(
         pdf.add_font("ExportFont", "", str(regular_path))
         pdf.add_font("ExportFont", "B", str(bold_path))
 
-    def set_font(size: int, bold: bool = False) -> None:
+    def set_font(size: float, bold: bool = False) -> None:
         if use_unicode:
             pdf.set_font("ExportFont", "B" if bold else "", size)
         else:
             pdf.set_font("Helvetica", "B" if bold else "", size)
 
-    def clip_txt(s: str, max_len: int) -> str:
-        t = (s or "").replace("\n", " ").strip()
+    def fit(s: str, width_mm: float, font_size: float = 6.5) -> str:
+        t = (s or "").replace("\n", " ").replace("\r", " ").strip() or "—"
+        max_len = _max_chars(width_mm, font_size)
         if len(t) > max_len:
-            t = t[: max_len - 1] + "…"
-        return t if use_unicode else _ascii_fold(t, max_len + 20)
+            t = t[: max(1, max_len - 1)] + "…"
+        if not use_unicode:
+            t = _ascii_fold(t, max_len)
+        # Ajuste fino con get_string_width si la fuente está activa
+        try:
+            while len(t) > 1 and pdf.get_string_width(t) > width_mm - 1.2:
+                t = t[:-2] + "…"
+        except Exception:
+            pass
+        return t
+
+    def draw_header() -> None:
+        set_font(6.5, bold=True)
+        headers = (
+            "Inicio",
+            "Fin",
+            "Cuenta",
+            "Tarea",
+            "Alcance",
+            "Estado",
+            "Bytes",
+            "Msg",
+            "Err",
+            "Lote",
+            "Resumen",
+        )
+        for i, h in enumerate(headers):
+            pdf.cell(_COL_W[i], 6, fit(h, _COL_W[i], 6.5), border=1, align="C")
+        pdf.ln()
 
     pdf.add_page()
-    set_font(14, bold=True)
-    title = clip_txt("Historial de ejecuciones (backup)", 120)
-    pdf.cell(0, 8, title, ln=1)
-    set_font(9)
+    set_font(12, bold=True)
+    pdf.cell(
+        0,
+        7,
+        fit("Historial de ejecuciones (backup)", _PAGE_USABLE_MM, 12),
+        new_x="LMARGIN",
+        new_y="NEXT",
+    )
+    set_font(8)
     gen = generated_at or datetime.now(timezone.utc)
     line_meta = (
         f"Generado (UTC): {gen.isoformat(timespec='seconds')}  |  Filas: {len(rows)}"
         + (f"  |  Filtro: {filter_note}" if filter_note else "")
     )
-    pdf.multi_cell(0, 5, clip_txt(line_meta, 500))
-    pdf.ln(2)
+    pdf.multi_cell(0, 4, fit(line_meta, _PAGE_USABLE_MM, 8))
+    pdf.ln(1)
 
-    col_w = [36, 36, 42, 38, 28, 22, 24, 18, 14, 14, 46]
-    headers = (
-        "Inicio",
-        "Fin",
-        "Cuenta",
-        "Tarea",
-        "Alcance",
-        "Estado",
-        "Bytes",
-        "Msg",
-        "Err",
-        "Lote",
-        "Resumen error",
-    )
+    draw_header()
+    set_font(6.5)
+    row_h = 5.0
+    bottom_limit = pdf.h - pdf.b_margin - 8
 
-    set_font(8, bold=True)
-    for i, h in enumerate(headers):
-        pdf.cell(col_w[i], 6, clip_txt(h, 40), border=1)
-    pdf.ln()
-
-    set_font(7)
     for row in rows:
-        if pdf.get_y() > 190:
+        if pdf.get_y() + row_h > bottom_limit:
             pdf.add_page()
-            set_font(8, bold=True)
-            for i, h in enumerate(headers):
-                pdf.cell(col_w[i], 6, clip_txt(h, 40), border=1)
-            pdf.ln()
-            set_font(7)
+            draw_header()
+            set_font(6.5)
 
-        acc = row.account_email or f"{str(row.account_id)[:12]}…"
-        task = row.task_name or f"{str(row.task_id)[:12]}…"
-        batch = f"{str(row.run_batch_id)[:10]}…" if row.run_batch_id else "—"
-        err_src = row.error_summary or "—"
+        acc = row.account_email or f"{str(row.account_id)[:10]}…"
+        task = row.task_name or f"{str(row.task_id)[:10]}…"
+        batch = f"{str(row.run_batch_id)[:8]}" if row.run_batch_id else "—"
+        err_src = (row.error_summary or "").strip() or "—"
+        scope = f"{row.scope}/{row.mode}"
 
         cells = [
-            clip_txt(_dt_str(row.started_at), 40),
-            clip_txt(_dt_str(row.finished_at), 40),
-            clip_txt(acc, 80),
-            clip_txt(task, 80),
-            clip_txt(f"{row.scope}/{row.mode}", 40),
-            clip_txt(row.status, 24),
-            str(row.bytes_transferred),
-            str(row.messages_count),
-            str(row.errors_count),
-            clip_txt(batch, 24),
-            clip_txt(err_src, 200),
+            fit(_dt_short(row.started_at), _COL_W[0]),
+            fit(_dt_short(row.finished_at), _COL_W[1]),
+            fit(acc, _COL_W[2]),
+            fit(task, _COL_W[3]),
+            fit(scope, _COL_W[4]),
+            fit(row.status, _COL_W[5]),
+            fit(_fmt_bytes(row.bytes_transferred), _COL_W[6]),
+            fit(str(row.messages_count), _COL_W[7]),
+            fit(str(row.errors_count), _COL_W[8]),
+            fit(batch, _COL_W[9]),
+            fit(err_src, _COL_W[10]),
         ]
         for i, text in enumerate(cells):
-            pdf.cell(col_w[i], 5, text, border=1)
+            align = "R" if i in (6, 7, 8) else "L"
+            pdf.cell(_COL_W[i], row_h, text, border=1, align=align)
         pdf.ln()
 
     buf = BytesIO()
