@@ -1018,18 +1018,40 @@ async def run_gmail_backup(
     manifest_path = work_root / "manifest.sha256"
     skip_maildir = vault_layout.gmail_skip_maildir_import(task.filters_json or {})
 
-    # Tras purgar workdir: si hay sellado ZIP en BD, GYB solo trae desde last_sealed − overlap.
+    # Tras purgar workdir / tarea nueva: heredar sellado desde otras tareas o ZIPs en Drive.
     gyb_search: str | None = None
     if vault_layout.use_gmail_vault_zip_upload(task.filters_json or {}):
         from app.services.gmail_vault_gyb_reseed import resolve_gyb_search_after_workdir_purge
-        from app.services.gmail_vault_zip_service import load_gmail_vault_account_state
+        from app.services.gmail_vault_seal_lineage import bind_seal_lineage_for_task
 
-        st_for_gyb = await load_gmail_vault_account_state(
-            db, account_id=account.id, task_id=task.id
+        lineage = await bind_seal_lineage_for_task(
+            db,
+            account=account,
+            task_id=task.id,
+            filters=task.filters_json or {},
+            task_timezone=task.timezone or "UTC",
+            probe_vault=True,
         )
+        if lineage is not None and lineage.source != "task_db":
+            await publish(
+                log_id,
+                {
+                    "stage": "gyb_seal_lineage_bound",
+                    "scope": "gmail",
+                    "account": account.email,
+                    "source": lineage.source,
+                    "last_sealed_at": lineage.last_sealed_at.isoformat(),
+                    "period_end": lineage.period_end.isoformat() if lineage.period_end else None,
+                    "zip_rel": lineage.zip_rel_path,
+                    "hint_es": (
+                        "Se reutilizó el histórico ZIP de la bóveda / otra tarea: "
+                        "esta tarea retoma desde esa fecha (no empieza de cero)."
+                    ),
+                },
+            )
         gyb_search = resolve_gyb_search_after_workdir_purge(
             work_root=work_root,
-            last_sealed_at=st_for_gyb.last_sealed_at if st_for_gyb else None,
+            last_sealed_at=lineage.last_sealed_at if lineage else None,
             filters=task.filters_json or {},
             task_timezone=task.timezone or "UTC",
         )

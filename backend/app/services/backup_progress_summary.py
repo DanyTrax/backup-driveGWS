@@ -37,6 +37,16 @@ def format_completion_summary_from_event(event: dict[str, Any] | None) -> str | 
             return f"Job Gmail finalizado OK (~{msgs} mensajes en contador)."
         return "Job Gmail finalizado OK."
 
+    if stage == "gyb_seal_lineage_bound":
+        src = str(event.get("source") or "").strip()
+        pe = str(event.get("period_end") or "").strip()
+        return (
+            f"Línea de sellado heredada"
+            + (f" desde {src}" if src else "")
+            + (f" (hasta {pe})" if pe else "")
+            + "."
+        )
+
     if stage == "gyb_reseed_from_seal":
         search = str(event.get("search") or "").strip()
         return f"GYB incremental tras workdir vacío (filtro Gmail: {search or '—'})."

@@ -26,6 +26,7 @@ Confusiones frecuentes:
 - **Drive “MI UNIDAD”** sí puede usar `filters_json.drive_layout: "dated_run"`, que genera carpetas con fecha bajo `2-DRIVE/MSA_Runs/...`. Eso **sí** acumula snapshots **por ejecución**. No es lo mismo que `1-GMAIL/gyb_mbox`.
 - La opción **`gmail_purge_gyb_workdir_after_vault_verified`**: si está activa, tras verificar con `rclone check` se **vacía** el workdir de GYB.
   - Con empaquetado **ZIP** (`zip_only` / `mixed`) y **sellado previo** en BD: la siguiente corrida usa `--search after:…` (sellado − `overlap_days`) y **no** re-baja todo el histórico.
+  - Si creás/editás otra tarea ZIP para la **misma cuenta**, al ejecutar se **hereda** la línea más reciente desde: estado de otras tareas **o** ZIPs ya en Drive (`1-GMAIL/zips/…`). Ver evento `gyb_seal_lineage_bound` en el detalle del log.
   - Sin sellado ZIP (solo legacy `gyb_mbox`): la siguiente corrida puede **reconstruir** mucho; no purgues hasta tener al menos un ZIP sellado.
 - Comparar “la copia de ayer” vs “la de otro día”: en Drive, revisá si estás mirando **toda** la unidad compartida, **solo** `1-GMAIL`, o carpetas `MSA_Runs` de Drive.
 

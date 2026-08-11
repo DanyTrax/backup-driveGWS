@@ -185,6 +185,13 @@ function describeLiveProgress(p: Record<string, unknown> | null | undefined): st
     if (String(p.status) === 'success') return 'Job finalizado correctamente.'
     return 'Job finalizado.'
   }
+  if (stage === 'gyb_seal_lineage_bound') {
+    const src = typeof p.source === 'string' ? p.source : ''
+    const pe = typeof p.period_end === 'string' ? p.period_end : ''
+    const hint = typeof p.hint_es === 'string' ? p.hint_es.trim() : ''
+    if (hint) return hint
+    return `Línea de sellado heredada${src ? ` (${src})` : ''}${pe ? ` hasta ${pe}` : ''}.`
+  }
   if (stage === 'gyb_reseed_from_seal') {
     const search = typeof p.search === 'string' ? p.search : ''
     return search
