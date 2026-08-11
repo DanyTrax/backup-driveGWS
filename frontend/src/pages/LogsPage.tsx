@@ -185,6 +185,13 @@ function describeLiveProgress(p: Record<string, unknown> | null | undefined): st
     if (String(p.status) === 'success') return 'Job finalizado correctamente.'
     return 'Job finalizado.'
   }
+  if (stage === 'gyb_seal_lineage_probe') {
+    const hint = typeof p.hint_es === 'string' ? p.hint_es.trim() : ''
+    return (
+      hint ||
+      'Revisando sellado en BD / ZIPs del vault (aún sin conteo de correos; eso empieza con GYB).'
+    )
+  }
   if (stage === 'gyb_seal_lineage_bound') {
     const src = typeof p.source === 'string' ? p.source : ''
     const pe = typeof p.period_end === 'string' ? p.period_end : ''
@@ -964,7 +971,7 @@ export default function LogsPage() {
                   </div>
                   <p className="text-sm text-slate-800 dark:text-slate-200 mt-2 leading-relaxed">
                     {describeLiveProgress(backupDetailQuery.data.live_progress ?? null) ||
-                      'Sin telemetría reciente en el panel: el worker puede estar en una fase larga (p. ej. rclone check) o sin salida momentánea. Usá el Celery task id abajo para buscar en logs del worker.'}
+                      'Sin telemetría reciente: puede estar listando ZIPs del vault, en GYB sin salida aún, o en rclone. Revisá docker logs del worker o el JSON abajo si aparece.'}
                   </p>
                   <p className="text-xs text-slate-500 dark:text-slate-400 mt-2">
                     Gmail suele pasar por: <strong>GYB</strong> (descarga) → <strong>Maildir</strong> (importación

@@ -1024,6 +1024,18 @@ async def run_gmail_backup(
         from app.services.gmail_vault_gyb_reseed import resolve_gyb_search_after_workdir_purge
         from app.services.gmail_vault_seal_lineage import bind_seal_lineage_for_task
 
+        await publish(
+            log_id,
+            {
+                "stage": "gyb_seal_lineage_probe",
+                "scope": "gmail",
+                "account": account.email,
+                "hint_es": (
+                    "Revisando línea de sellado: estado en BD y ZIPs en 1-GMAIL/zips/… "
+                    "(puede tardar unos segundos; aún no hay conteo de correos)."
+                ),
+            },
+        )
         lineage = await bind_seal_lineage_for_task(
             db,
             account=account,
@@ -1046,6 +1058,32 @@ async def run_gmail_backup(
                     "hint_es": (
                         "Se reutilizó el histórico ZIP de la bóveda / otra tarea: "
                         "esta tarea retoma desde esa fecha (no empieza de cero)."
+                    ),
+                },
+            )
+        elif lineage is not None:
+            await publish(
+                log_id,
+                {
+                    "stage": "gyb_seal_lineage_bound",
+                    "scope": "gmail",
+                    "account": account.email,
+                    "source": lineage.source,
+                    "last_sealed_at": lineage.last_sealed_at.isoformat(),
+                    "period_end": lineage.period_end.isoformat() if lineage.period_end else None,
+                    "hint_es": "Usando sellado ya guardado para esta tarea.",
+                },
+            )
+        else:
+            await publish(
+                log_id,
+                {
+                    "stage": "gyb_seal_lineage_probe",
+                    "scope": "gmail",
+                    "account": account.email,
+                    "hint_es": (
+                        "Sin sellado previo en BD ni ZIPs detectados: GYB puede hacer "
+                        "bootstrap completo de esta cuenta."
                     ),
                 },
             )

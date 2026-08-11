@@ -5,6 +5,7 @@ en la bóveda, sin re-descargar todo el correo.
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 import uuid
 from dataclasses import dataclass
@@ -118,7 +119,17 @@ async def discover_seal_from_vault_zips(
         async with build_rclone_vault_dest_only_config(
             db, vault_folder_id=vid, account=account
         ) as cfg:
-            entries = await rclone_lsjson_zips_for_account(cfg, account_id)
+            # Timeout acotado: no bloquear el panel minutos sin telemetría.
+            entries = await asyncio.wait_for(
+                rclone_lsjson_zips_for_account(cfg, account_id),
+                timeout=90.0,
+            )
+    except asyncio.TimeoutError:
+        logger.warning(
+            "seal_lineage vault lsjson timeout account=%s",
+            account_id,
+        )
+        return None
     except GmailVaultMaterializeError as exc:
         logger.warning(
             "seal_lineage vault lsjson failed account=%s: %s",
