@@ -69,6 +69,7 @@ async def execute_manual_gmail_vault_zip(
         )
         task.last_run_at = datetime.now(UTC)
         task.last_status = BackupStatus.FAILED.value
+        await db.commit()
         return
     if not vault_layout.use_gmail_vault_push(filters):
         await _finalise_log(
@@ -79,6 +80,7 @@ async def execute_manual_gmail_vault_zip(
         )
         task.last_run_at = datetime.now(UTC)
         task.last_status = BackupStatus.FAILED.value
+        await db.commit()
         return
 
     vault_id = (account.drive_vault_folder_id or "").strip()
@@ -91,6 +93,7 @@ async def execute_manual_gmail_vault_zip(
         )
         task.last_run_at = datetime.now(UTC)
         task.last_status = BackupStatus.FAILED.value
+        await db.commit()
         return
 
     work_root = gyb_work_root_for_email(account.email)
@@ -103,6 +106,7 @@ async def execute_manual_gmail_vault_zip(
         )
         task.last_run_at = datetime.now(UTC)
         task.last_status = BackupStatus.FAILED.value
+        await db.commit()
         return
 
     tz = ZoneInfo((task.timezone or "UTC").strip() or "UTC")
@@ -142,6 +146,7 @@ async def execute_manual_gmail_vault_zip(
         task.last_status = (
             BackupStatus.CANCELLED.value if zerr == "cancelled" else BackupStatus.FAILED.value
         )
+        await db.commit()
         return
 
     fin = datetime.now(UTC)
@@ -149,3 +154,4 @@ async def execute_manual_gmail_vault_zip(
     await _finalise_log(db, log, status=BackupStatus.SUCCESS)
     task.last_run_at = fin
     task.last_status = BackupStatus.SUCCESS.value
+    await db.commit()

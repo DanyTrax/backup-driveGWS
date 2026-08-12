@@ -7,6 +7,7 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.models.tasks import BackupLog
 from app.services.gmail_vault_manual_zip_service import execute_manual_gmail_vault_zip
 from app.workers.celery_app import celery_app
 from app.workers.session import run_async, with_session
@@ -21,7 +22,15 @@ async def _execute(log_id: str, celery_task_id: str) -> dict[str, Any]:
             log_id=uuid.UUID(log_id),
             celery_task_id=celery_task_id,
         )
-        return {"ok": True, "log_id": log_id}
+        row = await db.get(BackupLog, uuid.UUID(log_id))
+        status = row.status if row is not None else "missing"
+        logger.info(
+            "gmail_vault_manual_zip finished log_id=%s status=%s celery=%s",
+            log_id,
+            status,
+            celery_task_id,
+        )
+        return {"ok": True, "log_id": log_id, "status": status}
 
     return await with_session(inner)
 
