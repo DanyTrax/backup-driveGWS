@@ -205,7 +205,7 @@ function describeLiveProgress(p: Record<string, unknown> | null | undefined): st
       ? `GYB incremental tras workdir vacío (filtro Gmail: ${search}).`
       : 'GYB incremental tras workdir vacío (filtro por sellado ZIP).'
   }
-    if stage === 'start') {
+  if (stage === 'start') {
     const hint = typeof p.hint_es === 'string' ? p.hint_es.trim() : ''
     if (hint) return hint
     const sc = String(p.scope ?? '')
