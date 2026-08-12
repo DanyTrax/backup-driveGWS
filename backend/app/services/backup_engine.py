@@ -989,7 +989,15 @@ async def run_gmail_backup(
     )
     await db.commit()
     log_id = str(log.id)
-    await publish(log_id, {"stage": "start", "scope": "gmail", "account": account.email})
+    await publish(
+        log_id,
+        {
+            "stage": "start",
+            "scope": "gmail",
+            "account": account.email,
+            "hint_es": "Worker arrancó el job Gmail; en breve GYB o revisión de sellado ZIP.",
+        },
+    )
 
     if run_batch_id and await is_batch_cancelled(str(run_batch_id)):
         await _finalise_log(db, log, status=BackupStatus.CANCELLED, error_summary="batch_aborted")

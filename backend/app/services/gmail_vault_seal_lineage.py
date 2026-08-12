@@ -200,11 +200,12 @@ async def bind_seal_lineage_for_task(
 
     account_lineage = await max_sealed_across_account(db, account.id)
 
+    # Si ya hay sellado de esta tarea u otra de la misma cuenta, no listar Drive
+    # (rclone lsjson puede colgar horas y deja el panel en 0 B / sin telemetría).
     vault_lineage: Optional[SealLineage] = None
-    if probe_vault:
+    if probe_vault and task_lineage is None and account_lineage is None:
         vault_lineage = await discover_seal_from_vault_zips(db, account=account)
         if vault_lineage is not None and vault_lineage.period_end is not None:
-            # Re-expresar fin de periodo en TZ de la tarea
             vault_lineage = SealLineage(
                 last_sealed_at=sealed_at_end_of_day(
                     vault_lineage.period_end, task_timezone=task_timezone

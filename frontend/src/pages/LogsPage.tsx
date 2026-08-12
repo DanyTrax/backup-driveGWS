@@ -205,7 +205,9 @@ function describeLiveProgress(p: Record<string, unknown> | null | undefined): st
       ? `GYB incremental tras workdir vacío (filtro Gmail: ${search}).`
       : 'GYB incremental tras workdir vacío (filtro por sellado ZIP).'
   }
-  if (stage === 'start') {
+    if stage === 'start') {
+    const hint = typeof p.hint_es === 'string' ? p.hint_es.trim() : ''
+    if (hint) return hint
     const sc = String(p.scope ?? '')
     if (sc === 'gmail') return 'Iniciando el job de Gmail (preparación y GYB)…'
     if (sc === 'drive_root' || sc === 'drive_computadoras') return 'Iniciando copia/sincronización de Google Drive…'
